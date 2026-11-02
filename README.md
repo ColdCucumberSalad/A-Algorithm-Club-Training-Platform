@@ -258,9 +258,13 @@ API 配置和卡密在数据库中加密保存，商品公开列表不返回秘�
 
 个人资料修改在获取账号锁后重新核验账号未停用、未注销且当前团队身份仍有效；注销前已发起、但注销后才取得锁的请求返回 403，不会恢复旧昵称或头像。成功响应也在该锁内构建，避免保存与响应之间成员失效导致错误。
 
+新增、修改、删除及同步平台账号和旧平台绑定入口共用相同的锁内状态核验，注销后不能保存凭据或重建绑定。比赛历史保留每条参赛记录及过题凭证，以独立的匿名标识替换账号，并清空原始资料和同步错误快照；同一平台、同一比赛下的多个账号记录不会因匿名化产生唯一键冲突，本人及管理员注销均适用。
+
 接口：`GET /api/account` 返回当前全局账号；`GET /api/management/accounts?q=&page=1` 每页 20 条；`PATCH /api/management/accounts/<id>` 接收 `account` 和可选 `password`。本人注销 `POST /api/account/close` 接收 `confirmation: "注销账号"` 和 `password`；管理员注销 `POST /api/management/accounts/<id>/close` 接收相同确认文字、目标 `account` 和 `admin_password`。所有写入接口需要登录及 CSRF 验证。
 
 举报 `POST /api/submissions/<id>/report` 接收 `{"reason":"说明"}`；`DELETE` 同一地址只取消本人的待处理举报。为兼容旧客户端，缺失 reason 字段时记录为旧版未填写；显式空白理由会被拒绝。理由仅向有权限的举报处理工作台展示，不公开在团队题解列表中。
+
+撤销举报或注销举报者时，按通知数据中的 `payload.data.report_id` 取消对应的待发送 AstrBot 通知；不影响已送达通知或其他举报者的通知。重新举报使用新的代次通知，只发送重新填写的理由。
 
 举报队列的 `report_details` 包含每条举报的 `id` 和 `generation`。处理举报的 `POST /api/admin/reports/<id>/resolve` 必须携带完整 `report_snapshot: [{"id":123,"generation":1}, ...]`，缺失快照、仅有旧 `report_ids`、举报增删或撤销后重新举报均返回 409，重新查看当前理由后才能处理或结算 Coins。直接驳回当前版本提交的接口不需要举报快照。升级后旧页面需刷新以加载新的快照提交逻辑。
 

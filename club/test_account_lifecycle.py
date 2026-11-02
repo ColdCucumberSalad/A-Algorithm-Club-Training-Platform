@@ -1,5 +1,6 @@
 import json
 from io import BytesIO
+from datetime import timedelta
 from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
@@ -7,7 +8,8 @@ from django.utils import timezone
 from openpyxl import load_workbook
 from . import test_community as fixtures
 from .models import (AccountClosure,TeamMembership,Team,UserProfile,PlatformBinding,
-    CurrencyBalance,ShopItem,Purchase,UserInventory,Submission,SubmissionPart,SubmissionReport,SemesterMemberTotal)
+    CurrencyBalance,ShopItem,Purchase,UserInventory,Submission,SubmissionPart,SubmissionReport,SemesterMemberTotal,
+    ContestParticipation,ContestProblemProgress)
 
 
 class AccountLifecycleTests(TestCase):
@@ -101,6 +103,40 @@ class AccountLifecycleTests(TestCase):
         book=load_workbook(BytesIO(b''.join(response.streaming_content)))
         self.assertEqual(list(book.active.values)[1],(self.author_member.display_name,37,5,2))
         book.close()
+
+    def contest_accounts(self):
+        rows=[]
+        for account in ('first_private_handle','second_private_handle'):
+            row=ContestParticipation.objects.create(user=self.author,platform='codeforces',account=account,
+                contest_key='same-contest',title='Same contest',starts_at=timezone.now()-timedelta(hours=2),
+                ends_at=timezone.now(),source_data={'account':account},sync_error=account)
+            ContestProblemProgress.objects.create(participation=row,problem_key='A',label='A',title='Proof',
+                accepted=True,official_ac=True,accepted_at=timezone.now())
+            rows.append(row)
+        return rows
+
+    def assert_anonymized_contest_accounts(self,rows):
+        after=list(ContestParticipation.objects.filter(pk__in=[r.pk for r in rows]).order_by('pk'))
+        self.assertEqual(len(after),2)
+        self.assertEqual(len({r.account for r in after}),2)
+        for row in after:
+            self.assertTrue(row.account.startswith('closed:'))
+            self.assertLessEqual(len(row.account),100)
+            self.assertEqual((row.source_data,row.sync_error),({},''))
+        self.assertEqual(ContestProblemProgress.objects.filter(participation__in=after,accepted=True,official_ac=True).count(),2)
+
+    def test_self_closure_preserves_multiple_accounts_in_same_contest(self):
+        rows=self.contest_accounts()
+        response=self.close()
+        self.assertEqual(response.status_code,200,response.content)
+        self.assert_anonymized_contest_accounts(rows)
+
+    def test_admin_closure_preserves_multiple_accounts_in_same_contest(self):
+        rows=self.contest_accounts()
+        response=self.post(self.admin,f'/api/management/accounts/{self.author.pk}/close',{
+            'confirmation':'注销账号','account':'author','admin_password':'RootPass!Test123'})
+        self.assertEqual(response.status_code,200,response.content)
+        self.assert_anonymized_contest_accounts(rows)
 
 
 class ReportReasonTests(TestCase):

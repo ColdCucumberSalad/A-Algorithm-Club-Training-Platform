@@ -1,7 +1,6 @@
 import uuid
 from datetime import timedelta
 
-from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse
 from django.utils import timezone
@@ -10,7 +9,7 @@ from django.views.decorators.http import require_http_methods
 from .models import PlatformBinding
 from .platform_credentials import save_credentials
 from .platform_sync import PLATFORMS, validate_account
-from .profile_views import eligible, enqueue, serialize_binding
+from .profile_views import eligible, lock_active_member, enqueue, serialize_binding
 from .views import api_login_required, api_error, body
 
 
@@ -31,7 +30,8 @@ def start(binding, full=False):
 @api_login_required
 @require_http_methods(['POST'])
 def accounts(request, platform):
-    if not eligible(request):
+    member = eligible(request)
+    if not member:
         return api_error('请先加入团队', 403)
     if platform not in PLATFORMS:
         return api_error('不支持的平台', 400)
@@ -39,7 +39,8 @@ def accounts(request, platform):
     try:
         account = validate_account(platform, data.get('account'))
         with transaction.atomic():
-            User.objects.select_for_update().get(pk=request.user.pk)
+            if not lock_active_member(request.user.pk,member.pk):
+                return api_error('账号或团队身份已失效，不能修改平台绑定',403)
             if platform == 'luogu' and not account.isdigit():
                 if any(str((b.snapshot or {}).get('display_name','')).casefold() == account.casefold()
                        for b in PlatformBinding.objects.filter(user=request.user,platform=platform)):
@@ -59,12 +60,14 @@ def accounts(request, platform):
 @api_login_required
 @require_http_methods(['PATCH', 'DELETE'])
 def account_detail(request, binding_id):
-    if not eligible(request):
+    member = eligible(request)
+    if not member:
         return api_error('请先加入团队', 403)
     data = body(request)
     try:
         with transaction.atomic():
-            User.objects.select_for_update().get(pk=request.user.pk)
+            if not lock_active_member(request.user.pk,member.pk):
+                return api_error('账号或团队身份已失效，不能修改平台绑定',403)
             binding = PlatformBinding.objects.select_for_update().filter(pk=binding_id, user=request.user).first()
             if not binding:
                 return api_error('账号不存在', 404)
@@ -94,14 +97,16 @@ def account_detail(request, binding_id):
 @api_login_required
 @require_http_methods(['POST'])
 def sync(request):
-    if not eligible(request):
+    member = eligible(request)
+    if not member:
         return api_error('请先加入团队', 403)
     data = body(request)
     ids = data.get('ids')
     if not isinstance(ids, list) or not ids or len(ids) > 200 or any(type(pk) is not int for pk in ids):
         return api_error('请选择账号', 400)
     with transaction.atomic():
-        User.objects.select_for_update().get(pk=request.user.pk)
+        if not lock_active_member(request.user.pk,member.pk):
+            return api_error('账号或团队身份已失效，不能同步平台绑定',403)
         bindings = list(PlatformBinding.objects.select_for_update().filter(user=request.user, pk__in=ids))
         if len(bindings) != len(set(ids)):
             return api_error('账号不存在', 404)

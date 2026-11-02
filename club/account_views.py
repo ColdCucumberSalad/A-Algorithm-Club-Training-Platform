@@ -113,10 +113,19 @@ def close_user(user_id,actor):
         profile.avatar='';profile.save(update_fields=['avatar'])
     user.platform_bindings.all().delete()
     # Keep historical reward proofs, clearing reusable public-account snapshots.
-    user.contest_participations.update(account='',source_data={},sync_error='')
+    participations=list(user.contest_participations.only('pk').order_by('pk'))
+    if participations:
+        prefix='closed:'+uuid.uuid4().hex+':'
+        while user.contest_participations.filter(account__startswith=prefix).exists():
+            prefix='closed:'+uuid.uuid4().hex+':'
+        for row in participations:
+            row.account=prefix+str(row.pk)
+            row.source_data={}
+            row.sync_error=''
+        user.contest_participations.bulk_update(participations,['account','source_data','sync_error'],batch_size=500)
     pending=list(SubmissionReport.objects.filter(reporter=user,status='pending').values_list('pk',flat=True))
     SubmissionReport.objects.filter(pk__in=pending).update(status='cancelled',resolved_at=timezone.now())
-    AstrBotNotification.objects.filter(payload__report_id__in=pending,delivered_at__isnull=True).update(cancelled_at=timezone.now())
+    AstrBotNotification.objects.filter(payload__data__report_id__in=pending,delivered_at__isnull=True).update(cancelled_at=timezone.now())
     user.username='closed_'+uuid.uuid4().hex;user.email='';user.first_name='';user.last_name=''
     user.is_active=False;user.set_unusable_password();user.save(update_fields=['username','email','first_name','last_name','is_active','password'])
     user.groups.clear()

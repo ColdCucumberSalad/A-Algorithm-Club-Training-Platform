@@ -71,6 +71,15 @@ def eligible(request):
     return member if member and member.pk and not request.user.is_superuser else None
 
 
+def lock_active_member(user_id, member_id):
+    """Call inside the write transaction; recheck eligibility after the user lock."""
+    user = User.objects.select_for_update().get(pk=user_id)
+    if not user.is_active or AccountClosure.objects.filter(user=user).exists():
+        return None
+    return TeamMembership.objects.select_for_update().filter(
+        pk=member_id,user=user,is_active=True).first()
+
+
 @api_login_required
 @require_http_methods(['GET'])
 def member_profile(request, member_id):
@@ -149,13 +158,9 @@ def profile(request):
     stored = []
     try:
         with transaction.atomic():
-            locked_user = User.objects.select_for_update().get(pk=request.user.pk)
-            if not locked_user.is_active or AccountClosure.objects.filter(user=locked_user).exists():
-                return api_error('账号已停用或注销，不能修改个人资料',403)
-            member = TeamMembership.objects.select_for_update().filter(
-                pk=member.pk,user=locked_user,is_active=True).first()
+            member = lock_active_member(request.user.pk,member.pk)
             if not member:
-                return api_error('团队成员身份已失效，不能修改个人资料',403)
+                return api_error('账号或团队身份已失效，不能修改个人资料',403)
             member.display_name = name
             member.save(update_fields=['display_name'])
             personal, _ = UserProfile.objects.get_or_create(user=request.user)
@@ -271,7 +276,8 @@ def enqueue(binding):
 @api_login_required
 @require_http_methods(['PUT', 'POST', 'DELETE'])
 def platform_binding(request, platform):
-    if not eligible(request):
+    member = eligible(request)
+    if not member:
         return api_error('请先加入团队', 403)
     if platform not in PLATFORMS:
         return api_error('不支持的平台', 400)
@@ -280,8 +286,8 @@ def platform_binding(request, platform):
         return api_error('洛谷查询 Cookie 由系统管理员统一配置',400)
     with transaction.atomic():
         # Serialize changes per user, including first-time binding creation.
-        from django.contrib.auth.models import User
-        User.objects.select_for_update().get(pk=request.user.pk)
+        if not lock_active_member(request.user.pk,member.pk):
+            return api_error('账号或团队身份已失效，不能修改平台绑定',403)
         binding = PlatformBinding.objects.filter(user=request.user, platform=platform).first()
         if PlatformBinding.objects.filter(user=request.user, platform=platform).count() > 1:
             return api_error('请选择具体账号', 409)

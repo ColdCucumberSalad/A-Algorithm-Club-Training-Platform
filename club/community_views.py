@@ -221,7 +221,7 @@ def reaction(request, submission_id, kind):
         if report.status!='pending':return api_error('举报已经处理，不能取消',409)
         report.status='cancelled';report.resolved_at=timezone.now();report.save(update_fields=['status','resolved_at'])
         from .models import AstrBotNotification
-        AstrBotNotification.objects.filter(payload__report_id=report.pk,delivered_at__isnull=True).update(cancelled_at=timezone.now())
+        AstrBotNotification.objects.filter(payload__data__report_id=report.pk,delivered_at__isnull=True).update(cancelled_at=timezone.now())
         return JsonResponse({'ok':True,'reported':False})
     data=body(request)
     if not isinstance(data,dict):return api_error('举报理由格式无效')
