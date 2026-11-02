@@ -158,8 +158,8 @@ def serialize_submission(submission, include_content=True, parts=None):
     today = timezone.localdate(now)
     active = (not submission.semester.archived_at and submission.semester.is_active
         and submission.semester.starts_on <= today <= submission.semester.ends_on)
-    can_resubmit = not submission.is_valid and active
-    return {"id": submission.id, "member_id": submission.member_id, "member_name": submission.member.display_name, "week": submission.week.number, "week_id": submission.week_id, "submitted_at": submission.submitted_at.isoformat(), "record_date": submission.record_date.isoformat(), "is_valid": submission.is_valid, "version": submission.version, "rejection_note": submission.rejection_note, "problem_url": submission.problem.url if submission.problem_id else "", "problem_title": (submission.problem.title or submission.problem.url) if submission.problem_id else "", "semester_name": submission.semester.name, "can_delete": not bool(submission.semester.archived_at), "can_edit": not submission.semester.archived_at and submission.semester.is_active and not submission.week.is_closed and submission.week.starts_at <= timezone.now() < submission.week.ends_at, "can_resubmit": can_resubmit, "parts": [serialize_part(part, include_content) for part in selected_parts]}
+    can_resubmit = not submission.is_valid and not submission.is_duplicate and active
+    return {"id": submission.id, "member_id": submission.member_id, "member_name": submission.member.display_name, "week": submission.week.number, "week_id": submission.week_id, "submitted_at": submission.submitted_at.isoformat(), "record_date": submission.record_date.isoformat(), "is_valid": submission.is_valid, "is_duplicate": submission.is_duplicate, "version": submission.version, "rejection_note": submission.rejection_note, "problem_url": submission.problem.url if submission.problem_id else "", "problem_title": (submission.problem.title or submission.problem.url) if submission.problem_id else "", "semester_name": submission.semester.name, "can_delete": not bool(submission.semester.archived_at), "can_edit": not submission.is_duplicate and not submission.semester.archived_at and submission.semester.is_active and not submission.week.is_closed and submission.week.starts_at <= timezone.now() < submission.week.ends_at, "can_resubmit": can_resubmit, "parts": [serialize_part(part, include_content) for part in selected_parts]}
 
 
 @ensure_csrf_cookie
@@ -690,6 +690,8 @@ def submissions(request, submission_id=None, edit=False):
                     return api_error('仅能重交本人原周已退回记录', 409)
                 if edit and request.POST.get('version') != str(submission.version):
                     return api_error('记录已变化，请刷新后重新编辑', 409)
+                if submission.is_duplicate:
+                    return api_error('重复题目记录不能重交，请使用保留的原提交', 409)
                 replaced = submission.parts.all() if proof else submission.parts.exclude(kind=SubmissionPart.PROOF)
                 if not sandbox and not proof and not submission.parts.filter(kind=SubmissionPart.PROOF, upload__gt='').exists():
                     return api_error('通过截图为必填项')

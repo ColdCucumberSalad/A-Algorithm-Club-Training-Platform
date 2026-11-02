@@ -180,6 +180,7 @@ class MakeupPermission(models.Model):
 
 
 class Submission(models.Model):
+    is_duplicate = models.BooleanField(default=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="submissions")
     member = models.ForeignKey(TeamMembership, on_delete=models.CASCADE, related_name="submissions")
     semester = models.ForeignKey(Semester, on_delete=models.CASCADE, related_name="submissions")
@@ -261,6 +262,7 @@ class CleanupJob(models.Model):
 
 
 class Problem(models.Model):
+    canonical = models.ForeignKey('self', null=True, blank=True, on_delete=models.PROTECT, related_name='aliases')
     identity = models.CharField(max_length=1100, unique=True)
     url = models.URLField(max_length=1000)
     title = models.CharField(max_length=200, blank=True)
@@ -276,6 +278,18 @@ class Problem(models.Model):
 
     def __str__(self):
         return self.title or self.url
+
+
+class ProblemComparison(models.Model):
+    first = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='+')
+    second = models.ForeignKey(Problem, on_delete=models.CASCADE, related_name='+')
+    first_title = models.CharField(max_length=200)
+    second_title = models.CharField(max_length=200)
+    same = models.BooleanField()
+    checked_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['first', 'second'], name='unique_problem_comparison')]
 
 
 class ParserSettings(models.Model):

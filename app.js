@@ -925,7 +925,7 @@ async function loadRecentActivity({force = false} = {}) {
     list.innerHTML = submissions.flatMap(submission => submission.parts.map(part => ({submission, part}))).slice(0, 2).map(({submission, part}) => {
       const status = part.status === 'approved' ? 'approved' : part.status === 'rejected' ? 'rejected' : 'pending';
       const label = part.kind === 'proof' ? '通过截图' : part.kind === 'logic' ? '题解思路' : part.kind === 'code' ? '代码' : 'Blog';
-      const statusText = status === 'approved' ? '已计分' : status === 'rejected' ? '已退回' : '等待处理';
+      const statusText = submission.is_duplicate ? '重复题目 · 奖励已撤回' : status === 'approved' ? '已计分' : status === 'rejected' ? '已退回' : '等待处理';
       return `<div class="submission-row"><div class="status-marker ${status}">${status === 'approved' ? '✓' : status === 'rejected' ? '!' : '◷'}</div><div class="submission-info"><strong>${label} · 第 ${submission.week} 周</strong><span>${new Date(submission.submitted_at).toLocaleString('zh-CN')} · ${statusText}</span></div><span class="score">+${part.points || 0} <small>分</small></span><span class="status-tag ${status}">${status === 'approved' ? '已通过' : status === 'rejected' ? '已退回' : '待审核'}</span></div>`;
     }).join('');
   } catch (error) { if (requestVersion === activityRequestVersion) list.innerHTML = '<div class="queue-empty">最近提交加载失败，请检查网络连接</div>'; }
@@ -968,7 +968,7 @@ async function loadMySubmissions({force = false} = {}) {
       const reviewStatus = item.parts.some((part) => part.status === 'pending') ? 'pending' : item.parts.some((part) => part.status === 'approved') ? 'approved' : 'rejected';
       reviewData[key] = {name:item.member_name, initial:item.member_name.slice(0,1), time:new Date(item.submitted_at).toLocaleString('zh-CN'), logic:logic?.text || '未提交题解思路。', visibility:item.visibility || 'team', status:reviewStatus, submissionId:item.id, memberId:item.member_id, problemTitle:item.problem_title || '', problemUrl:item.problem_url || '', upload:proof?.upload, fileName:'通过截图', blog:blog?.text || '', code:item.parts.find(part=>part.kind==='code')?.text || ''};
       const approved = item.parts.filter((part) => part.status === 'approved').reduce((sum, part) => sum + (part.points || 0), 0);
-      return `<div class="live-submission-row">${problemPlatformMarkup(item.problem_url)}<div class="live-submission-info"><strong>${escapeHtml(uiProblemTitle(item.problem_title))}</strong><small>提交于 ${new Date(item.submitted_at).toLocaleString('zh-CN')}${item.rejection_note ? ' · 退回原因：' + escapeHtml(item.rejection_note) : ''}</small></div><span class="score">+${approved} 分</span><button class="review-view secondary-button" type="button" data-review="${key}">查看内容</button>${item.can_resubmit ? `<button class="secondary-button" data-resubmit="${item.id}">修改重交</button>` : ""}</div>`;
+      return `<div class="live-submission-row">${problemPlatformMarkup(item.problem_url)}<div class="live-submission-info"><strong>${escapeHtml(uiProblemTitle(item.problem_title))}</strong><small>提交于 ${new Date(item.submitted_at).toLocaleString('zh-CN')}${item.rejection_note ? (item.is_duplicate ? ' · ' : ' · 退回原因：') + escapeHtml(item.rejection_note) : ''}</small></div><span class="score">+${approved} 分</span><button class="review-view secondary-button" type="button" data-review="${key}">查看内容</button>${item.can_resubmit ? `<button class="secondary-button" data-resubmit="${item.id}">修改重交</button>` : ""}</div>`;
       }).join('') + '</section>';
     }).join('');
     if (empty) empty.hidden = true;
