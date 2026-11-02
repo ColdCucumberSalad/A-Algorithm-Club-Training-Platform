@@ -11,7 +11,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from .management_views import administrator_required
 from .views import api_login_required, api_error, body
-from .models import CurrencyBalance, CurrencyTransaction, UserInventory, ShopFulfillment, ShopItem, AccountClosure, TeamMembership, UserProfile, FileDeletion, SubmissionReport, AstrBotNotification, Semester, SemesterMemberTotal
+from .models import CurrencyBalance, CurrencyTransaction, UserInventory, ShopFulfillment, ShopItem, AccountClosure, TeamMembership, UserProfile, FileDeletion, SubmissionReport, AstrBotNotification, Semester, SemesterMemberTotal, ContestSyncState
 
 
 def private(data):
@@ -96,6 +96,9 @@ def close_user(user_id,actor):
     user=User.objects.select_for_update().get(pk=user_id)
     if user.is_superuser or user.first_name=='CLUB_TEST_SANDBOX':raise ValueError('不能注销系统管理员或内部测试身份')
     if AccountClosure.objects.filter(user=user).exists():return False
+    now=timezone.now()
+    ContestSyncState.objects.filter(user=user).update(token=uuid.uuid4(),status='cancelled',
+        messages={},remaining=0,total=0,progressed_at=now,finished_at=now)
     list(Semester.objects.select_for_update().filter(
         team_id__in=user.team_memberships.values('team_id')).order_by('pk'))
     memberships=list(TeamMembership.objects.select_for_update().filter(user=user).order_by('pk'))

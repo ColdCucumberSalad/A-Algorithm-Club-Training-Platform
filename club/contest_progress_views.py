@@ -7,6 +7,7 @@ from django.views.decorators.http import require_http_methods
 from .views import api_login_required, api_error, membership_for, body
 from .models import ContestParticipation, ContestSyncState, PlatformBinding, ContestProblemClaim, UserProfile
 from .contest_rewards import serialize_participation, claim_problems
+from .profile_views import lock_active_member
 
 
 def enqueue(user_id, token):
@@ -26,6 +27,8 @@ def progress(request):
         return api_error('比赛进度仅供团队成员使用', 403)
     if request.method == 'POST':
         with transaction.atomic():
+            if not lock_active_member(request.user.pk,member.pk):
+                return api_error('账号或团队身份已失效，不能同步比赛历史',403)
             state, _ = ContestSyncState.objects.select_for_update().get_or_create(user=request.user)
             if state.status == 'pending' and state.requested_at and (state.progressed_at or state.requested_at) > timezone.now()-timedelta(minutes=30):
                 return JsonResponse({'status': 'pending'}, status=202)
