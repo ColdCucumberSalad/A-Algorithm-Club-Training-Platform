@@ -316,13 +316,38 @@ document.addEventListener('click', async event => {
   finally { if (button.dataset.done !== 'true') button.disabled = false; }
 });
 
+// Tokenize math before Markdown can insert <br> or interpret TeX underscores.
+// Code fences and code spans remain Marked tokens and are never processed as math.
+function parseBlogMarkdown(source) {
+  const escape = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const display = /^(\${2,3})(?!\$)([\s\S]+?)\1(?!\$)/;
+  const bracket = /^\\\[([\s\S]+?)\\\]/;
+  const token = (src, block) => {
+    const match = display.exec(src) || bracket.exec(src);
+    if (match) return {type:block?'blogMathBlock':'blogMathInline',raw:match[0],text:match[2] ?? match[1],display:true};
+    if (block) return;
+    const inline = /^\$(?!\$)((?:\\[^\n]|[^$\\\n])+?)\$(?!\$)/.exec(src) || /^\\\(([^\n]+?)\\\)/.exec(src);
+    if (inline) return {type:'blogMathInline',raw:inline[0],text:inline[1],display:false};
+  };
+  const renderer = item => {
+    const delimiter = item.display ? '$$' : '$';
+    const tag = item.type === 'blogMathBlock' ? 'div' : 'span';
+    return `<${tag}>${escape(delimiter + item.text + delimiter)}</${tag}>`;
+  };
+  const parser = new marked.Marked({breaks:true,gfm:true}, {extensions:[
+    {name:'blogMathBlock',level:'block',start:src=>src.search(/^(?:\${2,3}(?!\$)|\\\[)/m),tokenizer:src=>token(src,true),renderer},
+    {name:'blogMathInline',level:'inline',start:src=>src.search(/\$|\\[([]/),tokenizer:src=>token(src,false),renderer}
+  ]});
+  return parser.parse(source);
+}
+
 // Viewing uses the editor's stored Markdown; only the rendered output is filtered.
 function renderSubmissionBlog(element, markdown) {
   const source = String(markdown || '');
   if (typeof marked === 'undefined') { element.textContent = source; return; }
   try {
     const template = document.createElement('template');
-    template.innerHTML = marked.parse(source);
+    template.innerHTML = parseBlogMarkdown(source);
     const tags = new Set(['P','BR','HR','H1','H2','H3','H4','H5','H6','STRONG','EM','DEL','S','B','I','U','BLOCKQUOTE','PRE','CODE','UL','OL','LI','TABLE','THEAD','TBODY','TR','TH','TD','A','IMG','DETAILS','SUMMARY','DIV','SPAN','SUP','SUB']);
     const blocked = new Set(['SCRIPT','STYLE','IFRAME','OBJECT','EMBED','SVG','MATH','TEMPLATE','FORM','INPUT','BUTTON','LINK','META','BASE']);
     template.content.querySelectorAll('*').forEach(node => {
