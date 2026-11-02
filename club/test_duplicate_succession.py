@@ -173,6 +173,50 @@ class DuplicateSuccessionTests(TestCase):
         self.second.refresh_from_db()
         self.assertEqual(self.second.parts.get(kind='proof').points_awarded,1)
 
+    def test_closed_period_duplicate_material_edit_cannot_switch_problem(self):
+        url='https://ac.nowcoder.com/acm/problem/123456'
+        Problem.objects.create(identity=canonical_problem(url)[0],url=url,status='success',title='另一道题')
+        future=timezone.now()+timedelta(days=60)
+        cases = [
+            ('inactive', {'is_active':False}, {}, timezone.now()),
+            ('archived', {'archived_at':timezone.now()}, {}, timezone.now()),
+            ('ended', {}, {}, future),
+            ('closed_week', {}, {'is_closed':True}, timezone.now()),
+            ('elapsed_week', {}, {}, self.week.ends_at+timedelta(seconds=1)),
+        ]
+        for name, semester_changes, week_changes, now in cases:
+            with self.subTest(name=name):
+                Semester.objects.filter(pk=self.semester.pk).update(**({'is_active':True,'archived_at':None}|semester_changes))
+                type(self.week).objects.filter(pk=self.week.pk).update(**({'is_closed':False}|week_changes))
+                with patch('club.views.timezone.now',return_value=now):
+                    self.client.force_login(self.author)
+                    response=self.edit(self.second)
+                    self.assertEqual(response.status_code,201,response.content)
+                    self.second.refresh_from_db()
+                    before=(self.second.version,self.second.first_submitted_at,self.second.duplicate_state)
+                    totals=list(SemesterMemberTotal.objects.filter(semester=self.semester).values())
+                    response=self.edit(self.second,url=url)
+                    self.assertEqual(response.status_code,409,response.content)
+                self.second.refresh_from_db()
+                self.assertEqual(self.second.problem_id,self.problem.pk)
+                self.assertFalse(self.second.is_valid)
+                self.assertTrue(self.second.is_duplicate)
+                self.assertEqual((self.second.version,self.second.first_submitted_at,self.second.duplicate_state),before)
+                self.assertEqual(list(SemesterMemberTotal.objects.filter(semester=self.semester).values()),totals)
+                self.assertFalse(self.second.parts.exclude(points_awarded=0).exists())
+                Semester.objects.filter(pk=self.semester.pk).update(is_active=True,archived_at=None)
+
+    def test_closed_semester_allows_another_alias_of_same_canonical_problem(self):
+        url='https://example.com/another-alias'
+        Problem.objects.create(identity=canonical_problem(url)[0],url=url,canonical=self.problem,status='success')
+        self.semester.is_active=False;self.semester.save()
+        response=self.edit(self.second,url=url)
+        self.assertEqual(response.status_code,201,response.content)
+        self.second.refresh_from_db()
+        self.assertTrue(self.second.is_duplicate)
+        self.assertFalse(self.second.is_valid)
+        self.assertEqual(self.second.problem_id,self.problem.pk)
+
 
 class SemesterMergeConcurrencyTests(TransactionTestCase):
     def test_unrelated_submitter_waits_for_merge_semester_lock(self):

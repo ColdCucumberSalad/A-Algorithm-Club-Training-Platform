@@ -681,6 +681,14 @@ def submissions(request, submission_id=None, edit=False):
                     problem,_=Problem.objects.get_or_create(identity=f'sandbox:{request.user.pk}:'+identity,defaults={'url':url,'title':'未命名题目','status':'manual'})
             else:
                 problem = get_problem(request.POST.get('problem_url', ''))
+            # Closed-period maintenance only permits changes within the same
+            # canonical problem; switching problems creates a scoring submission.
+            if not sandbox and previous and previous.is_duplicate and previous.problem_id != problem.pk:
+                if (semester.archived_at or not semester.is_active
+                        or not semester.starts_on <= today <= semester.ends_on):
+                    return api_error('当前学期已结束或尚未开放，不能更换为其他题目', 409)
+                if week.is_closed or not week.starts_at <= now < week.ends_at:
+                    return api_error('该周次已截止或尚未开放，不能更换为其他题目', 409)
             from django.db.models import Q
             original_url = canonical_problem(problem_url)[1] if problem_url else ''
             duplicates = Submission.objects.filter(member__user_id=request.user.pk).filter(
