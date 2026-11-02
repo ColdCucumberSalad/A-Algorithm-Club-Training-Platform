@@ -20,7 +20,7 @@
     if (payload.server_time) serverOffset = payload.server_time * 1000 - Date.now();
   }
   function heading(subtitle, balance) {
-    return `<section class="page-heading"><div><p class="kicker">RBC POKER CLUB</p><h1>德州扑克</h1><p>${esc(subtitle)}</p></div><div class="poker-wallet"><small>RBC Coins 钱包</small><strong>${count(balance)}</strong></div></section>`;
+    return `<div class="poker-extension-nav"><button class="secondary-button" type="button" data-extensions>← 返回拓展</button></div><section class="page-heading"><div><p class="kicker">RBC POKER CLUB</p><h1>德州扑克</h1><p>${esc(subtitle)}</p></div><div class="poker-wallet"><small>RBC Coins 钱包</small><strong>${count(balance)}</strong></div></section>`;
   }
   function alertMarkup() {
     return `<p class="poker-notice" role="status" aria-live="polite">${esc(notice)}</p>`;
@@ -199,5 +199,22 @@
     refresh(true, true);
     timer = setInterval(() => refresh(), 1500);
   }
-  window.PokerModule = {activate};
+  function close() {
+    activate(false);
+    root.hidden = true;
+    document.getElementById('extensionResources').hidden = false;
+  }
+  function open() {
+    document.getElementById('extensionResources').hidden = true;
+    root.hidden = false;
+    const url = new URL(location.href);
+    url.searchParams.set('view', 'extensions');
+    history.replaceState(null, '', url);
+    activate(true);
+    window.scrollTo({top:0, behavior:'smooth'});
+  }
+  root.addEventListener('click', event => {
+    if (event.target.closest('[data-extensions]')) close();
+  });
+  window.PokerModule = {open, close};
 })();

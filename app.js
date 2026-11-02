@@ -46,7 +46,7 @@ function rankingSelection(target) {
     period: panel?.querySelector('[data-solved-period]')?.value || 'semester', panel};
 }
 
-const pageTitles = {poker:'德州扑克', settings:'设置',extensions:'拓展', dashboard:'总览', submissions:'我的提交', leaderboard:'排行榜', showcase:'团队提交', members:'成员列表', contests:'赛事中心', admin:'管理工作台', rbcshop:'RBC商店'};
+const pageTitles = {settings:'设置',extensions:'拓展', dashboard:'总览', submissions:'我的提交', leaderboard:'排行榜', showcase:'团队提交', members:'成员列表', contests:'赛事中心', admin:'管理工作台', rbcshop:'RBC商店'};
 const $ = (selector, root=document) => root.querySelector(selector);
 const $$ = (selector, root=document) => [...root.querySelectorAll(selector)];
 let canManage = false;
@@ -242,16 +242,18 @@ document.addEventListener('input',event=>{if(event.target.matches('[data-ranking
 document.addEventListener('click',event=>{const button=event.target.closest('[data-ranking-search-clear]');if(button){const input=button.closest('.ranking-search').querySelector('input');input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();}});
 
 function setView(view, {preserveContent=false}={}) {
+  // Old poker bookmarks lead to its entry card; the game belongs to Extensions.
+  if (view === 'poker') {
+    view = 'extensions';
+    const url = new URL(location.href);
+    url.searchParams.set('view', 'extensions');
+    history.replaceState(null, '', url);
+  }
   if (view === 'rbcshop' && !window.CurrencyModule?.getCurrencyData().enabled) view = 'dashboard';
   if (view === 'admin' && !canManage) view = 'dashboard';
   if (view === currentView) return;
   const previousView = currentView;
   currentView = view;
-  if (view === 'poker' || previousView === 'poker') {
-    const url = new URL(location.href);
-    url.searchParams.set('view', view);
-    history.replaceState(null, '', url);
-  }
   const nextView = $(`#${view}View`);
   $$('.page-view').forEach((el) => el.classList.toggle('active', el === nextView));
   $$('.nav-item[data-view]').forEach((el) => el.classList.toggle('active', el.dataset.view === view));
@@ -282,7 +284,7 @@ function setView(view, {preserveContent=false}={}) {
     if (shopView) window.CurrencyModule.renderShopView(shopView);
   }
   window.contestSchedule?.activate(view === 'contests');
-  window.PokerModule?.activate(view === 'poker');
+  if (previousView === 'extensions' && view !== 'extensions') window.PokerModule?.close();
   if (view === 'extensions') window.ExtensionResources.load();
 }
 
@@ -1399,13 +1401,13 @@ async function loadLiveData() {
       $('#dashboardView').innerHTML = '<div class="page-heading"><h1>欢迎回来，系统管理员</h1></div><div class="panel empty-state"><h2>从创建第一个团队开始</h2><p>点击左下角管理工作台，配置团队、成员和题目解析。</p><button class="primary-button" id="openEmptyWorkbench">打开管理工作台</button></div>';
       $('#openEmptyWorkbench').onclick = () => setView('admin');
       const requestedView = new URLSearchParams(location.search).get('view');
-      if (pageTitles[requestedView]) setView(requestedView);
+      if (pageTitles[requestedView] || requestedView === 'poker') setView(requestedView);
       return;
     }
     await Promise.allSettled([loadRecentActivity(), loadDashboardSummary(), loadLeaderboard('checkin')]);
     renderLeaderboard();
     const requestedView = new URLSearchParams(location.search).get('view');
-    if (pageTitles[requestedView]) setView(requestedView);
+    if (pageTitles[requestedView] || requestedView === 'poker') setView(requestedView);
   } catch (error) { showToast(error.message || '页面数据加载失败，请刷新重试'); }
 }
 async function loadMembersLive() {
