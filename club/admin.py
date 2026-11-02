@@ -171,9 +171,14 @@ class ProblemAdmin(SuperuserOnly, admin.ModelAdmin):
                 status='manual' if obj.title.strip() else 'failed', error='' if obj.title.strip() else '题名待补填')
 
     def retry(self, request, queryset, mode):
+        queued = 0
+        skipped = 0
         for problem in queryset:
-            enqueue_problem(problem, mode)
-        self.message_user(request, '已按所选模式加入解析队列')
+            if enqueue_problem(problem, mode):
+                queued += 1
+            else:
+                skipped += 1
+        self.message_user(request, f'已加入解析队列 {queued} 道题，跳过已合并的别名题目 {skipped} 道')
 
     @admin.action(description='重新解析：自动解析')
     def retry_auto(self, request, queryset):

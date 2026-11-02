@@ -237,6 +237,9 @@ def enqueue_problem(problem, mode=None):
     from .tasks import resolve_problem
     with transaction.atomic():
         current = Problem.objects.select_for_update().get(pk=problem.pk)
+        # Merged aliases have no independent title task; resolve() skips them.
+        if current.canonical_id:
+            return False
         config = ParserSettings.objects.get_or_create(pk=1)[0]
         mode = mode or config.mode
         if mode not in dict(ParserSettings.MODES):
@@ -252,6 +255,7 @@ def enqueue_problem(problem, mode=None):
             except Exception:
                 Problem.objects.filter(pk=current.pk, generation=generation).update(status='failed', error='任务入队失败，请手动重新解析')
         transaction.on_commit(dispatch)
+        return True
 
 
 def get_problem(url):
