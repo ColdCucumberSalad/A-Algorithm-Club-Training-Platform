@@ -972,6 +972,9 @@ def submission_reversal_preview(request, submission_id):
     if target.semester.archived_at and not (action == 'delete' and target.is_duplicate):
         return api_error('学期已归档，不能修改', 409)
     from .reward_recovery import quote
-    response = JsonResponse(quote(target,request.user,action))
+    try:
+        response = JsonResponse(quote(target,request.user,action))
+    except ValueError as exc:
+        return api_error(str(exc))
     response['Cache-Control'] = 'private, no-store'
     return response

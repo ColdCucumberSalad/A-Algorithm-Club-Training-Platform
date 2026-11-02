@@ -32,6 +32,24 @@ def get_or_create_balance(member):
 
 
 @transaction.atomic
+def adjust_currency(member, amount, transaction_type, description="", created_by=None):
+    """Administrative adjustments may create debt; ordinary spending must not."""
+    if type(amount) is not int or amount == 0:
+        raise ValueError('调整金额必须为非零整数')
+    balance = get_or_create_balance(member)
+    balance = CurrencyBalance.objects.select_for_update().get(pk=balance.pk)
+    result = balance.balance + amount
+    if not -2147483648 <= result <= 2147483647:
+        raise ValueError('调整后余额超出存储范围')
+    balance.balance = result
+    balance.save(update_fields=['balance', 'updated_at'])
+    CurrencyTransaction.objects.create(user_id=member.user_id, team=member.team, member=member,
+        amount=amount, balance_after=result, transaction_type=transaction_type,
+        description=description, created_by=created_by)
+    return result
+
+
+@transaction.atomic
 def add_currency(member, amount, transaction_type, description="", created_by=None):
     """Add currency to a member's balance"""
     if type(amount) is not int or amount < 0:

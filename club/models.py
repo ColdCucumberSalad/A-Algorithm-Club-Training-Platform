@@ -409,7 +409,7 @@ class CurrencyTransaction(models.Model):
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE, related_name="coin_transactions")
     team = models.ForeignKey(Team, null=True, blank=True, on_delete=models.SET_NULL, related_name="currency_transactions")
     member = models.ForeignKey(TeamMembership, null=True, blank=True, on_delete=models.SET_NULL, related_name="currency_transactions")
-    amount = models.IntegerField(verbose_name="变动金额")
+    amount = models.BigIntegerField(verbose_name="变动金额")
     balance_after = models.IntegerField(verbose_name="变动后余额")
     transaction_type = models.CharField(max_length=20, choices=TYPE_CHOICES, verbose_name="交易类型")
     description = models.CharField(max_length=200, blank=True, verbose_name="描述")

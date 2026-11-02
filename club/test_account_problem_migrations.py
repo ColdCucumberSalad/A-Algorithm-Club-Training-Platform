@@ -9,7 +9,7 @@ from django.utils import timezone
 class AccountProblemMigrationTests(TransactionTestCase):
     """Both already-deployed branch histories must upgrade without fake migrations."""
 
-    merged = [('club', '0048_merge_account_problem_branches')]
+    merged = [('club', '0049_currency_transaction_big_amount')]
 
     def migrate(self, targets):
         executor = MigrationExecutor(connection)

@@ -127,16 +127,16 @@ def member_settings(request, team_id, member_id):
                 audit(request.user,target,{'action':'member_title','title':target.member_title})
             elif data.get('action') == 'balance':
                 value = data.get('balance')
-                if type(value) is not int or not 0 <= value <= 2147483647:
-                    raise ValueError('Coins 余额需为非负整数，且不超过 2147483647')
-                from .currency_services import get_or_create_balance, add_currency, deduct_currency
+                if type(value) is not int or not -2147483648 <= value <= 2147483647:
+                    raise ValueError('Coins 余额需为 -2147483648 至 2147483647 的整数')
+                from .currency_services import get_or_create_balance, adjust_currency
                 balance = get_or_create_balance(target)
                 balance = CurrencyBalance.objects.select_for_update().get(pk=balance.pk)
                 if type(data.get('expected_balance')) is not int or balance.balance != data['expected_balance']:
                     return api_error('余额已变化，请刷新成员资料后重试',409)
                 delta = value - balance.balance
                 if delta:
-                    (add_currency if delta > 0 else deduct_currency)(target,abs(delta),CurrencyTransaction.ADMIN_ADJUST,
+                    adjust_currency(target,delta,CurrencyTransaction.ADMIN_ADJUST,
                         '成员管理：调整余额',request.user)
                     audit(request.user,target,{'action':'balance','delta':delta,'balance':value})
             else:

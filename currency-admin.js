@@ -482,7 +482,7 @@ const CurrencyAdminModule = (() => {
 
   function showBalanceAdjustment(member) {
     const modal=document.createElement('div'); modal.className='modal-overlay';
-    modal.innerHTML=`<form class="modal-content currency-adjust-modal" role="dialog" aria-modal="true" aria-label="调整 RBC 余额"><div class="modal-header"><h2>调整 ${escape(member.name)} 的余额</h2><button type="button" class="modal-close" aria-label="关闭">×</button></div><div class="modal-body"><p>当前余额：${member.currency_balance} RBC</p><label>调整金额（正数增加，负数扣除）<input name="amount" type="number" min="-100000" max="100000" required></label><label>调整说明<input name="description" maxlength="200" value="管理员调整" required></label><p role="status"></p></div><div class="modal-footer"><button class="primary-button" type="submit">确认调整</button></div></form>`;
+    modal.innerHTML=`<form class="modal-content currency-adjust-modal" role="dialog" aria-modal="true" aria-label="调整 RBC 余额"><div class="modal-header"><h2>调整 ${escape(member.name)} 的余额</h2><button type="button" class="modal-close" aria-label="关闭">×</button></div><div class="modal-body"><p>当前余额：${member.currency_balance} RBC</p><label>调整金额（正数增加，负数扣除，可扣至负余额）<input name="amount" type="number" min="-100000" max="100000" required></label><label>调整说明<input name="description" maxlength="200" value="管理员调整" required></label><p role="status"></p></div><div class="modal-footer"><button class="primary-button" type="submit">确认调整</button></div></form>`;
     document.body.append(modal);modal.querySelector('.modal-close').onclick=()=>modal.remove();
     modal.querySelector('form').onsubmit=async event=>{
       event.preventDefault();const form=event.target, button=event.submitter;button.disabled=true;

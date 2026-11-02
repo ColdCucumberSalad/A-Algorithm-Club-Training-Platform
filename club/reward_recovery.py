@@ -94,8 +94,19 @@ def fingerprint(plan):
     return hashlib.sha256(json.dumps(plan,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 
+def validate_balance_range(plan):
+    # Reversals precede item refunds. Reject before changing any submission or
+    # inventory when either ledger state would exceed the wallet's integer range.
+    reversed_balance = plan['balance'] - plan['reward_reversal']
+    final_balance = reversed_balance + sum(entry['refund'] for entry in plan['recoveries'])
+    if not (-2147483648 <= reversed_balance <= 2147483647
+            and -2147483648 <= final_balance <= 2147483647):
+        raise ValueError('奖励收回超出余额存储范围，请先由管理员调整余额后重试')
+
+
 def quote(target, actor, action):
     plan = build_plan(target)
+    validate_balance_range(plan)
     return {**public_plan(plan),'token':signing.dumps({'actor':actor.pk,'action':action,
         'submission':target.pk,'fingerprint':fingerprint(plan)},salt=SALT)}
 
@@ -113,6 +124,10 @@ def authorize(request, target, action, data):
     """Caller holds user/semester/submission locks; serialize purchases and delivery too."""
     lock_recovery_state(target.member)
     plan = build_plan(target)
+    try:
+        validate_balance_range(plan)
+    except ValueError as exc:
+        return None,JsonResponse({'error':str(exc)},status=400)
     token = data.get('recovery_token')
     valid = not token and not plan['recoveries']
     if token:

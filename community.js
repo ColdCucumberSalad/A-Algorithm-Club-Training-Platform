@@ -77,13 +77,15 @@ async function communityRequest(url, options) {
   return data;
 }
 
-async function confirmSubmissionReversal(id, action, {alwaysConfirm=false} = {}) {
+async function confirmSubmissionReversal(id, action, {alwaysConfirm=false,authorPenalty=0} = {}) {
   const preview=await communityRequest(`/api/submissions/${id}/reversal-preview?action=${action}`);
   const lines=[action==='delete'?'将删除整条提交及其材料，此操作无法恢复。':'将驳回该提交，并重新计算关联积分和签到。'];
   if(preview.reward_reversal)lines.push(`将撤回签到及连签奖励 ${preview.reward_reversal} Coins。`);
   for(const item of preview.items||[])lines.push(`该操作会导致“${item.name}”被回收（${item.quantity} 件），按原价返还 ${item.refund} Coins。`);
-  const debt=preview.reward_reversal>0&&preview.balance_after<0;
-  if(debt)lines.push(`回收后仍有 ${-preview.balance_after} Coins 待抵扣，将记为负余额。`);
+  if(authorPenalty>0)lines.push(`举报成立额外扣除 ${authorPenalty} Coins。`);
+  const balanceAfter=preview.balance_after-authorPenalty;
+  const debt=(preview.reward_reversal>0||authorPenalty>0)&&balanceAfter<0;
+  if(debt)lines.push(`处理后仍有 ${-balanceAfter} Coins 待抵扣，将记为负余额；后续收入先抵扣欠额。`);
   if(alwaysConfirm||preview.items?.length||debt){
     if(!await window.clubDialog.confirm({title:action==='delete'?'删除提交记录':'确认驳回与物品回收',
       text:lines.join('\n\n'),confirmText:action==='delete'?'确认删除':'确认驳回'}))return null;
@@ -313,7 +315,7 @@ document.addEventListener('click', async event => {
       if (galleryProblem) await openProblem(galleryProblem);
       await refreshAfterMutation();
     } else {
-      const preview=button.dataset.resolve==='reject'?await confirmSubmissionReversal(button.dataset.id,'reject'):null;
+      const preview=button.dataset.resolve==='reject'?await confirmSubmissionReversal(button.dataset.id,'reject',{authorPenalty:reportCoins?.author_penalty||0}):null;
       if(button.dataset.resolve==='reject'&&!preview)return;
       await communityRequest(`/api/admin/reports/${button.dataset.id}/resolve`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:button.dataset.resolve, note, version:Number(button.dataset.version),report_ids:button.dataset.reportIds?JSON.parse(button.dataset.reportIds):undefined,report_coins:reportCoins,recovery_token:preview?.token})});
       showToast(button.dataset.resolve === 'reject' ? '已退回，积分、签到奖励与过题量已重新计算' : '已驳回举报');

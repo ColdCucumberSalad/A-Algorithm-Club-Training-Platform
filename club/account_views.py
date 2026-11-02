@@ -63,7 +63,7 @@ def update_account(request,user_id):
                 return api_error('该账号不可在此修改',403)
             if data.get('action')=='balance':
                 value=data.get('balance')
-                if type(value) is not int or not 0<=value<=2147483647:return api_error('余额格式无效')
+                if type(value) is not int or not -2147483648<=value<=2147483647:return api_error('余额需为 -2147483648 至 2147483647 的整数')
                 wallet,_=CurrencyBalance.objects.get_or_create(user=user,defaults={'balance':0})
                 wallet=CurrencyBalance.objects.select_for_update().get(pk=wallet.pk)
                 if type(data.get('expected_balance')) is not int or wallet.balance!=data['expected_balance']:return api_error('余额已变化，请刷新重试',409)

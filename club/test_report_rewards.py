@@ -117,6 +117,26 @@ class ReportRewardTests(TestCase):
         SubmissionPart.objects.create(submission=row,kind='proof',status='rejected',points_awarded=0)
         return row
 
+    def test_penalties_increase_debt_and_reporter_rewards_pay_down_debt(self):
+        CurrencyBalance.objects.create(user=self.author,balance=-2)
+        CurrencyBalance.objects.create(user=self.reader,balance=-4)
+        response=self.decide()
+        self.assertEqual(response.status_code,200,response.content)
+        self.assertEqual(self.balance(self.author),-3)
+        self.assertEqual(self.balance(self.reader),-3)
+        self.assertEqual(self.balance(self.extra),1)
+        self.assertEqual(self.decide().status_code,409)
+        self.assertEqual(self.balance(self.author),-3)
+
+    def test_penalty_underflow_rolls_back_every_report_and_reward(self):
+        CurrencyBalance.objects.create(user=self.author,balance=-2147483648)
+        response=self.decide()
+        self.assertEqual(response.status_code,400,response.content)
+        self.item.refresh_from_db();self.assertTrue(self.item.is_valid)
+        self.assertEqual(self.item.reports.filter(status='pending').count(),2)
+        self.assertEqual(self.balance(self.author),-2147483648)
+        self.assertFalse(CurrencyTransaction.objects.filter(transaction_type__startswith='report_').exists())
+
     def test_report_rewards_and_duplicate_promotion_commit_together(self):
         from .models import CheckinRecord,SemesterMemberTotal
         self.team.currency_enabled=True;self.team.save()

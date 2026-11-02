@@ -9,7 +9,7 @@ function fixture(preview,confirmed=true){
   const dialogs=[];
   const c={communityRequest:async()=>preview,window:{clubDialog:{confirm:async options=>{dialogs.push(options);return confirmed;}}}};
   vm.createContext(c);vm.runInContext(code,c);
-  return {dialogs,run:(action='delete')=>vm.runInContext(`confirmSubmissionReversal(7,'${action}',{alwaysConfirm:${action==='delete'}})`,c)};
+  return {dialogs,run:(action='delete',options={})=>vm.runInContext(`confirmSubmissionReversal(7,'${action}',${JSON.stringify({...options,alwaysConfirm:action==='delete'})})`,c)};
 }
 
 test('deletion confirmation names each reclaimed item and original-price refund',async()=>{
@@ -24,6 +24,14 @@ test('canceling recovery does not authorize deletion',async()=>{
   const f=fixture({items:[{name:'物品',quantity:1,refund:1}],reward_reversal:3,balance_after:-2,token:'signed'},false);
   assert.equal(await f.run(),null);
   assert.match(f.dialogs[0].text,/2 Coins 待抵扣/);
+});
+
+test('report penalties are included in the negative balance confirmation',async()=>{
+  const f=fixture({items:[],reward_reversal:0,balance_after:1,token:'signed'});
+  assert.equal((await f.run('reject',{authorPenalty:3})).token,'signed');
+  assert.match(f.dialogs[0].text,/举报成立额外扣除 3 Coins/);
+  assert.match(f.dialogs[0].text,/2 Coins 待抵扣/);
+  assert.match(f.dialogs[0].text,/后续收入先抵扣欠额/);
 });
 
 test('administrator rejection also confirms recovery, while an ordinary rejection needs no second dialog',async()=>{

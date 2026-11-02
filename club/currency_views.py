@@ -12,6 +12,7 @@ from PIL import Image, UnidentifiedImageError
 from datetime import datetime, timedelta
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.contrib.auth.models import User
 from django.db.models import Sum
 from django.db.models.deletion import ProtectedError
 from django.http import JsonResponse, FileResponse, Http404
@@ -396,8 +397,10 @@ def api_admin_adjust_balance(request):
         return api_error("成员不存在", 404)
 
     try:
-        new_balance = (add_currency if amount > 0 else deduct_currency)(
-            target_member, abs(amount), CurrencyTransaction.ADMIN_ADJUST, description, request.user)
+        from .currency_services import adjust_currency
+        with transaction.atomic():
+            User.objects.select_for_update().get(pk=target_member.user_id)
+            new_balance = adjust_currency(target_member, amount, CurrencyTransaction.ADMIN_ADJUST, description, request.user)
     except ValueError as exc:
         return api_error(str(exc), 400)
 
