@@ -826,10 +826,11 @@ class PokerRoom(models.Model):
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='poker_rooms')
     created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_poker_rooms')
     name = models.CharField(max_length=40)
-    mode = models.CharField(max_length=10, choices=[('coins', 'RBC Coins 多人局'), ('practice', '赠币人机练习')], default='coins')
+    mode = models.CharField(max_length=10, choices=[('coins', 'RBC Coins 多人局'),
+        ('friendly', '赠币多人练习'), ('practice', '赠币人机练习')], default='coins')
     max_players = models.PositiveSmallIntegerField(default=6)
     big_blind = models.PositiveIntegerField(default=2)
-    buy_in = models.PositiveIntegerField(default=100)
+    buy_in = models.PositiveIntegerField(default=10)
     hand = models.JSONField(default=dict)
     hand_number = models.PositiveIntegerField(default=0)
     dealer = models.SmallIntegerField(default=-1)

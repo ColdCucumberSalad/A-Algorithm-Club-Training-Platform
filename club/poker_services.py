@@ -134,7 +134,7 @@ def create_room(member, data):
     from .models import Team
     team = Team.objects.select_for_update().get(pk=member.team_id)
     mode = data.get('mode', 'coins')
-    if mode not in ('coins', 'practice'):
+    if mode not in ('coins', 'practice', 'friendly'):
         raise ValueError('请选择有效的游戏模式')
     if mode == 'coins' and not team.currency_enabled:
         raise ValueError('当前团队未启用 RBC Coins')
@@ -145,7 +145,9 @@ def create_room(member, data):
     name = data.get('name', '')
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 40:
         raise ValueError('房间名称应为 1–40 个字符')
-    capacity, blind, buy_in = data.get('max_players', 6), data.get('big_blind', 2), data.get('buy_in', 100)
+    capacity, blind, buy_in = data.get('max_players', 6), data.get('big_blind', 2), data.get('buy_in', 10)
+    if mode == 'friendly':
+        blind, buy_in = 10, 1000
     if mode == 'practice':
         bot_count = data.get('bot_count', 3)
         if type(bot_count) is not int or not 1 <= bot_count <= 5:
@@ -155,8 +157,8 @@ def create_room(member, data):
         raise ValueError('房间人数应为 2–9 人')
     if type(blind) is not int or blind not in (2, 4, 10, 20, 50, 100):
         raise ValueError('请选择有效的盲注级别')
-    if type(buy_in) is not int or not blind * 20 <= buy_in <= min(100000, blind * 100):
-        raise ValueError('买入应为 20–100 倍大盲注，上限 100000 Coins')
+    if type(buy_in) is not int or not blind <= buy_in <= min(100000, blind * 100):
+        raise ValueError('买入应为 1–100 倍大盲注，上限 100000 Coins')
     room = PokerRoom.objects.create(team=team, created_by_id=member.user_id, name=name.strip(), mode=mode,
                                     max_players=capacity, big_blind=blind, buy_in=buy_in)
     join_room(room, member)
@@ -239,8 +241,8 @@ def operate(room, member, data):
     if data.get('version') != room.version or type(data.get('version')) is not int:
         raise ValueError('牌局已更新，请查看最新牌桌后操作')
     if action == 'refill':
-        if room.mode != 'practice' or active(room) or seat.stack > 0:
-            raise ValueError('仅人机练习筹码用完后可重新领取')
+        if room.mode not in ('practice', 'friendly') or active(room) or seat.stack > 0:
+            raise ValueError('仅练习局筹码用完后可重新领取')
         seat.stack = room.buy_in
         seat.save(update_fields=['stack'])
         room.version += 1

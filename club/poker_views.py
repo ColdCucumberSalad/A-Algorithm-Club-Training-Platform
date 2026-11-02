@@ -44,7 +44,7 @@ def rooms(request):
             'rooms': [{'id': str(r.pk), 'name': r.name, 'mode': r.mode, 'max_players': r.max_players,
                        'players': r.seats.count(), 'buy_in': r.buy_in, 'big_blind': r.big_blind,
                        'playing': poker.active(r)} for r in PokerRoom.objects.filter(
-                           Q(mode='coins') | Q(created_by_id=request.user.pk),
+                           Q(mode__in=['coins', 'friendly']) | Q(created_by_id=request.user.pk),
                            team=member.team, closed=False).distinct().prefetch_related('seats').order_by('created_at')]})
     except (ValueError, TeamMembership.DoesNotExist) as exc:
         return api_error(str(exc) or '成员信息已失效', 400)
