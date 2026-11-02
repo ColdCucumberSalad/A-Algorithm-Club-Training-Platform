@@ -689,7 +689,6 @@ def submissions(request, submission_id=None, edit=False):
                     return api_error('当前学期已结束或尚未开放，不能更换为其他题目', 409)
                 if week.is_closed or not week.starts_at <= now < week.ends_at:
                     return api_error('该周次已截止或尚未开放，不能更换为其他题目', 409)
-            from django.db.models import Q
             original_url = canonical_problem(problem_url)[1] if problem_url else ''
             duplicates = Submission.objects.filter(member__user_id=request.user.pk).filter(
                 Q(original_problem_url=original_url) | Q(original_problem_url='', is_duplicate=False, problem__url=original_url))

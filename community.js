@@ -22,6 +22,7 @@ let gallerySearchTimer;
 function galleryQuery(){return encodeURIComponent($('#gallerySearch')?.value.trim()||'');}
 
 let galleryProblem = null;
+let galleryDetailPlatform = '';
 let galleryRequest = 0;
 let reportRequest = 0;
 let resubmitting = null;
@@ -130,6 +131,7 @@ function submissionCard(item, moderation = false) {
 
 async function loadShowcase(page = 1) {
   galleryProblem = null;
+  $('#problemAllPlatforms').hidden = true;
   $('#gallerySearch').closest('.gallery-search').hidden = false;
   $('#galleryPlatformFilter').hidden = false;
   const version = ++galleryRequest;
@@ -140,6 +142,7 @@ async function loadShowcase(page = 1) {
   $('#problemOriginal').hidden = true;
   if (page === 1) host.innerHTML = '<div class="queue-empty">正在加载题目…</div>';
   more.hidden = true;
+  more.textContent = '加载更多';
   host.className = 'problem-list';
   try {
     const data = await communityRequest(`/api/showcase?all=1&cursor=${encodeURIComponent(page === 1 ? '' : page)}&q=${galleryQuery()}&platform=${encodeURIComponent($('#galleryPlatform').value)}`);
@@ -162,11 +165,14 @@ async function loadShowcase(page = 1) {
     if(page===1&&!data.problems.length)host.innerHTML='<div class="queue-empty">暂无匹配的题目。</div>';
     more.hidden = !data.next;
     more.onclick = () => loadShowcase(data.next);
-  } catch (error) { if (version === galleryRequest) host.innerHTML = `<div class="queue-empty">${escapeHtml(error.message)}</div>`; }
+  } catch (error) { if (version === galleryRequest) { host.innerHTML = `<div class="queue-empty">${escapeHtml(error.message)}</div>`; more.hidden = false; more.textContent = '刷新列表'; more.onclick = () => loadShowcase(); } }
 }
 
-async function openProblem(id, page = 1) {
+async function openProblem(id, page = 1, platform = galleryDetailPlatform) {
+  galleryDetailPlatform = platform;
+  $('#problemAllPlatforms').hidden = !platform;
   galleryProblem = id;
+  $('#galleryMore').textContent = '加载更多';
   $('#gallerySearch').closest('.gallery-search').hidden = true;
   $('#galleryPlatformFilter').hidden = true;
   const version = ++galleryRequest;
@@ -179,7 +185,7 @@ async function openProblem(id, page = 1) {
   if (page === 1) host.innerHTML = '<div class="queue-empty">正在加载全部历史题解…</div>';
   more.hidden = true;
   try {
-    const data = await communityRequest(`/api/problems/${id}/submissions?cursor=${encodeURIComponent(page === 1 ? '' : page)}`);
+    const data = await communityRequest(`/api/problems/${id}/submissions?cursor=${encodeURIComponent(page === 1 ? '' : page)}&platform=${encodeURIComponent(platform)}`);
     if (version !== galleryRequest) return;
     $('#problemHeading').textContent = uiProblemTitle(data.problem.title);
     const link = $('#problemOriginal');
@@ -195,6 +201,7 @@ async function openProblem(id, page = 1) {
     if (version !== galleryRequest) return;
     if (error.status === 404) { await loadShowcase(); return; }
     host.innerHTML = `<div class="queue-empty">${escapeHtml(error.message)}</div>`;
+    more.hidden = false; more.textContent = '重新加载题解'; more.onclick = () => openProblem(id, 1, platform);
   }
 }
 
@@ -242,6 +249,7 @@ async function beginResubmit(id, {edit = false} = {}) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  $('#problemAllPlatforms').addEventListener('click', () => openProblem(galleryProblem, 1, ''));
   $('#galleryPlatform').addEventListener('change', () => loadShowcase());
   $('#gallerySearch').addEventListener('input',()=>{clearTimeout(gallerySearchTimer);gallerySearchTimer=setTimeout(()=>galleryProblem?openProblem(galleryProblem):loadShowcase(),250);});
   $('#problemBack').addEventListener('click', () => loadShowcase());
@@ -263,7 +271,7 @@ document.addEventListener('click', async event => {
   if (!button) return;
   if(button.dataset.solutionDetail){openShowcaseDetails(button.dataset.solutionDetail);return;}
   if(button.dataset.toggleSolution){const card=button.closest('.solution-card');const expanded=card.classList.toggle('is-expanded');button.setAttribute('aria-expanded',String(expanded));button.textContent=expanded?'收起题解':'展开题解';return;}
-  if (button.dataset.problem) { openProblem(button.dataset.problem); return; }
+  if (button.dataset.problem) { openProblem(button.dataset.problem, 1, $('#galleryPlatform').value); return; }
   if (button.dataset.resubmit) { beginResubmit(button.dataset.resubmit); return; }
   if (button.dataset.zoom) {
     $('#lightboxImage').src = button.dataset.zoom;

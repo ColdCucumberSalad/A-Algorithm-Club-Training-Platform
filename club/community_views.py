@@ -1,7 +1,10 @@
 import re
+import uuid
 from urllib.parse import urlsplit
 from django.core import signing
-from django.utils.dateparse import parse_datetime
+from django.core.cache import caches
+from redis.exceptions import RedisError
+from django.db.models.functions import Coalesce, NullIf
 
 from django.core.paginator import Paginator
 from django.contrib.auth.models import User
@@ -101,68 +104,83 @@ def visible_solutions(request, member):
     return Submission.objects.filter(scope, is_valid=True, semester__archived_at__isnull=True, problem__isnull=False)
 
 
-def gallery_platform_expression():
-    return Case(*[When(problem__url__iregex=r'^https?://([^/]+\.)?(' + '|'.join(re.escape(d) for d in domains) + r')([/:]|$)', then=Value(key))
-                  for key, label, domains in PLATFORM_DOMAINS], default=Value('other'), output_field=CharField())
+def platform_solutions(items):
+    return items.annotate(source_url=Coalesce(NullIf('original_problem_url', Value('')), F('problem__url'))).annotate(
+        platform=Case(*[When(source_url__iregex=r'^https?://([^/]+\.)?(' + '|'.join(re.escape(d) for d in domains) + r')([/:]|$)', then=Value(key))
+                       for key, label, domains in PLATFORM_DOMAINS], default=Value('other'), output_field=CharField()))
 
 
-def cursor_state(request, items, context):
+GALLERY_SNAPSHOT_TTL = 900
+
+
+def snapshot_page(request, items, context, id_field):
+    """Cache only ordered IDs. Re-query live visibility before returning each page."""
+    cache = caches['gallery']
     token = request.GET.get('cursor', '')
     if token:
-        state = signing.loads(token, salt='team-gallery', max_age=86400)
-        if state['context'] != context:
-            raise ValueError('cursor scope')
-        return state
-    return {'context': context, 'max_id': items.aggregate(n=Max('id'))['n'] or 0,
-            'at': timezone.now().isoformat()}
-
-
-def cursor_page(request, items, state, time_field, id_field):
-    if state.get('last'):
-        at, pk = state['last']
-        items = items.filter(Q(**{time_field + '__lt': parse_datetime(at)}) |
-                             Q(**{time_field: parse_datetime(at), id_field + '__lt': pk}))
-    rows = list(items[:21])
+        state = signing.loads(token, salt='gallery-snapshot', max_age=GALLERY_SNAPSHOT_TTL)
+        snapshot = cache.get('snapshot:' + state['id'])
+        if snapshot is None or snapshot['context'] != context:
+            raise ValueError('snapshot expired or scope changed')
+        offset = state['offset']
+    else:
+        snapshot = {'context': context, 'ids': list(items.values_list(id_field, flat=True))}
+        state = {'id': uuid.uuid4().hex}
+        offset = 0
+    ids = snapshot['ids']
+    rows, positions = [], []
+    while offset < len(ids) and len(rows) <= 20:
+        batch = ids[offset:offset + 100]
+        live = {row[id_field] if isinstance(row, dict) else getattr(row, id_field): row
+                for row in items.filter(**{id_field + '__in': batch})}
+        for index, pk in enumerate(batch, offset):
+            if pk in live:
+                rows.append(live[pk])
+                positions.append(index + 1)
+                if len(rows) == 21:
+                    break
+        offset += len(batch)
     next_token = None
     if len(rows) > 20:
-        rows = rows[:20]
-        last = rows[-1]
-        at = last[time_field] if isinstance(last, dict) else getattr(last, time_field)
-        pk = last[id_field] if isinstance(last, dict) else getattr(last, id_field)
-        next_token = signing.dumps(dict(state, last=[at.isoformat(), pk]), salt='team-gallery', compress=True)
-    return rows, next_token
+        if not token:
+            cache.set('snapshot:' + state['id'], snapshot, timeout=GALLERY_SNAPSHOT_TTL)
+        next_token = signing.dumps(dict(state, offset=positions[19]), salt='gallery-snapshot')
+    return rows[:20], next_token
 
 
 def showcase_all(request, member):
-    items = visible_solutions(request, member)
+    items = platform_solutions(visible_solutions(request, member))
     query = request.GET.get('q', '').strip()[:200]
     selected = request.GET.get('platform', '')
-    context = [request.user.pk, member.pk, getattr(request, 'test_target_team', None).pk if getattr(request, 'admin_test_mode', False) else member.team_id, 'gallery', query, selected]
-    try:
-        state = cursor_state(request, items, context)
-    except (signing.BadSignature, ValueError, KeyError, TypeError):
-        return api_error('分页已失效，请刷新题目列表')
-    items = items.filter(pk__lte=state['max_id'], submitted_at__lte=parse_datetime(state['at'])).annotate(platform=gallery_platform_expression())
+    context = [request.user.pk, member.pk, request.test_target_team.pk if getattr(request, 'admin_test_mode', False) else member.team_id, 'gallery', query, selected]
     labels = dict((key, label) for key, label, domains in PLATFORM_DOMAINS)
     labels['other'] = '其他'
+    if selected and selected not in labels:
+        return api_error('平台无效')
     platforms = [{'id': key, 'label': labels[key]} for key in items.order_by().values_list('platform', flat=True).distinct().order_by('platform')]
     if selected:
         items = items.filter(platform=selected)
     if query:
-        matches = Q(problem__title__icontains=query) | Q(problem__url__icontains=query) | Q(member__display_name__icontains=query)
+        matches = Q(problem__title__icontains=query) | Q(source_url__icontains=query) | Q(member__display_name__icontains=query)
         matches |= Q(platform__in=[key for key, label in labels.items() if query.casefold() in label.casefold()])
         if getattr(request, 'admin_test_mode', False) and query in '管理员':
             matches |= Q(member=member)
         matching_ids = items.filter(matches).order_by().values('problem_id')
         items = items.filter(problem_id__in=matching_ids)
-    grouped = items.order_by().values('problem_id', 'problem__url', 'problem__title', 'platform').annotate(count=Count('id'), member_count=Count('member_id', distinct=True), latest=Max('submitted_at')).order_by('-latest', '-problem_id')
-    rows, next_token = cursor_page(request, grouped, state, 'latest', 'problem_id')
-    names = {}
-    for pid, mid, name in items.filter(problem_id__in=[r['problem_id'] for r in rows]).order_by().values_list('problem_id', 'member_id', 'member__display_name').distinct():
+    grouped = items.order_by().values('problem_id', 'problem__url', 'problem__title').annotate(count=Count('id'), member_count=Count('member_id', distinct=True), latest=Max('submitted_at')).order_by('-latest', '-problem_id')
+    try:
+        rows, next_token = snapshot_page(request, grouped, context, 'problem_id')
+    except (signing.BadSignature, ValueError, KeyError, TypeError):
+        return api_error('浏览记录已过期或筛选已变化，请刷新题目列表')
+    except (RedisError, OSError):
+        return api_error('分页服务暂时不可用，请稍后重试', 503)
+    names, urls = {}, {}
+    for pid, mid, name, url in items.filter(problem_id__in=[r['problem_id'] for r in rows]).order_by().values_list('problem_id', 'member_id', 'member__display_name', 'source_url').distinct():
         if getattr(request, 'admin_test_mode', False) and mid == member.pk:
             name = '管理员'
         names.setdefault(pid, set()).add(name)
-    result = [dict(id=r['problem_id'], url=r['problem__url'], title=r['problem__title'] or r['problem__url'], platform=r['platform'], platform_label=labels[r['platform']], count=r['count'], member_count=r['member_count'], members=sorted(names.get(r['problem_id'], []))) for r in rows]
+        urls.setdefault(pid, url)
+    result = [dict(id=r['problem_id'], url=urls[r['problem_id']] if selected else r['problem__url'], title=r['problem__title'] or r['problem__url'], platform=selected or problem_platform(r['problem__url'])[0], platform_label=labels[selected or problem_platform(r['problem__url'])[0]], count=r['count'], member_count=r['member_count'], members=sorted(names.get(r['problem_id'], []))) for r in rows]
     return JsonResponse({'problems': result, 'platforms': platforms, 'next': next_token})
 
 
@@ -182,20 +200,26 @@ def problem_submissions(request, problem_id):
     member = membership_for(request)
     if not member:
         return api_error('未加入当前团队', 403)
-    items = visible_solutions(request, member).filter(problem_id=problem_id).select_related('problem', 'member', 'week', 'semester').prefetch_related('parts', 'likes', 'reports').order_by('-submitted_at', '-id')
+    items = platform_solutions(visible_solutions(request, member)).filter(problem_id=problem_id).select_related('problem', 'member', 'week', 'semester').prefetch_related('parts', 'likes', 'reports').order_by('-submitted_at', '-id')
+    selected = request.GET.get('platform', '')
+    if selected:
+        items = items.filter(platform=selected)
     if not items.exists():
         return api_error('该题目不存在或没有可见提交', 404)
-    problem = items.first().problem
+    first = items.first()
+    problem = first.problem
+    problem_url = first.source_url if selected else problem.url
     query = request.GET.get('q', '').strip()[:200]
     if query:
         items = items.filter(Q(problem__title__icontains=query) | Q(problem__url__icontains=query) | Q(member__display_name__icontains=query))
     if 'cursor' in request.GET:
+        context = [request.user.pk, member.pk, request.test_target_team.pk if getattr(request, 'admin_test_mode', False) else member.team_id, 'problem', problem_id, query, selected]
         try:
-            state = cursor_state(request, items, [request.user.pk, member.pk, getattr(request, 'test_target_team', None).pk if getattr(request, 'admin_test_mode', False) else member.team_id, 'problem', problem_id, query])
+            rows, next_page = snapshot_page(request, items, context, 'id')
         except (signing.BadSignature, ValueError, KeyError, TypeError):
-            return api_error('分页已失效，请重新打开题目')
-        items = items.filter(pk__lte=state['max_id'], submitted_at__lte=parse_datetime(state['at']))
-        rows, next_page = cursor_page(request, items, state, 'submitted_at', 'id')
+            return api_error('浏览记录已过期或筛选已变化，请重新打开题目')
+        except (RedisError, OSError):
+            return api_error('分页服务暂时不可用，请稍后重试', 503)
     else:
         page = page_items(request, items)
         if page is None:
@@ -213,7 +237,7 @@ def problem_submissions(request, problem_id):
                 from .admin_test_overlay import protect_real
                 row = protect_real(row)
         result.append(row)
-    return JsonResponse({'problem': {'id': problem.pk, 'title': problem.title or problem.url, 'url': problem.url},
+    return JsonResponse({'problem': {'id': problem.pk, 'title': problem.title or problem_url, 'url': problem_url},
                          'submissions': result, 'next': next_page})
 
 
