@@ -12,7 +12,7 @@ from django.utils.http import parse_etags
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
-from .models import FileDeletion, PlatformBinding, UserProfile, TeamMembership
+from .models import AccountClosure, FileDeletion, PlatformBinding, UserProfile, TeamMembership
 from .views import api_login_required, api_error, body, membership_for
 from .platform_sync import PLATFORMS, validate_account
 from . import avatar_images
@@ -149,8 +149,13 @@ def profile(request):
     stored = []
     try:
         with transaction.atomic():
-            User.objects.select_for_update().get(pk=request.user.pk)
-            member = TeamMembership.objects.select_for_update().get(pk=member.pk)
+            locked_user = User.objects.select_for_update().get(pk=request.user.pk)
+            if not locked_user.is_active or AccountClosure.objects.filter(user=locked_user).exists():
+                return api_error('账号已停用或注销，不能修改个人资料',403)
+            member = TeamMembership.objects.select_for_update().filter(
+                pk=member.pk,user=locked_user,is_active=True).first()
+            if not member:
+                return api_error('团队成员身份已失效，不能修改个人资料',403)
             member.display_name = name
             member.save(update_fields=['display_name'])
             personal, _ = UserProfile.objects.get_or_create(user=request.user)
@@ -166,13 +171,14 @@ def profile(request):
                 if old:
                     FileDeletion.objects.create(name=old)
                     FileDeletion.objects.create(name=avatar_images.thumbnail_name(old))
+            result = profile_data(request)
     except Exception as error:
         for name in stored:
             FileDeletion.objects.create(name=name)
         if isinstance(error, IntegrityError):
             return api_error('当前团队中已有此昵称，请换一个昵称', 409)
         raise
-    return JsonResponse(profile_data(request))
+    return JsonResponse(result)
 
 
 @api_login_required

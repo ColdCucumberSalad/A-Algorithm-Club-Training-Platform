@@ -109,7 +109,7 @@ def community_submission(item, viewer):
     report=item.reports.filter(version=item.version,reporter=viewer.user).exclude(status='cancelled').first()
     data.update(likes=item.likes.count(), liked=item.likes.filter(user=viewer.user).exists(),
                 can_tip=bool(viewer.pk and viewer.is_active and viewer.team.currency_enabled and item.member.is_active and item.member.user_id != viewer.user_id and not item.semester.archived_at),
-                can_admin_edit=bool(viewer.is_admin and not item.semester.archived_at), reported=bool(report), can_cancel_report=bool(report and report.status=='pending'), report_status=report.status if report else '',
+                can_admin_edit=bool(viewer.is_admin and item.member.user_id != viewer.user_id and not item.semester.archived_at), reported=bool(report), can_cancel_report=bool(report and report.status=='pending'), report_status=report.status if report else '',
                 own=item.member.user_id == viewer.user_id, can_reject=viewer.is_admin and item.member.user_id != viewer.user_id and not item.semester.archived_at, archived=bool(item.semester.archived_at))
     return data
 

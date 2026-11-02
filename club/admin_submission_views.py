@@ -17,6 +17,7 @@ def edit_submission(request,submission_id):
     if not request.user.is_superuser:query=query.filter(team=viewer.team)
     target=query.first()
     if not target:return api_error('提交不存在',404)
+    if target.member.user_id==request.user.pk:return api_error('不能通过管理入口编辑自己的提交，请使用本人提交入口',403)
     if getattr(request,'admin_test_mode',False):return api_error('请退出测试模式后管理题解',403)
     if request.method=='GET':return JsonResponse({'submission':serialize_submission(target)})
     data=body(request)

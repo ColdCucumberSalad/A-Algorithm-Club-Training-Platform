@@ -96,6 +96,28 @@ class GlobalAccountFeatureTests(TestCase):
         self.assertFalse(item.parts.exclude(kind='proof').exclude(points_awarded=0).exists())
         self.assertEqual(get_or_create_balance(self.author_member).balance,before)
 
+    def test_manager_cannot_use_admin_editor_to_close_reports_on_own_submission(self):
+        from .community_views import community_submission
+        item=self.record()
+        self.author_member.role='admin';self.author_member.save()
+        self.week.is_closed=True;self.week.save()
+        report=SubmissionReport.objects.create(submission=item,version=item.version,
+            reporter=self.reader,reason='Independent review required')
+        before=list(item.parts.order_by('pk').values())
+        url=f'/api/management/submissions/{item.pk}'
+        self.assertFalse(community_submission(item,self.author_member)['can_admin_edit'])
+        self.assertEqual(self.client.get(url).status_code,403)
+        response=self.post(self.client,url,{'version':item.version,'logic':'original',
+            'code':'old code','blog':'','code_language':'cpp'},'patch')
+        self.assertEqual(response.status_code,403,response.content)
+        item.refresh_from_db();report.refresh_from_db()
+        self.assertEqual(item.version,1)
+        self.assertEqual(report.status,'pending')
+        self.assertEqual(list(item.parts.order_by('pk').values()),before)
+        self.assertFalse(ReviewLog.objects.filter(submission=item,action='admin_edit').exists())
+        queue=self.client.get('/api/admin/reports').json()['submissions']
+        self.assertFalse(next(r for r in queue if r['id']==item.pk)['can_resolve'])
+
     def test_title_selection_and_safe_styles_are_team_scoped(self):
         self.author_member.member_title=[{'text':'First','style':'wings','color':'#ab6688','font':'serif'},{'text':'Second','style':'president','color':'#809060','font':'system'}];self.author_member.save()
         result=self.post(self.client,'/api/profile/titles/wear',{'title':'Second'})

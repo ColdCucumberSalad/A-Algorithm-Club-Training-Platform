@@ -116,7 +116,7 @@ def lock_recovery_state(member):
     TeamMembership.objects.select_for_update().get(pk=member.pk)
     balance = get_or_create_balance(member)
     CurrencyBalance.objects.select_for_update().get(pk=balance.pk)
-    list(UserInventory.objects.select_for_update().filter(member__user_id=member.user_id).order_by('pk'))
+    list(UserInventory.objects.select_for_update(of=('self',)).filter(member__user_id=member.user_id).order_by('pk'))
     list(ShopFulfillment.objects.select_for_update(of=('self',)).filter(purchase__member__user_id=member.user_id).order_by('pk'))
 
 
@@ -147,13 +147,13 @@ def reclaim(member, entries):
     from .currency_services import add_currency
     for entry in entries:
         if entry['inventory_id']:
-            inventory = UserInventory.objects.select_for_update().get(pk=entry['inventory_id'],member__user_id=member.user_id)
+            inventory = UserInventory.objects.select_for_update(of=('self',)).get(pk=entry['inventory_id'],member__user_id=member.user_id)
             if inventory.quantity < 1:
                 raise ValueError('背包物品数量已变化，请重新确认')
             inventory.quantity -= 1
             inventory.save(update_fields=['quantity','updated_at'])
         if entry['unit_id']:
-            unit = ShopFulfillment.objects.select_for_update().get(pk=entry['unit_id'],purchase__member__user_id=member.user_id)
+            unit = ShopFulfillment.objects.select_for_update(of=('self',)).get(pk=entry['unit_id'],purchase__member__user_id=member.user_id)
             if unit.status not in ('ready','dispatching'):
                 raise ValueError('物品已经使用或派送完成，不能回收')
         else:
