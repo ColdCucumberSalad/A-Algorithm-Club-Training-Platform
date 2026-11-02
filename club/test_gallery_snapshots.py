@@ -97,7 +97,7 @@ class GalleryAudit(TestCase):
     def test_expired_snapshot_and_changed_scope_rejected(self):
         rows, first = self.make_pages()
         self.assertEqual(self.client.get('/api/showcase', {'all':'1', 'cursor':first['next'], 'platform':'qoj'}).status_code, 400)
-        state = signing.loads(first['next'], salt='gallery-snapshot')
+        state = signing.loads(first['next'], salt='gallery-snapshot-v2')
         caches['gallery'].delete('snapshot:' + state['id'])
         response = self.client.get('/api/showcase', {'all':'1', 'cursor':first['next']})
         self.assertEqual(response.status_code, 400)
@@ -110,3 +110,45 @@ class GalleryAudit(TestCase):
         Submission.objects.filter(pk=rows[21].pk).update(submitted_at=timezone.now())
         second = self.client.get(url, {'cursor':first['next']}).json()
         self.assertEqual([r['id'] for r in second['submissions']], [r.pk for r in rows[20:]])
+
+    def test_day_group_times_stay_fixed_until_refresh(self):
+        rows, first = self.make_pages()
+        pending = rows[21]
+        pending.refresh_from_db()
+        original = pending.submitted_at.isoformat()
+        Submission.objects.create(team=self.team, member=self.author_member, semester=self.semester, week=self.week, problem=pending.problem)
+        second = self.client.get('/api/showcase', {'all':'1', 'cursor':first['next']}).json()
+        found = next(p for p in second['problems'] if p['id'] == pending.problem_id)
+        self.assertEqual(found['group_uploaded_at'], original)
+        refreshed = self.client.get('/api/showcase?all=1').json()
+        self.assertEqual(refreshed['problems'][0]['id'], pending.problem_id)
+        self.assertNotEqual(refreshed['problems'][0]['group_uploaded_at'], original)
+
+    def test_platform_day_uses_latest_upload_in_selected_platform(self):
+        older = self.record(self.problem, 60)
+        older.refresh_from_db()
+        newer = Submission.objects.create(team=self.team, member=self.owner_member, semester=self.semester, week=self.week, problem=self.problem, original_problem_url='https://www.luogu.com.cn/problem/P1000')
+        selected = self.client.get('/api/showcase?all=1&platform=nowcoder').json()['problems'][0]
+        self.assertEqual(selected['group_uploaded_at'], older.submitted_at.isoformat())
+        all_rows = self.client.get('/api/showcase?all=1').json()['problems']
+        self.assertEqual(len(all_rows), 1)
+        self.assertEqual(all_rows[0]['group_uploaded_at'], newer.submitted_at.isoformat())
+
+    def test_concurrent_deletion_or_rejection_during_list_response(self):
+        from . import community_views
+        original = community_views.snapshot_page
+        for platform in ('', 'nowcoder'):
+            for action in ('delete', 'reject'):
+                with self.subTest(platform=platform, action=action):
+                    row = self.record(self.problem, 0)
+                    def change_after_group_query(*args, **kwargs):
+                        result = original(*args, **kwargs)
+                        if action == 'delete':
+                            row.delete()
+                        else:
+                            Submission.objects.filter(pk=row.pk).update(is_valid=False)
+                        return result
+                    with patch.object(community_views, 'snapshot_page', side_effect=change_after_group_query):
+                        response = self.client.get('/api/showcase', {'all':'1', 'platform':platform})
+                    self.assertEqual(response.status_code, 200)
+                    self.assertEqual(response.json()['problems'], [])

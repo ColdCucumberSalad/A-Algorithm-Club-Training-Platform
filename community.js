@@ -129,8 +129,33 @@ function submissionCard(item, moderation = false) {
   </article>`;
 }
 
+function galleryUploadDay(timestamp) {
+  const parts = new Intl.DateTimeFormat('en-US', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(timestamp));
+  const value = type => parts.find(part => part.type === type).value;
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
+
+function appendGalleryDay(host, timestamp, html) {
+  const day = galleryUploadDay(timestamp);
+  let group = [...host.children].find(node => node.dataset.uploadDay === day);
+  if (!group) {
+    group = document.createElement('section');
+    group.className = 'gallery-day';
+    group.dataset.uploadDay = day;
+    const heading = document.createElement('h3');
+    heading.className = 'gallery-day-heading';
+    heading.textContent = day.replace(/^(\d+)-(\d+)-(\d+)$/, '$1 年 $2 月 $3 日');
+    const list = document.createElement('div');
+    list.className = 'gallery-day-problems';
+    group.append(heading, list);
+    host.append(group);
+  }
+  group.lastElementChild.insertAdjacentHTML('beforeend', html);
+}
+
 async function loadShowcase(page = 1) {
   galleryProblem = null;
+  $('#galleryLoadError').hidden = true;
   $('#problemAllPlatforms').hidden = true;
   $('#gallerySearch').closest('.gallery-search').hidden = false;
   $('#galleryPlatformFilter').hidden = false;
@@ -160,15 +185,24 @@ async function loadShowcase(page = 1) {
     $('#problemHeading').textContent = selectedPlatform ? platformSelect.selectedOptions[0].textContent + '题目' : '全部题目';
     for(const p of data.problems){
       const html = `<button class="problem-row panel" data-problem="${p.id}">${problemPlatformMarkup(p.url)}<span class="problem-row-content"><strong>${escapeHtml(uiProblemTitle(p.title))}</strong><small title="${escapeHtml(p.members.map(uiMemberName).join('、'))}">${p.count} 条题解 · ${p.member_count} 人参与 · ${p.members.slice(0,3).map(uiMemberName).map(escapeHtml).join('、')}${p.members.length>3?' 等':''}</small></span><span class="problem-arrow" aria-label="查看题目详情">›</span></button>`;
-      host.insertAdjacentHTML('beforeend',html);
+      appendGalleryDay(host, p.group_uploaded_at, html);
     }
     if(page===1&&!data.problems.length)host.innerHTML='<div class="queue-empty">暂无匹配的题目。</div>';
     more.hidden = !data.next;
     more.onclick = () => loadShowcase(data.next);
-  } catch (error) { if (version === galleryRequest) { host.innerHTML = `<div class="queue-empty">${escapeHtml(error.message)}</div>`; more.hidden = false; more.textContent = '刷新列表'; more.onclick = () => loadShowcase(); } }
+  } catch (error) {
+    if (version !== galleryRequest) return;
+    if (page === 1) host.replaceChildren();
+    const notice = $('#galleryLoadError');
+    notice.textContent = error.message; notice.hidden = false;
+    const restart = page === 1 || error.status === 400 || error.status === 403 || error.status === 404;
+    more.hidden = false; more.textContent = restart ? '刷新列表' : '重试加载更多';
+    more.onclick = () => loadShowcase(restart ? 1 : page);
+  }
 }
 
 async function openProblem(id, page = 1, platform = galleryDetailPlatform) {
+  $('#galleryLoadError').hidden = true;
   galleryDetailPlatform = platform;
   $('#problemAllPlatforms').hidden = !platform;
   galleryProblem = id;
@@ -181,7 +215,7 @@ async function openProblem(id, page = 1, platform = galleryDetailPlatform) {
   $('#problemBack').hidden = false;
   $('#problemOriginal').hidden = true;
   $('#problemOriginal').removeAttribute('href');
-  host.className = 'submission-days';
+  host.className = 'submission-days problem-solutions';
   if (page === 1) host.innerHTML = '<div class="queue-empty">正在加载全部历史题解…</div>';
   more.hidden = true;
   try {
@@ -199,9 +233,13 @@ async function openProblem(id, page = 1, platform = galleryDetailPlatform) {
     more.onclick = () => openProblem(id, data.next);
   } catch (error) {
     if (version !== galleryRequest) return;
-    if (error.status === 404) { await loadShowcase(); return; }
-    host.innerHTML = `<div class="queue-empty">${escapeHtml(error.message)}</div>`;
-    more.hidden = false; more.textContent = '重新加载题解'; more.onclick = () => openProblem(id, 1, platform);
+    if (page === 1 && error.status === 404) { await loadShowcase(); return; }
+    if (page === 1) host.replaceChildren();
+    const notice = $('#galleryLoadError');
+    notice.textContent = error.message; notice.hidden = false;
+    const restart = page === 1 || error.status === 400 || error.status === 403 || error.status === 404;
+    more.hidden = false; more.textContent = restart ? '重新加载题解' : '重试加载更多';
+    more.onclick = () => openProblem(id, restart ? 1 : page, platform);
   }
 }
 

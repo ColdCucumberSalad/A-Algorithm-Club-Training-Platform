@@ -887,8 +887,12 @@ button.leader-row:hover{background:var(--teal-soft)}
    Keep authored active states and keyboard :focus-visible indicators. */
 html{-webkit-tap-highlight-color:transparent;}
 
-/* Team solutions flow in upload order across weeks. */
-#showcaseView .submission-days{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:20px}
-#showcaseView .submission-days>.solution-card{display:block;min-width:0;margin-bottom:0}
-@container(min-width:650px){#showcaseView .submission-days{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@container(min-width:1140px){#showcaseView .submission-days{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* Upload-day groups use Beijing dates and retain snapshot order across pages. */
+#showcaseView .submission-days{display:block;margin:20px 0}
+#showcaseView .gallery-day+.gallery-day{margin-top:26px}
+#showcaseView .gallery-day-heading{margin:0 0 14px;font-size:16px;font-weight:650;color:var(--ink)}
+#showcaseView .gallery-day-problems{display:grid;gap:14px}
+#showcaseView .problem-solutions{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:20px}
+#showcaseView .problem-solutions>.solution-card{display:block;min-width:0;margin-bottom:0}
+@container(min-width:650px){#showcaseView .problem-solutions{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container(min-width:1140px){#showcaseView .problem-solutions{grid-template-columns:repeat(3,minmax(0,1fr))}}

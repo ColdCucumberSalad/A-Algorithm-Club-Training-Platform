@@ -113,18 +113,20 @@ def platform_solutions(items):
 GALLERY_SNAPSHOT_TTL = 900
 
 
-def snapshot_page(request, items, context, id_field):
-    """Cache only ordered IDs. Re-query live visibility before returning each page."""
+def snapshot_page(request, items, context, id_field, time_field):
+    """Freeze ordered IDs and display times; re-query live visibility on every page."""
     cache = caches['gallery']
     token = request.GET.get('cursor', '')
     if token:
-        state = signing.loads(token, salt='gallery-snapshot', max_age=GALLERY_SNAPSHOT_TTL)
+        state = signing.loads(token, salt='gallery-snapshot-v2', max_age=GALLERY_SNAPSHOT_TTL)
         snapshot = cache.get('snapshot:' + state['id'])
         if snapshot is None or snapshot['context'] != context:
             raise ValueError('snapshot expired or scope changed')
         offset = state['offset']
     else:
-        snapshot = {'context': context, 'ids': list(items.values_list(id_field, flat=True))}
+        ordered = list(items.values_list(id_field, time_field))
+        snapshot = {'context': context, 'ids': [pk for pk, at in ordered],
+                    'times': {pk: at.isoformat() for pk, at in ordered}}
         state = {'id': uuid.uuid4().hex}
         offset = 0
     ids = snapshot['ids']
@@ -135,7 +137,12 @@ def snapshot_page(request, items, context, id_field):
                 for row in items.filter(**{id_field + '__in': batch})}
         for index, pk in enumerate(batch, offset):
             if pk in live:
-                rows.append(live[pk])
+                row = live[pk]
+                if isinstance(row, dict):
+                    row['group_uploaded_at'] = snapshot['times'][pk]
+                else:
+                    row.group_uploaded_at = snapshot['times'][pk]
+                rows.append(row)
                 positions.append(index + 1)
                 if len(rows) == 21:
                     break
@@ -144,7 +151,7 @@ def snapshot_page(request, items, context, id_field):
     if len(rows) > 20:
         if not token:
             cache.set('snapshot:' + state['id'], snapshot, timeout=GALLERY_SNAPSHOT_TTL)
-        next_token = signing.dumps(dict(state, offset=positions[19]), salt='gallery-snapshot')
+        next_token = signing.dumps(dict(state, offset=positions[19]), salt='gallery-snapshot-v2')
     return rows[:20], next_token
 
 
@@ -169,7 +176,7 @@ def showcase_all(request, member):
         items = items.filter(problem_id__in=matching_ids)
     grouped = items.order_by().values('problem_id', 'problem__url', 'problem__title').annotate(count=Count('id'), member_count=Count('member_id', distinct=True), latest=Max('submitted_at')).order_by('-latest', '-problem_id')
     try:
-        rows, next_token = snapshot_page(request, grouped, context, 'problem_id')
+        rows, next_token = snapshot_page(request, grouped, context, 'problem_id', 'latest')
     except (signing.BadSignature, ValueError, KeyError, TypeError):
         return api_error('浏览记录已过期或筛选已变化，请刷新题目列表')
     except (RedisError, OSError):
@@ -180,7 +187,9 @@ def showcase_all(request, member):
             name = '管理员'
         names.setdefault(pid, set()).add(name)
         urls.setdefault(pid, url)
-    result = [dict(id=r['problem_id'], url=urls[r['problem_id']] if selected else r['problem__url'], title=r['problem__title'] or r['problem__url'], platform=selected or problem_platform(r['problem__url'])[0], platform_label=labels[selected or problem_platform(r['problem__url'])[0]], count=r['count'], member_count=r['member_count'], members=sorted(names.get(r['problem_id'], []))) for r in rows]
+    # A concurrent deletion/rejection can remove a group after pagination.
+    rows = [row for row in rows if row['problem_id'] in urls]
+    result = [dict(group_uploaded_at=r['group_uploaded_at'], id=r['problem_id'], url=urls[r['problem_id']] if selected else r['problem__url'], title=r['problem__title'] or r['problem__url'], platform=selected or problem_platform(r['problem__url'])[0], platform_label=labels[selected or problem_platform(r['problem__url'])[0]], count=r['count'], member_count=r['member_count'], members=sorted(names.get(r['problem_id'], []))) for r in rows]
     return JsonResponse({'problems': result, 'platforms': platforms, 'next': next_token})
 
 
@@ -204,9 +213,9 @@ def problem_submissions(request, problem_id):
     selected = request.GET.get('platform', '')
     if selected:
         items = items.filter(platform=selected)
-    if not items.exists():
-        return api_error('该题目不存在或没有可见提交', 404)
     first = items.first()
+    if first is None:
+        return api_error('该题目不存在或没有可见提交', 404)
     problem = first.problem
     problem_url = first.source_url if selected else problem.url
     query = request.GET.get('q', '').strip()[:200]
@@ -215,7 +224,7 @@ def problem_submissions(request, problem_id):
     if 'cursor' in request.GET:
         context = [request.user.pk, member.pk, request.test_target_team.pk if getattr(request, 'admin_test_mode', False) else member.team_id, 'problem', problem_id, query, selected]
         try:
-            rows, next_page = snapshot_page(request, items, context, 'id')
+            rows, next_page = snapshot_page(request, items, context, 'id', 'submitted_at')
         except (signing.BadSignature, ValueError, KeyError, TypeError):
             return api_error('浏览记录已过期或筛选已变化，请重新打开题目')
         except (RedisError, OSError):
@@ -229,6 +238,7 @@ def problem_submissions(request, problem_id):
     result = []
     for item in rows:
         row = community_submission(item, member)
+        row['group_uploaded_at'] = getattr(item, 'group_uploaded_at', item.submitted_at.isoformat())
         if getattr(request, 'admin_test_mode', False):
             if item.member_id == member.pk:
                 row['member_name'] = '管理员'
