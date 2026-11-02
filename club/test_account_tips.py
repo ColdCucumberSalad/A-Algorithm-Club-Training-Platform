@@ -85,7 +85,7 @@ class TipTests(TestCase):
             self.assertEqual(response.status_code,200,response.content)
             entry=response.json()['transactions'][0]
             self.assertNotIn(old_name,entry['description'])
-            self.assertEqual(entry['description'],f'打赏提交 #{self.target.pk}')
+            self.assertEqual(entry['description'],f'打赏 已注销用户 的提交 #{self.target.pk}')
             self.assertEqual((entry['amount'],entry['balance_after']),(-7,13))
         self.assertEqual(SubmissionTip.objects.values().get(),receipt)
 
@@ -97,7 +97,7 @@ class TipTests(TestCase):
         self.close(self.reader)
         self.client.force_login(self.author)
         entry=self.client.get('/api/currency/transactions').json()['transactions'][0]
-        self.assertEqual(entry['description'],f'收到提交 #{self.target.pk} 的打赏')
+        self.assertEqual(entry['description'],f'收到 已注销用户 对提交 #{self.target.pk} 的打赏')
         self.assertNotIn(old_name,entry['description'])
         self.assertEqual((entry['amount'],entry['balance_after']),(7,7))
 
@@ -105,6 +105,29 @@ class TipTests(TestCase):
         self.assertEqual(self.tip().status_code,200)
         descriptions=list(CurrencyTransaction.objects.order_by('pk').values_list('description',flat=True))
         self.assertEqual(descriptions,[f'打赏提交 #{self.target.pk}',f'收到提交 #{self.target.pk} 的打赏'])
+
+    def test_recipient_sees_current_sender_name_and_exact_amount(self):
+        self.assertEqual(self.tip().status_code,200)
+        receipt=SubmissionTip.objects.get()
+        self.assertEqual(list(CurrencyTransaction.objects.order_by('pk').values_list('tip_id',flat=True)),[receipt.pk,receipt.pk])
+        self.client.force_login(self.author)
+        entry=self.client.get('/api/currency/transactions').json()['transactions'][0]
+        self.assertEqual(entry['description'],f'收到 {self.sender.display_name} 对提交 #{self.target.pk} 的打赏')
+        self.assertEqual((entry['amount'],entry['balance_after']),(7,7))
+        old_name=self.sender.display_name
+        self.sender.display_name='Current sender name';self.sender.save()
+        entry=self.client.get('/api/currency/transactions').json()['transactions'][0]
+        self.assertIn('Current sender name',entry['description'])
+        self.assertNotIn(old_name,entry['description'])
+
+    def test_unlinked_legacy_receipt_does_not_guess_identity_from_old_text(self):
+        self.assertEqual(self.tip().status_code,200)
+        CurrencyTransaction.objects.filter(transaction_type='tip_received').update(tip=None,
+            description=f'收到 Private old nickname 对提交 #{self.target.pk} 的打赏')
+        self.client.force_login(self.author)
+        entry=self.client.get('/api/currency/transactions').json()['transactions'][0]
+        self.assertEqual(entry['description'],f'收到提交 #{self.target.pk} 的打赏')
+        self.assertEqual(entry['amount'],7)
 
 
 class PasswordTests(TestCase):

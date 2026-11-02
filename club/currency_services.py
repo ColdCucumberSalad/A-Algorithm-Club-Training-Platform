@@ -50,7 +50,7 @@ def adjust_currency(member, amount, transaction_type, description="", created_by
 
 
 @transaction.atomic
-def add_currency(member, amount, transaction_type, description="", created_by=None):
+def add_currency(member, amount, transaction_type, description="", created_by=None, *, tip=None):
     """Add currency to a member's balance"""
     if type(amount) is not int or amount < 0:
         raise ValueError("金额必须为非负整数")
@@ -68,14 +68,15 @@ def add_currency(member, amount, transaction_type, description="", created_by=No
         balance_after=balance.balance,
         transaction_type=transaction_type,
         description=description,
-        created_by=created_by
+        created_by=created_by,
+        tip=tip,
     )
 
     return balance.balance
 
 
 @transaction.atomic
-def deduct_currency(member, amount, transaction_type, description="", created_by=None):
+def deduct_currency(member, amount, transaction_type, description="", created_by=None, *, tip=None):
     """Deduct currency from a member's balance"""
     if type(amount) is not int or amount <= 0:
         raise ValueError("扣除金额必须为正整数")
@@ -95,7 +96,8 @@ def deduct_currency(member, amount, transaction_type, description="", created_by
         balance_after=balance.balance,
         transaction_type=transaction_type,
         description=description,
-        created_by=created_by
+        created_by=created_by,
+        tip=tip,
     )
 
     return balance.balance
@@ -320,7 +322,9 @@ def calculate_contest_reward(problems_solved, is_ak, team):
 
 def get_transaction_history(member, limit=50):
     """Get transaction history for a member"""
-    return CurrencyTransaction.objects.filter(user_id=member.user_id)[:limit]
+    return CurrencyTransaction.objects.filter(user_id=member.user_id).select_related(
+        'tip__sender__user__account_closure','tip__recipient__user__account_closure',
+        'tip__sender_user__account_closure')[:limit]
 
 
 def initialize_default_currency_config(team):

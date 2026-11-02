@@ -409,6 +409,7 @@ class CurrencyTransaction(models.Model):
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE, related_name="coin_transactions")
     team = models.ForeignKey(Team, null=True, blank=True, on_delete=models.SET_NULL, related_name="currency_transactions")
     member = models.ForeignKey(TeamMembership, null=True, blank=True, on_delete=models.SET_NULL, related_name="currency_transactions")
+    tip = models.ForeignKey('SubmissionTip',null=True,blank=True,on_delete=models.SET_NULL,related_name='ledger_entries')
     amount = models.BigIntegerField(verbose_name="变动金额")
     balance_after = models.IntegerField(verbose_name="变动后余额")
     transaction_type = models.CharField(max_length=20, choices=TYPE_CHOICES, verbose_name="交易类型")
@@ -420,6 +421,7 @@ class CurrencyTransaction(models.Model):
         ordering = ["-created_at"]
         verbose_name = "货币交易记录"
         verbose_name_plural = "货币交易记录"
+        constraints = [models.UniqueConstraint(fields=['tip','transaction_type'],name='unique_tip_ledger_direction')]
 
     def save(self, *args, **kwargs):
         if not self.user_id and self.member_id: self.user_id=self.member.user_id

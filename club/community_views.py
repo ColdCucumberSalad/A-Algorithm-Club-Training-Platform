@@ -183,12 +183,12 @@ def tip_submission(request, submission_id):
     from django.db import IntegrityError
     try:
         with transaction.atomic():
-            SubmissionTip.objects.create(request_id=token,team=member.team,sender_user=request.user,sender=sender,recipient=recipient,submission=target,amount=amount)
+            tip=SubmissionTip.objects.create(request_id=token,team=member.team,sender_user=request.user,sender=sender,recipient=recipient,submission=target,amount=amount)
     except IntegrityError:
         return api_error('打赏请求编号已被使用',409)
     from .currency_descriptions import transaction_description
-    deduct_currency(sender,amount,'tip_sent',transaction_description('tip_sent',submission_id=target.pk))
-    add_currency(recipient,amount,'tip_received',transaction_description('tip_received',submission_id=target.pk))
+    deduct_currency(sender,amount,'tip_sent',transaction_description('tip_sent',submission_id=target.pk),tip=tip)
+    add_currency(recipient,amount,'tip_received',transaction_description('tip_received',submission_id=target.pk),tip=tip)
     return JsonResponse({'ok':True,'amount':amount,'recipient':recipient.display_name})
 
 

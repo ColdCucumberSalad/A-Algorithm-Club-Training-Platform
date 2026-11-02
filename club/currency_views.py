@@ -26,7 +26,7 @@ from .models import (
     ShopItem, Purchase, UserInventory, TeamMembership, Team, FileDeletion
 )
 from .currency_config import config_data, validate_config, apply_config, currency_icon_url
-from .currency_descriptions import transaction_description
+from .currency_descriptions import ledger_description
 from .currency_services import (
     get_or_create_balance, add_currency, deduct_currency,
     get_current_streak, perform_checkin, makeup_checkin,
@@ -79,7 +79,7 @@ def api_currency_transactions(request):
         "balance_after": t.balance_after,
         "type": t.transaction_type,
         "type_display": t.get_transaction_type_display(),
-        "description": transaction_description(t.transaction_type,t.description),
+        "description": ledger_description(t),
         "created_at": t.created_at.isoformat()
     } for t in transactions]
 

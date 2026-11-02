@@ -10,7 +10,7 @@ from django.utils import timezone
 class AccountProblemMigrationTests(TransactionTestCase):
     """Both already-deployed branch histories must upgrade without fake migrations."""
 
-    merged = [('club', '0050_anonymize_tip_descriptions')]
+    merged = [('club', '0051_link_tip_ledgers')]
 
     def migrate(self, targets):
         executor = MigrationExecutor(connection)
@@ -100,7 +100,7 @@ class AccountProblemMigrationTests(TransactionTestCase):
         before=list(Ledger.objects.order_by('pk').values())
         balances=list(Balance.objects.order_by('pk').values())
         receipt_before=apps.get_model('club','SubmissionTip').objects.values().get(pk=receipt.pk)
-        apps=self.migrate(self.merged)
+        apps=self.migrate([('club','0050_anonymize_tip_descriptions')])
         after=list(apps.get_model('club','CurrencyTransaction').objects.order_by('pk').values())
         self.assertEqual([r['description'] for r in after],[f'打赏提交 #{sid}',f'收到提交 #{sid} 的打赏'])
         for prior,current in zip(before,after):
@@ -108,3 +108,39 @@ class AccountProblemMigrationTests(TransactionTestCase):
             self.assertEqual(prior,current)
         self.assertEqual(list(apps.get_model('club','CurrencyBalance').objects.order_by('pk').values()),balances)
         self.assertEqual(apps.get_model('club','SubmissionTip').objects.values().get(pk=receipt.pk),receipt_before)
+
+    def test_tip_links_backfill_repeated_transfers_without_guessing_ambiguous_history(self):
+        apps=self.migrate([('club','0050_anonymize_tip_descriptions')])
+        uid,sid,pid=self.seed(apps,global_wallet=True)
+        submission=apps.get_model('club','Submission').objects.get(pk=sid)
+        sender=apps.get_model('auth','User').objects.create(username='tip-link-sender')
+        member=apps.get_model('club','TeamMembership').objects.create(user=sender,team_id=submission.team_id,
+            display_name='Known sender')
+        Tip=apps.get_model('club','SubmissionTip')
+        Ledger=apps.get_model('club','CurrencyTransaction')
+        base=timezone.now()-timedelta(minutes=5)
+        expected={}
+        for index in range(2):
+            tip=Tip.objects.create(request_id=uuid.uuid4(),team_id=submission.team_id,sender_user=sender,
+                sender=member,recipient_id=submission.member_id,submission=submission,amount=7)
+            Tip.objects.filter(pk=tip.pk).update(created_at=base+timedelta(seconds=index*3))
+            for kind,owner,mid,delta,balance,offset in [
+                    ('tip_sent',sender.pk,member.pk,-7,13-index*7,1),
+                    ('tip_received',uid,submission.member_id,7,19+index*7,2)]:
+                row=Ledger.objects.create(user_id=owner,team_id=submission.team_id,member_id=mid,
+                    amount=delta,balance_after=balance,transaction_type=kind,description=f'提交 #{sid}')
+                Ledger.objects.filter(pk=row.pk).update(created_at=base+timedelta(seconds=index*3+offset))
+                expected[row.pk]=tip.pk
+        for offset in (10,11):
+            tip=Tip.objects.create(request_id=uuid.uuid4(),team_id=submission.team_id,sender_user=sender,
+                sender=member,recipient_id=submission.member_id,submission=submission,amount=9)
+            Tip.objects.filter(pk=tip.pk).update(created_at=base+timedelta(seconds=offset))
+        ambiguous=Ledger.objects.create(user_id=uid,team_id=submission.team_id,member_id=submission.member_id,
+            amount=9,balance_after=35,transaction_type='tip_received',description=f'收到提交 #{sid} 的打赏')
+        Ledger.objects.filter(pk=ambiguous.pk).update(created_at=base+timedelta(seconds=12))
+        before=list(Ledger.objects.order_by('pk').values())
+        apps=self.migrate(self.merged)
+        after=list(apps.get_model('club','CurrencyTransaction').objects.order_by('pk').values())
+        for old,new in zip(before,after):
+            self.assertEqual(new.pop('tip_id'),expected.get(new['id']))
+            self.assertEqual(old,new)
