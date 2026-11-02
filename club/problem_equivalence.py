@@ -80,6 +80,8 @@ def rebalance_submissions(user_id, problem_id, *, lost_records=()):
                     status = part.status if freshly_approved else state.get('status','approved')
                     part.status = status
                     part.points_awarded = (score_part(part) if freshly_approved else state.get('points',score_part(part))) if status == 'approved' else 0
+                    if part.kind=='logic' and not part.has_content:
+                        part.points_awarded=0
                     part.review_note = state.get('note','') if status != 'approved' else ''
                     part.save(update_fields=['status','points_awarded','review_note'])
                 promoted.append(row)

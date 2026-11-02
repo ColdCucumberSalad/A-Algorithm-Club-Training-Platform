@@ -6,6 +6,7 @@ from django.http import JsonResponse
 from .views import api_login_required,api_error,body,membership_for,serialize_submission,score_part
 from .models import Submission,SubmissionPart,Semester,ReviewLog
 from .services import refresh_totals
+from .submission_content import normalize_logic
 
 
 @api_login_required
@@ -36,6 +37,7 @@ def edit_submission(request,submission_id):
         target.parts.filter(kind__in=['logic','blog','code']).delete()
         for kind in ('logic','blog','code'):
             text=data.get(kind,'').strip() if kind!='code' else data[kind]
+            if kind=='logic':text=normalize_logic(text)
             if not text:continue
             if kind=='code':
                 fence='`'*max(3,max((len(run) for run in re.findall(r'`+',text)),default=0)+1)

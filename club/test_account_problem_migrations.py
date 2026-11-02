@@ -10,7 +10,7 @@ from django.utils import timezone
 class AccountProblemMigrationTests(TransactionTestCase):
     """Both already-deployed branch histories must upgrade without fake migrations."""
 
-    merged = [('club', '0051_link_tip_ledgers')]
+    merged = [('club', '0052_correct_empty_logic_scores')]
 
     def migrate(self, targets):
         executor = MigrationExecutor(connection)
@@ -144,3 +144,55 @@ class AccountProblemMigrationTests(TransactionTestCase):
         for old,new in zip(before,after):
             self.assertEqual(new.pop('tip_id'),expected.get(new['id']))
             self.assertEqual(old,new)
+
+    def test_empty_logic_cleanup_repairs_scores_without_changing_rewards_or_real_content(self):
+        apps=self.migrate([('club','0051_link_tip_ledgers')])
+        uid,sid,pid=self.seed(apps,global_wallet=True)
+        Submission=apps.get_model('club','Submission');Part=apps.get_model('club','SubmissionPart')
+        row=Submission.objects.get(pk=sid)
+        semester=apps.get_model('club','Semester').objects.get(pk=row.semester_id)
+        semester.min_score=10;semester.min_submissions=2;semester.require_both=True
+        semester.archived_at=timezone.now();semester.save()
+        apps.get_model('club','Week').objects.filter(pk=row.week_id).update(is_closed=True)
+        proof=Part.objects.create(submission=row,kind='proof',upload='proof.png',status='approved',points_awarded=1)
+        bad=Part.objects.create(submission=row,kind='logic',text_content=' \n未提交题解思路。 ',status='approved',points_awarded=5)
+        blog=Part.objects.create(submission=row,kind='blog',text_content='Real blog',status='approved',points_awarded=1)
+        other=apps.get_model('club','Problem').objects.create(identity='real-logic',url='https://example.com/real-logic')
+        real=Submission.objects.create(team_id=row.team_id,member_id=row.member_id,semester_id=row.semester_id,
+            week_id=row.week_id,problem=other)
+        Part.objects.create(submission=real,kind='proof',upload='real.png',status='approved',points_awarded=1)
+        good=Part.objects.create(submission=real,kind='logic',text_content='真正的推导与证明',status='approved',points_awarded=4)
+        duplicate=Submission.objects.create(team_id=row.team_id,member_id=row.member_id,semester_id=row.semester_id,
+            week_id=row.week_id,problem_id=pid,is_valid=False,is_duplicate=True,
+            duplicate_state={'parts':{'logic':{'status':'approved','points':5}},'checkin':{'reward_amount':3,'is_makeup':False}})
+        Part.objects.create(submission=duplicate,kind='logic',text_content='',status='rejected',points_awarded=0)
+        Total=apps.get_model('club','SemesterMemberTotal')
+        total=Total.objects.create(semester=semester,member_id=row.member_id,total_score=12,total_submissions=2,
+            qualified_weeks=1,display_name='Preserved archived nickname')
+        finalized_at=total.finalized_at
+        Checkin=apps.get_model('club','CheckinRecord')
+        Checkin.objects.create(team_id=row.team_id,member_id=row.member_id,checkin_date=row.record_date,reward_amount=3)
+        Ledger=apps.get_model('club','CurrencyTransaction')
+        Ledger.objects.create(user_id=uid,team_id=row.team_id,member_id=row.member_id,amount=9,balance_after=9,
+            transaction_type='admin_adjust',description='Initial grant')
+        Ledger.objects.create(user_id=uid,team_id=row.team_id,member_id=row.member_id,amount=3,balance_after=12,
+            transaction_type='checkin',description='Paid checkin')
+        ledger_before=list(Ledger.objects.order_by('pk').values())
+        checkin_before=list(Checkin.objects.values())
+        apps=self.migrate(self.merged)
+        corrected=apps.get_model('club','SubmissionPart').objects.get(pk=bad.pk)
+        self.assertEqual((corrected.text_content,corrected.points_awarded),('',0))
+        total=apps.get_model('club','SemesterMemberTotal').objects.get(pk=total.pk)
+        self.assertEqual((total.total_score,total.total_submissions,total.qualified_weeks),(7,2,0))
+        self.assertEqual((total.display_name,total.finalized_at),('Preserved archived nickname',finalized_at))
+        self.assertEqual(apps.get_model('club','SubmissionPart').objects.get(pk=good.pk).points_awarded,4)
+        self.assertEqual(apps.get_model('club','SubmissionPart').objects.get(pk=blog.pk).text_content,'Real blog')
+        self.assertEqual(apps.get_model('club','SubmissionPart').objects.get(pk=proof.pk).upload.name,'proof.png')
+        state=apps.get_model('club','Submission').objects.get(pk=duplicate.pk).duplicate_state
+        self.assertEqual(state['parts']['logic']['points'],0)
+        self.assertEqual(state['checkin'],{'reward_amount':3,'is_makeup':False})
+        self.assertEqual(list(apps.get_model('club','CurrencyTransaction').objects.order_by('pk').values()),ledger_before)
+        self.assertEqual(list(apps.get_model('club','CheckinRecord').objects.values()),checkin_before)
+        self.assertEqual(apps.get_model('club','CurrencyBalance').objects.get(user_id=uid).balance,12)
+        self.migrate([('club','0051_link_tip_ledgers')]);apps=self.migrate(self.merged)
+        self.assertEqual(apps.get_model('club','ReviewLog').objects.filter(action='empty_logic_correction').count(),1)
