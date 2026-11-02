@@ -46,7 +46,7 @@ function rankingSelection(target) {
     period: panel?.querySelector('[data-solved-period]')?.value || 'semester', panel};
 }
 
-const pageTitles = {settings:'设置',extensions:'拓展', dashboard:'总览', submissions:'我的提交', leaderboard:'排行榜', showcase:'团队提交', members:'成员列表', contests:'赛事中心', admin:'管理工作台', rbcshop:'RBC商店'};
+const pageTitles = {poker:'德州扑克', settings:'设置',extensions:'拓展', dashboard:'总览', submissions:'我的提交', leaderboard:'排行榜', showcase:'团队提交', members:'成员列表', contests:'赛事中心', admin:'管理工作台', rbcshop:'RBC商店'};
 const $ = (selector, root=document) => root.querySelector(selector);
 const $$ = (selector, root=document) => [...root.querySelectorAll(selector)];
 let canManage = false;
@@ -247,6 +247,11 @@ function setView(view, {preserveContent=false}={}) {
   if (view === currentView) return;
   const previousView = currentView;
   currentView = view;
+  if (view === 'poker' || previousView === 'poker') {
+    const url = new URL(location.href);
+    url.searchParams.set('view', view);
+    history.replaceState(null, '', url);
+  }
   const nextView = $(`#${view}View`);
   $$('.page-view').forEach((el) => el.classList.toggle('active', el === nextView));
   $$('.nav-item[data-view]').forEach((el) => el.classList.toggle('active', el.dataset.view === view));
@@ -277,6 +282,7 @@ function setView(view, {preserveContent=false}={}) {
     if (shopView) window.CurrencyModule.renderShopView(shopView);
   }
   window.contestSchedule?.activate(view === 'contests');
+  window.PokerModule?.activate(view === 'poker');
   if (view === 'extensions') window.ExtensionResources.load();
 }
 

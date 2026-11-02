@@ -1,4 +1,5 @@
 from django.urls import path
+from . import poker_views
 from . import extension_views
 from . import account_views, admin_submission_views
 from . import member_management
@@ -18,6 +19,8 @@ from .admin_test_mode import toggle as toggle_test_mode
 from . import shop_fulfillment
 
 urlpatterns = [
+    path('poker/rooms', poker_views.rooms),
+    path('poker/rooms/<uuid:room_id>', poker_views.room),
     path('management/submissions/<int:submission_id>',admin_submission_views.edit_submission),
     path('profile/titles/wear', profile_views.wear_title),
     path('account',account_views.current_account),

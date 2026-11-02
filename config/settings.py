@@ -109,6 +109,7 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {'priority_steps':list(range(10)), 'queue_orde
 from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
+    'poker-room-timeouts': {'task': 'club.tasks.sweep_poker_rooms', 'schedule': 15.0},
     'refresh-tracker-catalogs': {'task': 'club.tasks.refresh_tracker_catalogs',
                                'schedule': crontab(hour='6,18', minute=0)},
     "astrbot-notifications": {
