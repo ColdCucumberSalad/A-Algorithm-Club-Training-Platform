@@ -14,6 +14,7 @@ from .models import PlatformBinding, PlatformSolvedRecord, PlatformSolvedBaselin
 from .platform_sync import Remote, SyncError
 from .platform_credentials import attach
 from .platform_solved import day_of, problem_url
+from .qoj_pages import profile_rating, accepted_rows
 
 
 def record(key, stamp=None, title='', url=''):
@@ -37,12 +38,10 @@ def profile(remote, binding):
     from . import platform_sync as adapters
     if binding.platform == 'qoj':
         html = remote.text('https://qoj.ac/user/profile/' + quote(binding.account, safe=''))
-        soup = BeautifulSoup(html, 'html.parser')
-        text = soup.get_text(' ', strip=True)
         result = {'display_name': binding.account, 'profile_url': 'https://qoj.ac/user/profile/' + quote(binding.account, safe='')}
-        match = re.search(r'\bRating\s*:?\s*([\d,]+)', text, re.I)
-        if match:
-            result['rating'] = int(match[1].replace(',', ''))
+        rating = profile_rating(html, binding.account)
+        if rating is not None:
+            result['rating'] = rating
         return result
     fn = getattr(adapters, binding.platform)
     result = fn(remote, binding.account, include_solved=binding.platform in {'leetcode', 'luogu', 'atcoder'})
@@ -109,27 +108,13 @@ def history_page(remote, binding, state):
         if not remote.credentials.get('cookie'):
             raise SyncError('请填写 QOJ Cookie')
         html = remote.text(f'https://qoj.ac/submissions?submitter={quote(account,safe="")}&min_score=100&max_score=100&page={page}')
-        soup = BeautifulSoup(html, 'html.parser')
-        if soup.select_one('input[name=password]') or 'must now be logged in' in html.lower():
-            raise SyncError('请更新 QOJ Cookie')
-        table = soup.select_one('table')
-        if not table:
-            raise SyncError('同步失败，请重试')
-        for tr in table.select('tr'):
-            link = next((a for a in tr.select('a[href]') if re.search(r'/(?:contest/\d+/)?problem/\d+',a['href'])),None)
-            if not link:
-                continue
-            users = [unquote(a['href'].rsplit('/',1)[-1]) for a in tr.select('a[href*="/user/profile/"]')]
-            if not users or account.casefold() not in {u.casefold() for u in users}:
-                continue
+        soup, accepted = accepted_rows(html, account)
+        for tr, link, key in accepted:
             text = tr.get_text(' ',strip=True)
-            if not re.search(r'\b100(?:\.0+)?\b|Accepted|\bAC\b',text,re.I):
-                continue
-            match = re.search(r'/(?:contest/\d+/)?problem/(\d+)',link['href'])
             stamp = html_stamp(text)
             if stamp:
                 stamps.append(stamp)
-            key = match[1]; ids.append(text)
+            ids.append(text)
             rows.append(record(key, stamp, link.get_text(' ',strip=True), 'https://qoj.ac/problem/'+key))
         done = not has_next(soup,page) or bool(cutoff and stamps and min(stamps)<cutoff)
     elif platform == 'nowcoder':
