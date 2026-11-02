@@ -317,7 +317,7 @@ document.addEventListener('click', async event => {
     } else {
       const preview=button.dataset.resolve==='reject'?await confirmSubmissionReversal(button.dataset.id,'reject',{authorPenalty:reportCoins?.author_penalty||0}):null;
       if(button.dataset.resolve==='reject'&&!preview)return;
-      await communityRequest(`/api/admin/reports/${button.dataset.id}/resolve`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:button.dataset.resolve, note, version:Number(button.dataset.version),report_ids:button.dataset.reportIds?JSON.parse(button.dataset.reportIds):undefined,report_coins:reportCoins,recovery_token:preview?.token})});
+      await communityRequest(`/api/admin/reports/${button.dataset.id}/resolve`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:button.dataset.resolve, note, version:Number(button.dataset.version),report_snapshot:button.dataset.reportSnapshot?JSON.parse(button.dataset.reportSnapshot):undefined,report_coins:reportCoins,recovery_token:preview?.token})});
       showToast(button.dataset.resolve === 'reject' ? '已退回，积分、签到奖励与过题量已重新计算' : '已驳回举报');
       ModerationWindows.closeReview();await loadWorkbench(); await refreshAfterMutation();
     }

@@ -1,10 +1,13 @@
 import json
+from io import BytesIO
 from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
+from django.utils import timezone
+from openpyxl import load_workbook
 from . import test_community as fixtures
 from .models import (AccountClosure,TeamMembership,Team,UserProfile,PlatformBinding,
-    CurrencyBalance,ShopItem,Purchase,UserInventory,Submission,SubmissionPart,SubmissionReport)
+    CurrencyBalance,ShopItem,Purchase,UserInventory,Submission,SubmissionPart,SubmissionReport,SemesterMemberTotal)
 
 
 class AccountLifecycleTests(TestCase):
@@ -78,6 +81,27 @@ class AccountLifecycleTests(TestCase):
         self.assertEqual(self.post(self.admin,url,payload).status_code,409)
         self.assertEqual(self.admin.get('/api/management/accounts').status_code,200)
 
+    def test_closure_anonymizes_archived_history_and_export_without_changing_totals(self):
+        old_name=self.author_member.display_name
+        self.semester.archived_at=timezone.now();self.semester.save()
+        total=SemesterMemberTotal.objects.create(semester=self.semester,member=self.author_member,
+            display_name=old_name,total_score=37,total_submissions=5,qualified_weeks=2)
+        self.assertEqual(self.close().status_code,200)
+        self.author_member.refresh_from_db();total.refresh_from_db()
+        self.assertEqual(total.display_name,self.author_member.display_name)
+        self.assertNotEqual(total.display_name,old_name)
+        self.assertEqual((total.total_score,total.total_submissions,total.qualified_weeks),(37,5,2))
+        self.client.force_login(self.reader)
+        response=self.client.get(f'/api/members/{self.author_member.pk}/history',{'semester':self.semester.pk})
+        self.assertEqual(response.status_code,200,response.content)
+        self.assertEqual(response.json()['member']['name'],self.author_member.display_name)
+        self.client.force_login(self.owner)
+        response=self.client.get('/api/export',{'semester':self.semester.pk})
+        self.assertEqual(response.status_code,200)
+        book=load_workbook(BytesIO(b''.join(response.streaming_content)))
+        self.assertEqual(list(book.active.values)[1],(self.author_member.display_name,37,5,2))
+        book.close()
+
 
 class ReportReasonTests(TestCase):
     setUp=fixtures.CommunityTests.setUp
@@ -112,7 +136,7 @@ class ReportReasonTests(TestCase):
     def test_resolved_report_cannot_be_cancelled_or_reopened(self):
         record=self.submit_record();self.client.force_login(self.reader);self.report(record)
         self.client.force_login(self.owner)
-        result=self.client.post(f'/api/admin/reports/{record.pk}/resolve',json.dumps({'action':'dismiss','version':record.version}),content_type='application/json')
+        result=self.client.post(f'/api/admin/reports/{record.pk}/resolve',json.dumps({'action':'dismiss','version':record.version,'report_snapshot':fixtures.report_snapshot(record)}),content_type='application/json')
         self.assertEqual(result.status_code,200,result.content)
         self.client.force_login(self.reader)
         self.assertEqual(self.client.delete(f'/api/submissions/{record.pk}/report').status_code,409)

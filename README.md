@@ -254,9 +254,13 @@ API 配置和卡密在数据库中加密保存，商品公开列表不返回秘�
 
 注销采用停用和匿名化：退出所有团队身份、清除头像及平台绑定凭据、禁止继续登录，保留匿名的已发布提交和交易记录以维持团队历史与账目。注销不同于退出某个团队。请在部署前备份数据库和媒体文件，再执行迁移 `0045_account_closure_report_reasons`。
 
+注销同时匿名化所有团队的学期汇总昵称快照（包含已归档学期），历史查询和 XLSX 导出不再保留原昵称；积分、有效提交次数和达标周数不变。写入顺序为账号、相关学期、团队身份，避免与统计重算相互覆盖。
+
 接口：`GET /api/account` 返回当前全局账号；`GET /api/management/accounts?q=&page=1` 每页 20 条；`PATCH /api/management/accounts/<id>` 接收 `account` 和可选 `password`。本人注销 `POST /api/account/close` 接收 `confirmation: "注销账号"` 和 `password`；管理员注销 `POST /api/management/accounts/<id>/close` 接收相同确认文字、目标 `account` 和 `admin_password`。所有写入接口需要登录及 CSRF 验证。
 
 举报 `POST /api/submissions/<id>/report` 接收 `{"reason":"说明"}`；`DELETE` 同一地址只取消本人的待处理举报。为兼容旧客户端，缺失 reason 字段时记录为旧版未填写；显式空白理由会被拒绝。理由仅向有权限的举报处理工作台展示，不公开在团队题解列表中。
+
+举报队列的 `report_details` 包含每条举报的 `id` 和 `generation`。处理举报的 `POST /api/admin/reports/<id>/resolve` 必须携带完整 `report_snapshot: [{"id":123,"generation":1}, ...]`，缺失快照、仅有旧 `report_ids`、举报增删或撤销后重新举报均返回 409，重新查看当前理由后才能处理或结算 Coins。直接驳回当前版本提交的接口不需要举报快照。升级后旧页面需刷新以加载新的快照提交逻辑。
 
 
 ## 全局资产、账号窗口与题解管理
@@ -267,7 +271,7 @@ API 配置和卡密在数据库中加密保存，商品公开列表不返回秘�
 
 管理员可通过 `GET/PATCH /api/management/submissions/<id>` 编辑有权管理的团队题解。修改提交 `version`、`logic`、`code`、`code_language` 和 `blog`；保留原作者、日期及截图，重新计算内容积分，写入管理员操作记录。已归档学期不可编辑，已退回的提交不会因管理编辑自动恢复为有效或重新领取奖励。旧版本待处理举报注明“管理员已修改题解”，新版本需重新核验。
 
-举报工作台按同一提交、同一版本合并为一项，窗口列出各条理由和时间。处理时可携带 `report_ids`；如果有人新增或取消举报，服务端返回 409，界面刷新后再确认，避免处理尚未看过的新举报。举报理由输入框只允许纵向调整，窗口高度受视口限制，内容在窗口内部滚动。
+举报工作台按同一提交、同一版本合并为一项，窗口列出各条理由和时间。处理时必须携带包含编号和代次的 `report_snapshot`；如果有人新增、取消或重新举报，服务端返回 409，界面刷新后再确认，避免处理尚未看过的新举报。举报理由输入框只允许纵向调整，窗口高度受视口限制，内容在窗口内部滚动。
 
 称号继续按团队授予，新增安全枚举样式 `plain/chroma/wings/captain/president/deputy`，分别用于简约、炫彩、羽翼和不同身份徽章。样式不赋予任何管理权限。个人信息可选择佩戴一个已授予称号或不佩戴，`POST /api/profile/titles/wear` 接收 `{"title":"称号文字"}` 或 `{"title":null}`；榜单和个人名片只展示佩戴的称号。旧资料首次选择前保留已有展示。
 
@@ -276,7 +280,7 @@ API 配置和卡密在数据库中加密保存，商品公开列表不返回秘�
 
 举报处理窗口默认每位选中的有效举报者奖励 1 Coins、被举报者整条提交额外扣除 1 Coins；原提交相关奖励仍按原规则撤回。管理员可在每次处理时分别设置 0–100 的整数金额（0 表示不调整），并选择哪些举报者获得奖励；同一个账号重复出现只奖励一次，多位举报者不增加被举报者的扣款次数。取消、已处理或账号已停用的举报者不进入有效奖励名单。驳回举报、直接退回及管理员编辑题解不触发此奖惩。
 
-确认举报成立时，`POST /api/admin/reports/<id>/resolve` 携带 `action: "reject"`、`version`、`note`、完整的 `report_ids`，以及 `report_coins: {"reward_each":1,"author_penalty":1,"reporter_ids":[账号ID,...]}`。旧客户端不提交此设置时保持不加扣。处理和奖惩在同一事务完成，记录全局 Coins 流水及管理员审核日志；同一版本重复处理不能重复发奖。被举报者余额不足时允许产生负数，窗口会明确提示。部署需执行迁移 `0047_report_coin_transaction_types`，不修改已有余额。
+确认举报成立时，`POST /api/admin/reports/<id>/resolve` 携带 `action: "reject"`、`version`、`note`、完整的 `report_snapshot`（编号与代次），以及 `report_coins: {"reward_each":1,"author_penalty":1,"reporter_ids":[账号ID,...]}`。旧客户端不提交此设置时保持不加扣。处理和奖惩在同一事务完成，记录全局 Coins 流水及管理员审核日志；同一版本重复处理不能重复发奖。被举报者余额不足时允许产生负数，窗口会明确提示。部署需执行迁移 `0047_report_coin_transaction_types`，不修改已有余额。
 
 
 举报 Coins 的金额和获奖名单移至举报处理窗口的“奖励设置”独立窗口；“返回举报处理”、关闭按钮或 Esc 返回时保留本次合法输入，返回不会提交审核或实际加扣。确认举报成立后才执行奖惩。服务器兼容合并与更新步骤见 [本次服务器更新注意事项](deploy/UPDATE_NOTES.zh-CN.md)。

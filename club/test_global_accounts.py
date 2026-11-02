@@ -114,10 +114,10 @@ class GlobalAccountFeatureTests(TestCase):
         queue=self.client.get('/api/admin/reports').json()['submissions'];self.assertEqual(len(queue),1)
         extra=User.objects.create_user('extra-reporter');SubmissionReport.objects.create(submission=item,version=item.version,reporter=extra,reason='New reason')
         url=f'/api/admin/reports/{item.pk}/resolve'
-        response=self.post(self.client,url,{'action':'dismiss','version':item.version,'report_ids':[first.pk]})
+        response=self.post(self.client,url,{'action':'dismiss','version':item.version,'report_snapshot':[{'id':first.pk,'generation':first.generation}]})
         self.assertEqual(response.status_code,409,response.content)
         self.assertEqual(item.reports.filter(status='pending').count(),2)
-        response=self.post(self.client,url,{'action':'dismiss','version':item.version,'report_ids':list(item.reports.values_list('pk',flat=True))})
+        response=self.post(self.client,url,{'action':'dismiss','version':item.version,'report_snapshot':community_fixtures.report_snapshot(item)})
         self.assertEqual(response.status_code,200,response.content)
         self.assertFalse(item.reports.filter(status='pending').exists())
 

@@ -11,7 +11,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from .management_views import administrator_required
 from .views import api_login_required, api_error, body
-from .models import CurrencyBalance, CurrencyTransaction, UserInventory, ShopFulfillment, ShopItem, AccountClosure, TeamMembership, UserProfile, FileDeletion, SubmissionReport, AstrBotNotification
+from .models import CurrencyBalance, CurrencyTransaction, UserInventory, ShopFulfillment, ShopItem, AccountClosure, TeamMembership, UserProfile, FileDeletion, SubmissionReport, AstrBotNotification, Semester, SemesterMemberTotal
 
 
 def private(data):
@@ -96,12 +96,15 @@ def close_user(user_id,actor):
     user=User.objects.select_for_update().get(pk=user_id)
     if user.is_superuser or user.first_name=='CLUB_TEST_SANDBOX':raise ValueError('不能注销系统管理员或内部测试身份')
     if AccountClosure.objects.filter(user=user).exists():return False
+    list(Semester.objects.select_for_update().filter(
+        team_id__in=user.team_memberships.values('team_id')).order_by('pk'))
     memberships=list(TeamMembership.objects.select_for_update().filter(user=user).order_by('pk'))
     for member in memberships:
         name=f'已注销用户·{user.pk}-{member.pk}'
         while TeamMembership.objects.filter(team_id=member.team_id,display_name=name).exclude(pk=member.pk).exists():name='已注销用户·'+uuid.uuid4().hex[:12]
         member.display_name=name;member.is_active=False;member.role='member';member.member_title=[]
         member.save(update_fields=['display_name','is_active','role','member_title'])
+        SemesterMemberTotal.objects.filter(member=member).update(display_name=name)
     profile=UserProfile.objects.filter(user=user).first()
     if profile and profile.avatar:
         from .avatar_images import thumbnail_name

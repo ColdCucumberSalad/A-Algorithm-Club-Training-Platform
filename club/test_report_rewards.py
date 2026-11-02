@@ -20,7 +20,7 @@ class ReportRewardTests(TestCase):
         self.url=f'/api/admin/reports/{self.item.pk}/resolve'
 
     def decide(self,settings=None,**changes):
-        data={'action':'reject','note':'已核实举报成立','version':self.item.version,'report_ids':[self.first.pk,self.second.pk],
+        data={'action':'reject','note':'已核实举报成立','version':self.item.version,'report_snapshot':[{'id':self.first.pk,'generation':self.first.generation},{'id':self.second.pk,'generation':self.second.generation}],
             'report_coins':settings if settings is not None else {'reward_each':1,'author_penalty':1,'reporter_ids':[self.reader.pk,self.extra.pk]}}
         data.update(changes)
         return self.client.post(self.url,json.dumps(data),content_type='application/json')
@@ -68,20 +68,20 @@ class ReportRewardTests(TestCase):
 
     def test_dismiss_and_direct_reject_cannot_use_report_rewards(self):
         self.assertEqual(self.decide(action='dismiss').status_code,400)
-        data={'version':self.item.version,'note':'直接退回','report_ids':[self.first.pk,self.second.pk],
+        data={'version':self.item.version,'note':'直接退回','report_snapshot':[{'id':self.first.pk,'generation':self.first.generation},{'id':self.second.pk,'generation':self.second.generation}],
             'report_coins':{'reward_each':1,'author_penalty':1,'reporter_ids':[self.reader.pk]}}
         response=self.client.post(f'/api/submissions/{self.item.pk}/reject',json.dumps(data),content_type='application/json')
         self.assertEqual(response.status_code,400,response.content)
         self.item.refresh_from_db();self.assertTrue(self.item.is_valid)
         self.assertEqual(self.decide(action='dismiss',report_coins=None).status_code,400)
-        response=self.client.post(self.url,json.dumps({'action':'dismiss','version':self.item.version,'report_ids':[self.first.pk,self.second.pk]}),content_type='application/json')
+        response=self.client.post(self.url,json.dumps({'action':'dismiss','version':self.item.version,'report_snapshot':[{'id':self.first.pk,'generation':self.first.generation},{'id':self.second.pk,'generation':self.second.generation}]}),content_type='application/json')
         self.assertEqual(response.status_code,200,response.content)
         self.assertFalse(CurrencyTransaction.objects.filter(transaction_type__startswith='report_').exists())
 
     def test_cancelled_or_inactive_reporter_is_not_rewarded(self):
         self.second.status='cancelled';self.second.save(update_fields=['status'])
         self.assertEqual(self.decide().status_code,409)
-        response=self.decide({'reward_each':1,'author_penalty':1,'reporter_ids':[self.reader.pk]},report_ids=[self.first.pk])
+        response=self.decide({'reward_each':1,'author_penalty':1,'reporter_ids':[self.reader.pk]},report_snapshot=[{'id':self.first.pk,'generation':self.first.generation}])
         self.assertEqual(response.status_code,200,response.content)
         self.assertEqual(self.balance(self.reader),1);self.assertEqual(self.balance(self.extra),0)
 
@@ -96,10 +96,43 @@ class ReportRewardTests(TestCase):
         self.assertFalse(CurrencyTransaction.objects.filter(transaction_type__startswith='report_').exists())
 
     def test_currency_requires_complete_snapshot_and_other_members_cannot_resolve(self):
-        self.assertEqual(self.decide(report_ids=None).status_code,409)
+        self.assertEqual(self.decide(report_snapshot=None).status_code,409)
         self.client.force_login(self.reader)
         self.assertEqual(self.decide().status_code,403)
         self.item.refresh_from_db();self.assertTrue(self.item.is_valid)
+
+    def test_cancel_and_rereport_invalidates_old_snapshot_for_both_decisions(self):
+        queued=self.client.get('/api/admin/reports').json()['submissions'][0]
+        snapshot=[{'id':r['id'],'generation':r['generation']} for r in queued['report_details']]
+        reporter=Client();reporter.force_login(self.reader)
+        url=f'/api/submissions/{self.item.pk}/report'
+        self.assertEqual(reporter.delete(url).status_code,200)
+        self.assertEqual(reporter.post(url,json.dumps({'reason':'Replacement reason'}),content_type='application/json').status_code,200)
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.generation,2)
+        for action in ('dismiss','reject'):
+            response=self.decide(action=action,report_snapshot=snapshot)
+            self.assertEqual(response.status_code,409,response.content)
+        self.item.refresh_from_db();self.assertTrue(self.item.is_valid)
+        self.assertEqual(self.item.reports.filter(status='pending').count(),2)
+        self.assertFalse(CurrencyTransaction.objects.filter(transaction_type__startswith='report_').exists())
+        queued=self.client.get('/api/admin/reports').json()['submissions'][0]
+        replacement=next(r for r in queued['report_details'] if r['id']==self.first.pk)
+        self.assertEqual((replacement['reason'],replacement['generation']),('Replacement reason',2))
+        fresh=[{'id':r['id'],'generation':r['generation']} for r in queued['report_details']]
+        self.assertEqual(self.decide(report_snapshot=fresh).status_code,200)
+        self.assertEqual(self.balance(self.reader),1)
+        self.assertEqual(self.balance(self.author),-1)
+
+    def test_malformed_or_id_only_snapshots_cannot_bypass_generation_check(self):
+        valid={'id':self.first.pk,'generation':1}
+        for snapshot in (None,[self.first.pk,self.second.pk],[valid,valid],
+                [{'id':self.first.pk,'generation':True}], [{'id':self.first.pk,'generation':0}]):
+            self.assertEqual(self.decide(report_snapshot=snapshot).status_code,409)
+        response=self.client.post(self.url,json.dumps({'action':'dismiss','version':self.item.version,
+            'report_ids':[self.first.pk,self.second.pk]}),content_type='application/json')
+        self.assertEqual(response.status_code,409,response.content)
+        self.assertFalse(CurrencyTransaction.objects.filter(transaction_type__startswith='report_').exists())
 
     def test_queue_marks_ineligible_reporters_and_returns_recipient_identity(self):
         self.extra.is_active=False;self.extra.save(update_fields=['is_active'])

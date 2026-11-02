@@ -263,7 +263,7 @@ def report_queue(request):
         data['reports'] = item.reports.filter(status='pending', version=item.version).count()
         pending=list(item.reports.filter(status='pending',version=item.version).select_related('reporter').order_by('pk'))
         names=dict(item.team.memberships.filter(user_id__in=[r.reporter_id for r in pending]).values_list('user_id','display_name'))
-        data['report_details'] = [{'id':r.pk,'reason':r.reason,'created_at':r.created_at,'reporter_id':r.reporter_id,
+        data['report_details'] = [{'id':r.pk,'generation':r.generation,'reason':r.reason,'created_at':r.created_at,'reporter_id':r.reporter_id,
             'reporter_name':names.get(r.reporter_id,'已退出团队的举报者'),
             'reward_eligible':r.reporter.is_active and r.reporter_id!=item.member.user_id} for r in pending]
         data['report_reasons'] = list(item.reports.filter(status='pending',version=item.version).values_list('reason',flat=True))
@@ -292,10 +292,6 @@ def resolve_report(request, submission_id, direct=False):
     lock_user_semesters(target.member.user_id, [target.semester_id])
     semester = Semester.objects.select_for_update().get(pk=target.semester_id)
     target = Submission.objects.select_for_update().filter(pk=submission_id).first()
-    expected=body(request).get('report_ids')
-    if expected is not None and not direct:
-        actual=list(target.reports.filter(status='pending',version=target.version).order_by('pk').values_list('pk',flat=True)) if target else []
-        if not isinstance(expected,list) or any(type(i) is not int for i in expected) or sorted(expected)!=actual:return api_error('举报列表已变化，请重新打开处理窗口',409)
     if not target or semester.archived_at:
         return api_error('材料已清理或学期已归档', 409)
     if target.member.user_id == request.user.pk:
@@ -305,6 +301,15 @@ def resolve_report(request, submission_id, direct=False):
     data = body(request)
     if data.get('version') != target.version:
         return api_error('提交版本已变化，请刷新', 409)
+    expected=data.get('report_snapshot')
+    if not direct:
+        actual=list(target.reports.filter(status='pending',version=target.version).order_by('pk').values('id','generation')) if target else []
+        valid = (isinstance(expected,list) and all(isinstance(item,dict)
+            and set(item)=={'id','generation'}
+            and type(item['id']) is int and type(item['generation']) is int
+            and item['id']>0 and item['generation']>0 for item in expected))
+        if not valid or sorted(expected,key=lambda item:item['id'])!=actual:
+            return api_error('举报列表或内容已变化，请重新打开处理窗口',409)
     action = 'reject' if direct else data.get('action')
     note = str(data.get('note', '')).strip()
     if action not in {'dismiss', 'reject'} or (action == 'reject' and not note) or len(note) > 500:
