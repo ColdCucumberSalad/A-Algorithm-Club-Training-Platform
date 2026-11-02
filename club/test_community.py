@@ -67,6 +67,55 @@ class CommunityTests(TestCase):
         self.client.force_login(self.owner)
         return self.post(f'/api/admin/reports/{submission.pk}/resolve', {'action':'reject', 'version':submission.version, 'note':'截图不匹配'})
 
+    def test_gallery_cursor_survives_new_upload_and_deletion(self):
+        records = []
+        for i in range(23):
+            problem = Problem.objects.create(identity=f'cursor:{i}', url=f'https://qoj.ac/problem/{i}')
+            records.append(Submission.objects.create(team=self.team, member=self.author_member, semester=self.semester, week=self.week, problem=problem))
+        first = self.client.get('/api/showcase?all=1').json()
+        self.assertEqual(len(first['problems']), 20)
+        Submission.objects.create(team=self.team, member=self.author_member, semester=self.semester, week=self.week, problem=records[0].problem)
+        records[-1].delete()
+        second = self.client.get('/api/showcase', {'all': '1', 'cursor': first['next']}).json()
+        self.assertEqual([p['id'] for p in second['problems']], [r.problem_id for r in reversed(records[:3])])
+        self.assertIsNone(second['next'])
+        self.assertEqual(self.client.get('/api/showcase', {'all': '1', 'cursor': first['next'], 'platform': 'qoj'}).status_code, 400)
+        self.assertEqual(self.client.get('/api/showcase?all=1&cursor=invalid').status_code, 400)
+
+    def test_detail_cursor_survives_new_upload(self):
+        rows = [Submission.objects.create(team=self.team, member=self.author_member, semester=self.semester, week=self.week, problem=self.problem) for _ in range(22)]
+        url = f'/api/problems/{self.problem.pk}/submissions'
+        first = self.client.get(url, {'cursor': ''}).json()
+        Submission.objects.create(team=self.team, member=self.author_member, semester=self.semester, week=self.week, problem=self.problem)
+        second = self.client.get(url, {'cursor': first['next']}).json()
+        self.assertEqual([r['id'] for r in second['submissions']], [rows[1].pk, rows[0].pk])
+
+    def test_platform_gallery_merges_weeks_and_orders_by_upload(self):
+        current = self.submit()
+        prior = self.semester.weeks.filter(number__lt=self.week.number).first()
+        other_problem = Problem.objects.create(identity='luogu:P1000', url='https://www.luogu.com.cn/problem/P1000', title='另一题')
+        other = Submission.objects.create(team=self.team, member=self.author_member, semester=self.semester, week=self.week, problem=other_problem)
+        makeup = Submission.objects.create(team=self.team, member=self.owner_member, semester=self.semester, week=prior, problem=self.problem, record_date=timezone.localdate()-timedelta(days=10))
+        now = timezone.now()
+        for item, days in [(current, 3), (other, 2), (makeup, 1)]:
+            Submission.objects.filter(pk=item.pk).update(submitted_at=now-timedelta(days=days))
+        data = self.client.get('/api/showcase?all=1').json()
+        self.assertEqual([p['id'] for p in data['problems']], [self.problem.pk, other_problem.pk])
+        self.assertEqual(data['problems'][0]['count'], 2)
+        self.assertEqual(data['problems'][0]['member_count'], 2)
+        self.assertEqual({p['id'] for p in data['platforms']}, {'nowcoder', 'luogu'})
+        filtered = self.client.get('/api/showcase', {'all': '1', 'platform': 'nowcoder', 'q': 'A同学'}).json()
+        self.assertEqual(len(filtered['problems']), 1)
+        self.assertEqual(filtered['problems'][0]['count'], 2)
+        self.assertEqual(self.client.get('/api/showcase?all=1&platform=luogu&q=管理员').json()['problems'], [])
+        detail = self.client.get(f'/api/problems/{self.problem.pk}/submissions').json()
+        self.assertEqual([s['id'] for s in detail['submissions']], [makeup.pk, current.pk])
+        Submission.objects.filter(pk=makeup.pk).update(is_valid=False)
+        self.assertEqual(self.client.get('/api/showcase?all=1&platform=nowcoder').json()['problems'][0]['count'], 1)
+        self.semester.archived_at = timezone.now()
+        self.semester.save(update_fields=['archived_at'])
+        self.assertEqual(self.client.get('/api/showcase?all=1').json()['problems'], [])
+
     def test_immediate_scores_and_grouped_history(self):
         current = self.submit()
         total = SemesterMemberTotal.objects.get(member=self.author_member)
@@ -115,7 +164,7 @@ class CommunityTests(TestCase):
         self.assertIsNone(data['week'])
         self.assertEqual(data['problems'], [])
 
-    def test_problem_history_paginates_by_record_date_before_upload_time(self):
+    def test_problem_history_paginates_by_upload_time_before_record_date(self):
         today = timezone.localdate()
         records = [Submission.objects.create(team=self.team, member=self.author_member,
             semester=self.semester, week=self.week, problem=self.problem, record_date=today)
@@ -124,10 +173,10 @@ class CommunityTests(TestCase):
             semester=self.semester, week=self.week, problem=self.problem, record_date=today-timedelta(days=1))
         first = self.client.get(f'/api/problems/{self.problem.pk}/submissions').json()
         second = self.client.get(f'/api/problems/{self.problem.pk}/submissions?page=2').json()
-        self.assertEqual([s['id'] for s in first['submissions']], [s.pk for s in reversed(records[1:])])
+        self.assertEqual([s['id'] for s in first['submissions']], [makeup.pk] + [s.pk for s in reversed(records[2:])])
         self.assertEqual(first['next'], 2)
-        self.assertEqual([s['id'] for s in second['submissions']], [records[0].pk, makeup.pk])
-        self.assertEqual(second['submissions'][-1]['record_date'], (today-timedelta(days=1)).isoformat())
+        self.assertEqual([s['id'] for s in second['submissions']], [records[1].pk, records[0].pk])
+        self.assertEqual(first['submissions'][0]['record_date'], (today-timedelta(days=1)).isoformat())
         self.assertIsNone(second['next'])
 
     def test_same_problem_two_members_and_pagination(self):

@@ -886,3 +886,9 @@ button.leader-row:hover{background:var(--teal-soft)}
 /* Native touch highlights can linger on composited glass surfaces.
    Keep authored active states and keyboard :focus-visible indicators. */
 html{-webkit-tap-highlight-color:transparent;}
+
+/* Team solutions flow in upload order across weeks. */
+#showcaseView .submission-days{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:20px}
+#showcaseView .submission-days>.solution-card{display:block;min-width:0;margin-bottom:0}
+@container(min-width:650px){#showcaseView .submission-days{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container(min-width:1140px){#showcaseView .submission-days{grid-template-columns:repeat(3,minmax(0,1fr))}}

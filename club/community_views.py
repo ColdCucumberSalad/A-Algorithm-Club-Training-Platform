@@ -1,7 +1,12 @@
+import re
+from urllib.parse import urlsplit
+from django.core import signing
+from django.utils.dateparse import parse_datetime
+
 from django.core.paginator import Paginator
 from django.contrib.auth.models import User
 from django.db import transaction
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, F, Max, Q, Case, When, Value, CharField
 from django.http import JsonResponse
 from django.utils import timezone
 
@@ -63,45 +68,102 @@ def showcase(request):
         'next': page.next_page_number() if page.has_next() else None})
 
 
+PLATFORM_DOMAINS = (
+    ('leetcode', '力扣', ('leetcode.cn', 'leetcode.com')),
+    ('nowcoder', '牛客', ('nowcoder.com',)),
+    ('codeforces', 'Codeforces', ('codeforces.com',)),
+    ('luogu', '洛谷', ('luogu.com.cn',)),
+    ('atcoder', 'AtCoder', ('atcoder.jp',)),
+    ('acwing', 'AcWing', ('acwing.com',)),
+    ('qoj', 'QOJ', ('qoj.ac',)),
+)
+
+
+def problem_platform(url):
+    try:
+        host = (urlsplit(url).hostname or '').lower()
+    except ValueError:
+        host = ''
+    for key, label, domains in PLATFORM_DOMAINS:
+        if any(host == domain or host.endswith('.' + domain) for domain in domains):
+            return key, label
+    return 'other', '其他'
+
+
+def visible_solutions(request, member):
+    scope = Q(team=member.team)
+    if getattr(request, 'admin_test_mode', False):
+        team = request.test_target_team
+        dates = Q(pk__in=[])
+        for start, end in Week.objects.filter(semester__team=team, semester__archived_at__isnull=True).values_list('starts_at', 'ends_at'):
+            dates |= Q(record_date__gte=timezone.localdate(start), record_date__lt=timezone.localdate(end))
+        scope = Q(team=team) | (Q(member=member) & dates)
+    return Submission.objects.filter(scope, is_valid=True, semester__archived_at__isnull=True, problem__isnull=False)
+
+
+def gallery_platform_expression():
+    return Case(*[When(problem__url__iregex=r'^https?://([^/]+\.)?(' + '|'.join(re.escape(d) for d in domains) + r')([/:]|$)', then=Value(key))
+                  for key, label, domains in PLATFORM_DOMAINS], default=Value('other'), output_field=CharField())
+
+
+def cursor_state(request, items, context):
+    token = request.GET.get('cursor', '')
+    if token:
+        state = signing.loads(token, salt='team-gallery', max_age=86400)
+        if state['context'] != context:
+            raise ValueError('cursor scope')
+        return state
+    return {'context': context, 'max_id': items.aggregate(n=Max('id'))['n'] or 0,
+            'at': timezone.now().isoformat()}
+
+
+def cursor_page(request, items, state, time_field, id_field):
+    if state.get('last'):
+        at, pk = state['last']
+        items = items.filter(Q(**{time_field + '__lt': parse_datetime(at)}) |
+                             Q(**{time_field: parse_datetime(at), id_field + '__lt': pk}))
+    rows = list(items[:21])
+    next_token = None
+    if len(rows) > 20:
+        rows = rows[:20]
+        last = rows[-1]
+        at = last[time_field] if isinstance(last, dict) else getattr(last, time_field)
+        pk = last[id_field] if isinstance(last, dict) else getattr(last, id_field)
+        next_token = signing.dumps(dict(state, last=[at.isoformat(), pk]), salt='team-gallery', compress=True)
+    return rows, next_token
+
+
 def showcase_all(request, member):
-    """All visible weeks; the sandbox adds only this administrator's records."""
-    sandbox = bool(getattr(request, 'admin_test_mode', False))
-    team = request.test_target_team if sandbox else member.team
-    scope = Q(team=team)
-    if sandbox:
-        scope |= Q(member=member)
-    items = Submission.objects.filter(scope, is_valid=True,
-        semester__archived_at__isnull=True, problem__isnull=False).select_related('week', 'semester', 'problem', 'member').order_by('-record_date', '-submitted_at', '-id')
-    real_weeks = list(Week.objects.filter(semester__team=team,
-        semester__archived_at__isnull=True).select_related('semester').order_by('-starts_at'))
-    query = request.GET.get('q', '').strip()[:200].casefold()
-    groups = {}
-    for item in items:
-        week = item.week
-        private = sandbox and item.team_id != team.pk
-        if private:
-            week = next((w for w in real_weeks if timezone.localdate(w.starts_at) <= item.record_date < timezone.localdate(w.ends_at)), None)
-            if week is None:
-                continue
-        name = '管理员' if private else item.member.display_name
-        key = (week.pk, item.problem_id)
-        row = groups.setdefault(key, {'id': item.problem_id,
-            'title': item.problem.title or item.problem.url,
-            'url': item.problem.url, 'count': 0, 'members': set(),
-            'week_id': week.pk, 'week_label': f'{week.semester.name} · 第{week.number}周',
-            '_starts': week.starts_at, '_latest': item.submitted_at})
-        row['count'] += 1
-        row['members'].add(name)
-    rows = sorted(groups.values(), key=lambda row: (row['_starts'], row['_latest'], row['id']), reverse=True)
+    items = visible_solutions(request, member)
+    query = request.GET.get('q', '').strip()[:200]
+    selected = request.GET.get('platform', '')
+    context = [request.user.pk, member.pk, getattr(request, 'test_target_team', None).pk if getattr(request, 'admin_test_mode', False) else member.team_id, 'gallery', query, selected]
+    try:
+        state = cursor_state(request, items, context)
+    except (signing.BadSignature, ValueError, KeyError, TypeError):
+        return api_error('分页已失效，请刷新题目列表')
+    items = items.filter(pk__lte=state['max_id'], submitted_at__lte=parse_datetime(state['at'])).annotate(platform=gallery_platform_expression())
+    labels = dict((key, label) for key, label, domains in PLATFORM_DOMAINS)
+    labels['other'] = '其他'
+    platforms = [{'id': key, 'label': labels[key]} for key in items.order_by().values_list('platform', flat=True).distinct().order_by('platform')]
+    if selected:
+        items = items.filter(platform=selected)
     if query:
-        rows = [row for row in rows if query in ' '.join([row['title'], row['url'], row['week_label'], *row['members']]).casefold()]
-    page = page_items(request, rows)
-    if page is None:
-        return api_error('页码无效')
-    result = []
-    for row in page:
-        result.append({key: sorted(value) if key == 'members' else value for key, value in row.items() if not key.startswith('_')})
-    return JsonResponse({'problems': result, 'next': page.next_page_number() if page.has_next() else None})
+        matches = Q(problem__title__icontains=query) | Q(problem__url__icontains=query) | Q(member__display_name__icontains=query)
+        matches |= Q(platform__in=[key for key, label in labels.items() if query.casefold() in label.casefold()])
+        if getattr(request, 'admin_test_mode', False) and query in '管理员':
+            matches |= Q(member=member)
+        matching_ids = items.filter(matches).order_by().values('problem_id')
+        items = items.filter(problem_id__in=matching_ids)
+    grouped = items.order_by().values('problem_id', 'problem__url', 'problem__title', 'platform').annotate(count=Count('id'), member_count=Count('member_id', distinct=True), latest=Max('submitted_at')).order_by('-latest', '-problem_id')
+    rows, next_token = cursor_page(request, grouped, state, 'latest', 'problem_id')
+    names = {}
+    for pid, mid, name in items.filter(problem_id__in=[r['problem_id'] for r in rows]).order_by().values_list('problem_id', 'member_id', 'member__display_name').distinct():
+        if getattr(request, 'admin_test_mode', False) and mid == member.pk:
+            name = '管理员'
+        names.setdefault(pid, set()).add(name)
+    result = [dict(id=r['problem_id'], url=r['problem__url'], title=r['problem__title'] or r['problem__url'], platform=r['platform'], platform_label=labels[r['platform']], count=r['count'], member_count=r['member_count'], members=sorted(names.get(r['problem_id'], []))) for r in rows]
+    return JsonResponse({'problems': result, 'platforms': platforms, 'next': next_token})
 
 
 def community_submission(item, viewer):
@@ -120,19 +182,40 @@ def problem_submissions(request, problem_id):
     member = membership_for(request)
     if not member:
         return api_error('未加入当前团队', 403)
-    items = Submission.objects.filter(team=member.team, problem_id=problem_id, is_valid=True, semester__archived_at__isnull=True).select_related('problem', 'member', 'week', 'semester').prefetch_related('parts', 'likes', 'reports').order_by('-record_date', '-submitted_at', '-id')
+    items = visible_solutions(request, member).filter(problem_id=problem_id).select_related('problem', 'member', 'week', 'semester').prefetch_related('parts', 'likes', 'reports').order_by('-submitted_at', '-id')
     if not items.exists():
         return api_error('该题目不存在或没有可见提交', 404)
     problem = items.first().problem
     query = request.GET.get('q', '').strip()[:200]
     if query:
         items = items.filter(Q(problem__title__icontains=query) | Q(problem__url__icontains=query) | Q(member__display_name__icontains=query))
-    page = page_items(request, items)
-    if page is None:
-        return api_error('页码无效')
+    if 'cursor' in request.GET:
+        try:
+            state = cursor_state(request, items, [request.user.pk, member.pk, getattr(request, 'test_target_team', None).pk if getattr(request, 'admin_test_mode', False) else member.team_id, 'problem', problem_id, query])
+        except (signing.BadSignature, ValueError, KeyError, TypeError):
+            return api_error('分页已失效，请重新打开题目')
+        items = items.filter(pk__lte=state['max_id'], submitted_at__lte=parse_datetime(state['at']))
+        rows, next_page = cursor_page(request, items, state, 'submitted_at', 'id')
+    else:
+        page = page_items(request, items)
+        if page is None:
+            return api_error('页码无效')
+        rows = page
+        next_page = page.next_page_number() if page.has_next() else None
+    result = []
+    for item in rows:
+        row = community_submission(item, member)
+        if getattr(request, 'admin_test_mode', False):
+            if item.member_id == member.pk:
+                row['member_name'] = '管理员'
+                row['is_test'] = True
+            else:
+                from .admin_test_overlay import protect_real
+                row = protect_real(row)
+        result.append(row)
     return JsonResponse({'problem': {'id': problem.pk, 'title': problem.title or problem.url, 'url': problem.url},
-                         'submissions': [community_submission(s, member) for s in page],
-                         'next': page.next_page_number() if page.has_next() else None})
+                         'submissions': result, 'next': next_page})
+
 
 
 @api_login_required
