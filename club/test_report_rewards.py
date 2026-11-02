@@ -108,3 +108,45 @@ class ReportRewardTests(TestCase):
         self.assertTrue(details[self.reader.pk]['reward_eligible']);self.assertFalse(details[self.extra.pk]['reward_eligible'])
         self.assertEqual(self.decide().status_code,400)
         self.assertEqual(self.decide({'reward_each':1,'author_penalty':0,'reporter_ids':[self.reader.pk]}).status_code,200)
+
+    def duplicate_successor(self):
+        row=Submission.objects.create(team=self.team,member=self.author_member,semester=self.semester,
+            week=self.week,problem=self.problem,record_date=self.item.record_date,
+            is_valid=False,is_duplicate=True,duplicate_state={'parts':{'proof':{
+                'status':'approved','points':1,'note':''}}})
+        SubmissionPart.objects.create(submission=row,kind='proof',status='rejected',points_awarded=0)
+        return row
+
+    def test_report_rewards_and_duplicate_promotion_commit_together(self):
+        from .models import CheckinRecord,SemesterMemberTotal
+        self.team.currency_enabled=True;self.team.save()
+        successor=self.duplicate_successor()
+        CheckinRecord.objects.create(team=self.team,member=self.author_member,
+            checkin_date=self.item.record_date,reward_amount=3)
+        add_currency(self.author_member,10,'admin_adjust')
+        response=self.decide()
+        self.assertEqual(response.status_code,200,response.content)
+        self.item.refresh_from_db();successor.refresh_from_db()
+        self.assertFalse(self.item.is_valid);self.assertFalse(self.item.is_duplicate)
+        self.assertTrue(successor.is_valid);self.assertFalse(successor.is_duplicate)
+        self.assertEqual(successor.parts.get(kind='proof').points_awarded,1)
+        self.assertEqual(SemesterMemberTotal.objects.get(member=self.author_member).total_submissions,1)
+        self.assertTrue(CheckinRecord.objects.filter(member=self.author_member).exists())
+        self.assertFalse(CurrencyTransaction.objects.filter(transaction_type='reward_reversal').exists())
+        self.assertEqual(self.balance(self.author),9)
+        self.assertEqual(self.balance(self.reader),1);self.assertEqual(self.balance(self.extra),1)
+        self.assertEqual(self.decide().status_code,409)
+        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='report_penalty').count(),1)
+
+    def test_report_reward_failure_also_rolls_back_duplicate_promotion(self):
+        successor=self.duplicate_successor()
+        CurrencyBalance.objects.create(user=self.extra,balance=2147483647)
+        response=self.decide()
+        self.assertEqual(response.status_code,400,response.content)
+        self.item.refresh_from_db();successor.refresh_from_db()
+        self.assertTrue(self.item.is_valid)
+        self.assertFalse(successor.is_valid);self.assertTrue(successor.is_duplicate)
+        self.assertEqual(successor.parts.get(kind='proof').points_awarded,0)
+        self.assertFalse(ReviewLog.objects.filter(action='duplicate_promoted',submission=successor).exists())
+        self.assertEqual(self.item.reports.filter(status='pending').count(),2)
+        self.assertFalse(CurrencyTransaction.objects.filter(transaction_type__startswith='report_').exists())

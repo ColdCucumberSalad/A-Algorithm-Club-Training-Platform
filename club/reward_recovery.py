@@ -19,12 +19,20 @@ def build_plan(target):
     member, day = target.member, target.record_date
     balance = CurrencyBalance.objects.filter(user_id=member.user_id).values_list('balance', flat=True).first() or 0
     other = Submission.objects.filter(member=member, record_date=day, is_valid=True).exclude(pk=target.pk).exists()
+    successor = None
+    if getattr(target, 'is_valid', False) and target.problem_id:
+        successor = Submission.objects.filter(member__user_id=member.user_id, problem_id=target.problem_id,
+            is_duplicate=True).exclude(pk=target.pk).order_by('first_submitted_at','pk').first()
+        if successor and successor.member_id == member.pk and successor.record_date == day:
+            other = True
     required = 0
     if not other:
         from .currency_services import signed_dates
         required = CheckinRecord.objects.filter(member=member, checkin_date=day).values_list('reward_amount', flat=True).first() or 0
         monday = day-timedelta(days=day.weekday())
         dates = signed_dates(member, monday, monday+timedelta(days=6))-{day}
+        if successor and successor.member_id == member.pk and monday <= successor.record_date <= monday+timedelta(days=6):
+            dates.add(successor.record_date)
         longest = run = 0
         for offset in range(7):
             run = run+1 if monday+timedelta(days=offset) in dates else 0

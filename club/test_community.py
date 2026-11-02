@@ -53,7 +53,7 @@ class CommunityTests(TestCase):
 
     def submit(self):
         with patch('club.problem_parser.get_problem', return_value=self.problem):
-            response = self.client.post('/api/submissions', {'problem_url': URL, 'week_id': self.week.pk,
+            response = self.client.post('/api/submissions', {'problem_url': self.problem.url, 'week_id': self.week.pk,
                 'proof': self.image(), 'logic': '完整题解\n第二行', 'blog': 'https://example.com/blog',
                 'code': 'int main() {}', 'code_language': 'cpp'})
         self.assertEqual(response.status_code, 201, response.content)
@@ -303,6 +303,39 @@ class ParserTests(TestCase):
             resolve(problem.pk, 1, 'ai')
         problem.refresh_from_db()
         self.assertEqual(problem.title,'人工题名')
+
+    def test_retry_skips_merged_alias_even_with_stale_instance(self):
+        root = Problem.objects.create(identity='retry-root', url=URL, title='主题目', status='success')
+        alias = Problem.objects.create(identity='retry-alias', url=URL+'/alias',
+            title='别名题目', status='success', generation=3)
+        # The administrator may have loaded the row before another task merged it.
+        Problem.objects.filter(pk=alias.pk).update(canonical=root)
+        before = Problem.objects.filter(pk=alias.pk).values().get()
+        with patch('club.tasks.resolve_problem.apply_async') as dispatch, self.captureOnCommitCallbacks(execute=True):
+            self.assertFalse(enqueue_problem(alias, 'ai'))
+        dispatch.assert_not_called()
+        self.assertEqual(Problem.objects.filter(pk=alias.pk).values().get(), before)
+        root.refresh_from_db()
+        self.assertEqual(root.status, 'success')
+
+    def test_admin_retry_mixed_selection_only_queues_canonical_problem(self):
+        from django.contrib import admin
+        from .admin import ProblemAdmin
+        root = Problem.objects.create(identity='admin-retry-root', url=URL, status='success')
+        alias = Problem.objects.create(identity='admin-retry-alias', url=URL+'/alias',
+            canonical=root, status='success')
+        problem_admin = ProblemAdmin(Problem, admin.site)
+        with patch.object(problem_admin, 'message_user') as message, \
+                patch('club.tasks.resolve_problem.apply_async') as dispatch, \
+                self.captureOnCommitCallbacks(execute=True):
+            problem_admin.retry(None, Problem.objects.filter(pk__in=[root.pk, alias.pk]), 'ai')
+        dispatch.assert_called_once()
+        self.assertEqual(dispatch.call_args.kwargs['args'], [root.pk, 1, 'ai'])
+        root.refresh_from_db(); alias.refresh_from_db()
+        self.assertEqual(root.status, 'pending')
+        self.assertEqual(alias.status, 'success')
+        self.assertIn('解析队列 1 道题', message.call_args.args[1])
+        self.assertIn('别名题目 1 道', message.call_args.args[1])
 
     def test_ai_wire_format_and_invalid_responses(self):
         config = ParserSettings.objects.get(pk=1)

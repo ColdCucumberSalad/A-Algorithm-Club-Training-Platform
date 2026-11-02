@@ -1,8 +1,8 @@
 # 本次服务器更新注意事项（可直接交给部署 AI）
 
-本次先做兼容合并和演练，不要直接拿本地目录覆盖服务器。
+本次已合并主分支功能；正式部署前仍需在服务器数据副本上演练，不要直接拿本地目录覆盖服务器。
 
-1. **先保留服务器的新功能。** 服务器已应用 `0045_problem_equivalence`、`0046_duplicate_submission_priority`；本地新功能使用 `0045_account_closure_report_reasons`、`0046_global_wallet_and_worn_titles`、`0047_report_coin_transaction_types`。两边从 `0044_merge_tracker_notifications` 分叉，需要合并代码和迁移依赖，不能只改编号。保留题目等价、重复提交优先级，以及相关字段 `canonical`、`is_duplicate`、`original_problem_url`、`first_submitted_at`、`duplicate_state` 和 `ProblemComparison`。
+1. **保留服务器已有迁移历史。** 服务器已应用 `0045_problem_equivalence`、`0046_duplicate_submission_priority`；账号新功能使用 `0045_account_closure_report_reasons`、`0046_global_wallet_and_worn_titles`、`0047_report_coin_transaction_types`。新增 `0048_merge_account_problem_branches` 汇合两条依赖，不重命名或重跑旧迁移。保留题目等价、重复提交优先级，以及相关字段 `canonical`、`is_duplicate`、`original_problem_url`、`first_submitted_at`、`duplicate_state` 和 `ProblemComparison`。举报处理按账号、受影响学期、题目/提交顺序加锁；驳回、重复记录递补、统计与举报奖惩在同一事务完成，奖惩失败时一起回滚。
 2. **线上数据与密钥保留。** 不上传本地数据库、测试账号/提交、媒体目录或 `.env`。保留线上环境配置、`DJANGO_SECRET_KEY` 和加密密钥；不要把密钥值写进日志、PR 或回复。
 3. **先在本地演练。** 使用服务器数据库备份副本验证合并后的迁移。禁止清库、删除迁移历史、随意 `--fake`、重跑初始化/演示数据脚本来“解决冲突”。
 4. **注意全局 Coins 转换。** 本次将同一账号原有各团队余额求和，背包跨团队可见，积分仍按团队计算。核对迁移前后余额总额、账号和提交数量；保留物品来源、购买记录及履约状态。
@@ -10,4 +10,4 @@
 6. **验证关键业务。** 验证登录、提交/编辑、积分、题目去重、平台同步、多团队余额与背包、卡密/实物状态。举报成立时默认每位选中的有效举报者 +1 Coins、被举报者整条额外 -1 Coins；多人举报只扣一次，取消/驳回不奖励，重复请求不重复发奖。确认奖励设置窗口返回后保留本次选择，并检查手机及深色主题。
 7. **准备成套回滚。** 全局余额转换不能自动拆回原团队余额。失败时恢复匹配的旧代码/镜像和部署前数据库备份，不能只换回旧镜像；恢复前继续停止写入。
 
-目前这些本地修改尚未完成与服务器新增功能的兼容合并，不应作为可直接覆盖上线的版本。
+兼容合并已完成。自动化迁移测试覆盖从服务器题目分支和账号分支分别升级，核对重复记录、题目别名、首次顺序及全局余额；这些使用隔离测试数据，不能代替部署前的真实数据库副本演练。本次冲突处理不部署服务器。

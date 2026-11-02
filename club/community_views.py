@@ -288,6 +288,8 @@ def resolve_report(request, submission_id, direct=False):
         return api_error('提交不存在', 404)
     involved=set(target.reports.filter(status='pending',version=target.version).values_list('reporter_id',flat=True))|{target.member.user_id}
     list(User.objects.select_for_update().filter(pk__in=involved).order_by('pk'))
+    from .problem_equivalence import lock_user_semesters, rebalance_submissions
+    lock_user_semesters(target.member.user_id, [target.semester_id])
     semester = Semester.objects.select_for_update().get(pk=target.semester_id)
     target = Submission.objects.select_for_update().filter(pk=submission_id).first()
     expected=body(request).get('report_ids')
@@ -332,6 +334,8 @@ def resolve_report(request, submission_id, direct=False):
                 target.rejection_note = note
                 target.save(update_fields=['is_valid', 'rejection_note'])
                 target.parts.update(status='rejected', points_awarded=0, review_note=note, reviewed_at=timezone.now(), reviewed_by=request.user)
+                if target.problem_id:
+                    rebalance_submissions(target.member.user_id, target.problem_id, lost_records=[target])
                 from .currency_services import reconcile_submission_day
                 reconcile_submission_day(target.member, target.record_date, semester, recoveries=plan['recoveries'], reopen_makeup=False)
                 refresh_totals(semester)

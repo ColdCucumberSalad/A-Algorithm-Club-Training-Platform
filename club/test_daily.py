@@ -26,7 +26,7 @@ class DailyRecordsTests(TestCase):
 
     def submit(self, day, **extra):
         week = self.semester.weeks.get(starts_at__date__lte=day, ends_at__date__gt=day)
-        payload = {'week_id': week.pk, 'problem_url':fixtures.URL,
+        payload = {'week_id': week.pk, 'problem_url':self.problem.url,
                    'code':'int main() {}', 'code_language':'cpp',
                    'record_date':day.isoformat(), 'proof':self.image(), **extra}
         with patch('club.problem_parser.get_problem', return_value=self.problem):
@@ -73,7 +73,7 @@ class DailyRecordsTests(TestCase):
     def test_failed_submission_keeps_permission_without_spending_again(self):
         self.makeup(self.day.isoformat())
         self.assertEqual(self.submit(self.day, proof='').status_code,400)
-        with patch('club.views.refresh_totals',side_effect=RuntimeError('temporary failure')):
+        with patch('club.services.refresh_totals',side_effect=RuntimeError('temporary failure')):
             with self.assertRaises(RuntimeError): self.submit(self.day)
         self.assertIsNone(MakeupPermission.objects.get(member=self.author_member).completed_at)
         self.assertFalse(CheckinRecord.objects.filter(member=self.author_member).exists())
