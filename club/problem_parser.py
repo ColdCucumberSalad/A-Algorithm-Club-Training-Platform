@@ -169,7 +169,7 @@ def auto_title(url):
     raise ValueError('网页没有可确认的题名')
 
 
-def ai_title(url, config=None, *, allow_unresolved=False):
+def ai_json(url, prompt, config=None):
     config = config or ParserSettings.objects.get_or_create(pk=1)[0]
     if not config.enabled or not config.base_url or not config.encrypted_key or not config.model:
         raise ValueError('AI未配置或未启用')
@@ -185,11 +185,11 @@ def ai_title(url, config=None, *, allow_unresolved=False):
         key = key_cipher().decrypt(config.encrypted_key.encode()).decode()
         if use_responses:
             request_data = {'model': config.model, 'stream': False,
-                'instructions': '请先使用联网工具读取用户提供的题目网址。' + PROMPT,
+                'instructions': '请先使用联网工具读取用户提供的题目网址。' + prompt,
                 'input': url, 'tools': [{'type': 'web_search'}]}
         else:
             request_data = {'model': config.model, 'stream': False, 'messages': [
-                {'role': 'system', 'content': PROMPT}, {'role': 'user', 'content': url}]}
+                {'role': 'system', 'content': prompt}, {'role': 'user', 'content': url}]}
         payload = json.dumps(request_data).encode()
         response = json.loads(http_fetch(endpoint, timeout=30, payload=payload, public_only=False, redirects=0,
                                         headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}))
@@ -210,7 +210,14 @@ def ai_title(url, config=None, *, allow_unresolved=False):
             content = response['choices'][0]['message']['content'].strip()
         if content.startswith('```'):
             content = re.sub(r'^```(?:json)?\s*|\s*```$', '', content)
-        result = json.loads(content)
+        return json.loads(content)
+    except (ValueError, KeyError, IndexError, AttributeError, TypeError):
+        raise ValueError('AI返回格式无效，需返回JSON对象') from None
+
+
+def ai_title(url, config=None, *, allow_unresolved=False):
+    result = ai_json(url, PROMPT, config)
+    try:
         title = result['title']
         if title is None:
             if allow_unresolved:
@@ -230,6 +237,9 @@ def enqueue_problem(problem, mode=None):
     from .tasks import resolve_problem
     with transaction.atomic():
         current = Problem.objects.select_for_update().get(pk=problem.pk)
+        # Merged aliases have no independent title task; resolve() skips them.
+        if current.canonical_id:
+            return False
         config = ParserSettings.objects.get_or_create(pk=1)[0]
         mode = mode or config.mode
         if mode not in dict(ParserSettings.MODES):
@@ -245,18 +255,28 @@ def enqueue_problem(problem, mode=None):
             except Exception:
                 Problem.objects.filter(pk=current.pk, generation=generation).update(status='failed', error='任务入队失败，请手动重新解析')
         transaction.on_commit(dispatch)
+        return True
 
 
 def get_problem(url):
+    from .problem_equivalence import identity_lock
+    with transaction.atomic():
+        identity_lock()
+        return _get_problem(url)
+
+
+def _get_problem(url):
     identity, canonical = canonical_problem(url)
     problem, created = Problem.objects.get_or_create(identity=identity, defaults={'url': canonical})
     if created:
         enqueue_problem(problem)
+    while problem.canonical_id:
+        problem = problem.canonical
     return problem
 
 
 def resolve(problem_id, generation, mode):
-    if not Problem.objects.filter(pk=problem_id, generation=generation, status='pending').update(status='running'):
+    if not Problem.objects.filter(pk=problem_id, generation=generation, status='pending', canonical__isnull=True).update(status='running'):
         return
     problem = Problem.objects.get(pk=problem_id)
     errors = []
@@ -272,4 +292,7 @@ def resolve(problem_id, generation, mode):
         except ValueError as exc:
             errors.append('AI解析：' + str(exc))
     values = {'status': 'success', 'title': title, 'error': ''} if title else {'status': 'failed', 'error': '；'.join(errors)[:500]}
-    Problem.objects.filter(pk=problem_id, generation=generation, status='running').update(**values)
+    updated = Problem.objects.filter(pk=problem_id, generation=generation, status='running', canonical__isnull=True).update(**values)
+    if updated and title:
+        from .problem_equivalence import reconcile_problem
+        reconcile_problem(problem_id, generation)

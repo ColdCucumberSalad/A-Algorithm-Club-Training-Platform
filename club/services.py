@@ -46,9 +46,9 @@ def submission_stats(week, member=None):
     return defaultdict(int, scores), defaultdict(int, counts)
 
 
-def refresh_totals(semester):
+def refresh_totals(semester, *, include_archived=False):
     """Caller holds the semester lock, shared by review, settlement and archive."""
-    if semester.archived_at:
+    if semester.archived_at and not include_archived:
         return
     week_scores, week_counts = progress_rows(semester, by_week=True)
     scores, counts = defaultdict(int), defaultdict(int)
