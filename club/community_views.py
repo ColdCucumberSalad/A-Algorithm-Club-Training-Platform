@@ -186,8 +186,9 @@ def tip_submission(request, submission_id):
             SubmissionTip.objects.create(request_id=token,team=member.team,sender_user=request.user,sender=sender,recipient=recipient,submission=target,amount=amount)
     except IntegrityError:
         return api_error('打赏请求编号已被使用',409)
-    deduct_currency(sender,amount,'tip_sent',f'打赏 {recipient.display_name} 的提交 #{target.pk}')
-    add_currency(recipient,amount,'tip_received',f'收到 {sender.display_name} 对提交 #{target.pk} 的打赏')
+    from .currency_descriptions import transaction_description
+    deduct_currency(sender,amount,'tip_sent',transaction_description('tip_sent',submission_id=target.pk))
+    add_currency(recipient,amount,'tip_received',transaction_description('tip_received',submission_id=target.pk))
     return JsonResponse({'ok':True,'amount':amount,'recipient':recipient.display_name})
 
 

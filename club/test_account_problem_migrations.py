@@ -1,4 +1,5 @@
 from datetime import timedelta
+import uuid
 
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
@@ -9,7 +10,7 @@ from django.utils import timezone
 class AccountProblemMigrationTests(TransactionTestCase):
     """Both already-deployed branch histories must upgrade without fake migrations."""
 
-    merged = [('club', '0049_currency_transaction_big_amount')]
+    merged = [('club', '0050_anonymize_tip_descriptions')]
 
     def migrate(self, targets):
         executor = MigrationExecutor(connection)
@@ -78,3 +79,32 @@ class AccountProblemMigrationTests(TransactionTestCase):
         self.assertEqual(row.first_submitted_at, submitted_at)
         self.assertEqual(row.original_problem_url,'https://example.com/problem')
         self.assertEqual(apps.get_model('club','CurrencyBalance').objects.get(user_id=uid).balance,12)
+
+    def test_tip_snapshot_cleanup_preserves_amounts_balances_and_audit_links(self):
+        apps=self.migrate([('club','0049_currency_transaction_big_amount')])
+        uid,sid,pid=self.seed(apps,global_wallet=True)
+        row=apps.get_model('club','Submission').objects.get(pk=sid)
+        sender=apps.get_model('auth','User').objects.create(username='historical-sender')
+        member=apps.get_model('club','TeamMembership').objects.create(user=sender,team_id=row.team_id,
+            display_name='Historical sender 提交 #999')
+        Balance=apps.get_model('club','CurrencyBalance')
+        Balance.objects.filter(user_id=uid).update(balance=19)
+        Balance.objects.create(user=sender,team_id=row.team_id,member=member,balance=13)
+        receipt=apps.get_model('club','SubmissionTip').objects.create(request_id=uuid.uuid4(),
+            team_id=row.team_id,sender_user=sender,sender=member,recipient_id=row.member_id,submission=row,amount=7)
+        Ledger=apps.get_model('club','CurrencyTransaction')
+        sent=Ledger.objects.create(user=sender,team_id=row.team_id,member=member,amount=-7,balance_after=13,
+            transaction_type='tip_sent',description=f'打赏 Member 的提交 #{sid}')
+        received=Ledger.objects.create(user_id=uid,team_id=row.team_id,member_id=row.member_id,amount=7,balance_after=19,
+            transaction_type='tip_received',description=f'收到 {member.display_name} 对提交 #{sid} 的打赏')
+        before=list(Ledger.objects.order_by('pk').values())
+        balances=list(Balance.objects.order_by('pk').values())
+        receipt_before=apps.get_model('club','SubmissionTip').objects.values().get(pk=receipt.pk)
+        apps=self.migrate(self.merged)
+        after=list(apps.get_model('club','CurrencyTransaction').objects.order_by('pk').values())
+        self.assertEqual([r['description'] for r in after],[f'打赏提交 #{sid}',f'收到提交 #{sid} 的打赏'])
+        for prior,current in zip(before,after):
+            prior.pop('description');current.pop('description')
+            self.assertEqual(prior,current)
+        self.assertEqual(list(apps.get_model('club','CurrencyBalance').objects.order_by('pk').values()),balances)
+        self.assertEqual(apps.get_model('club','SubmissionTip').objects.values().get(pk=receipt.pk),receipt_before)

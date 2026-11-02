@@ -3,7 +3,7 @@ import json
 from django.contrib.auth.models import User
 from django.test import TestCase
 
-from .models import Team, TeamMembership
+from .models import AccountClosure, Team, TeamMembership
 
 
 class TeamCodeJoinTests(TestCase):
@@ -45,3 +45,8 @@ class TeamCodeJoinTests(TestCase):
 
     def test_team_model_has_no_join_password_column(self):
         self.assertNotIn('join_password_hash', [field.name for field in Team._meta.fields])
+
+    def test_closure_marker_prevents_join_even_when_active_flag_is_stale(self):
+        AccountClosure.objects.create(user=self.user,closed_by=self.user)
+        self.assertEqual(self.join({'team_code':self.team.code}).status_code,403)
+        self.assertFalse(TeamMembership.objects.filter(user=self.user).exists())
