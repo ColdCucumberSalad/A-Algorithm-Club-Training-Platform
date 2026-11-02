@@ -36,7 +36,7 @@ class ProblemEquivalenceTests(TestCase):
             reconcile_problem(self.new.pk,1)
         return compare
 
-    def test_confirmed_alias_moves_submissions_and_blocks_future_duplicates(self):
+    def test_confirmed_alias_moves_submissions_and_blocks_same_url_only(self):
         second=self.record(self.new,self.owner_member,timezone.localdate())
         self.reconcile()
         second.refresh_from_db()
@@ -45,6 +45,10 @@ class ProblemEquivalenceTests(TestCase):
         self.assertEqual(get_problem(self.new.url).pk,self.old.pk)
         self.assertEqual(Problem.objects.get(pk=self.new.pk).canonical_id,self.old.pk)
         self.assertTrue(ProblemComparison.objects.get().same)
+        response=self.client.post('/api/submissions',{'problem_url':self.new.url,'week_id':self.week.pk,
+            'proof':fixtures.CommunityTests.image(self),'code':'int main(){}'})
+        self.assertEqual(response.status_code,201,response.content)
+        self.assertTrue(response.json()['submission']['is_duplicate'])
         response=self.client.post('/api/submissions',{'problem_url':self.new.url,'week_id':self.week.pk,
             'proof':fixtures.CommunityTests.image(self),'code':'int main(){}'})
         self.assertEqual(response.status_code,409,response.content)
@@ -65,7 +69,7 @@ class ProblemEquivalenceTests(TestCase):
         self.assertEqual(CurrencyBalance.objects.get().balance,-2)
         self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='reward_reversal').count(),1)
         data=serialize_submission(second)
-        self.assertTrue(data['is_duplicate']);self.assertFalse(data['can_edit']);self.assertFalse(data['can_resubmit'])
+        self.assertTrue(data['is_duplicate']);self.assertTrue(data['can_edit']);self.assertFalse(data['can_resubmit'])
         self.assertIn('重复题目',data['rejection_note'])
         self.reconcile()
         self.assertEqual(CurrencyTransaction.objects.count(),1)

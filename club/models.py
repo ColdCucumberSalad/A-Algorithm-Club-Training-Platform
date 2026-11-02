@@ -181,6 +181,9 @@ class MakeupPermission(models.Model):
 
 class Submission(models.Model):
     is_duplicate = models.BooleanField(default=False)
+    original_problem_url = models.URLField(max_length=1000, blank=True)
+    first_submitted_at = models.DateTimeField(default=timezone.now, editable=False)
+    duplicate_state = models.JSONField(default=dict, blank=True)
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="submissions")
     member = models.ForeignKey(TeamMembership, on_delete=models.CASCADE, related_name="submissions")
     semester = models.ForeignKey(Semester, on_delete=models.CASCADE, related_name="submissions")
