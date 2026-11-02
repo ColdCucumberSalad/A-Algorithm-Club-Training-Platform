@@ -22,6 +22,10 @@ from .tasks import purge_files
 URL = 'https://www.nowcoder.com/practice/d53b2057ae8a4eaf8155447f6b709361'
 
 
+def report_snapshot(submission):
+    return list(submission.reports.filter(status='pending',version=submission.version).order_by('pk').values('id','generation'))
+
+
 class CommunityTests(TestCase):
     def setUp(self):
         self.media = tempfile.TemporaryDirectory()
@@ -53,7 +57,7 @@ class CommunityTests(TestCase):
 
     def submit(self):
         with patch('club.problem_parser.get_problem', return_value=self.problem):
-            response = self.client.post('/api/submissions', {'problem_url': URL, 'week_id': self.week.pk,
+            response = self.client.post('/api/submissions', {'problem_url': self.problem.url, 'week_id': self.week.pk,
                 'proof': self.image(), 'logic': '完整题解\n第二行', 'blog': 'https://example.com/blog',
                 'code': 'int main() {}', 'code_language': 'cpp'})
         self.assertEqual(response.status_code, 201, response.content)
@@ -65,7 +69,7 @@ class CommunityTests(TestCase):
 
     def reject(self, submission):
         self.client.force_login(self.owner)
-        return self.post(f'/api/admin/reports/{submission.pk}/resolve', {'action':'reject', 'version':submission.version, 'note':'截图不匹配'})
+        return self.post(f'/api/admin/reports/{submission.pk}/resolve', {'action':'reject', 'version':submission.version, 'note':'截图不匹配', 'report_snapshot':report_snapshot(submission)})
 
     def test_immediate_scores_and_grouped_history(self):
         current = self.submit()
@@ -186,7 +190,7 @@ class CommunityTests(TestCase):
         submission = self.submit()
         self.report(submission)
         self.client.force_login(self.owner)
-        result = self.post(f'/api/admin/reports/{submission.pk}/resolve', {'action':'dismiss', 'version':1})
+        result = self.post(f'/api/admin/reports/{submission.pk}/resolve', {'action':'dismiss', 'version':1,'report_snapshot':report_snapshot(submission)})
         self.assertEqual(result.status_code, 200)
         self.report(submission)
         self.assertEqual(submission.reports.get().status, 'dismissed')
@@ -447,7 +451,7 @@ class CommunityConcurrencyTests(TransactionTestCase):
                 client.force_login(self.admin if operation == 'resolve' else self.reader)
                 barrier.wait(timeout=10)
                 if operation == 'resolve':
-                    return client.post(f'/api/admin/reports/{self.submission.pk}/resolve', json.dumps({'action':'reject','note':'不匹配','version':1}), content_type='application/json').status_code
+                    return client.post(f'/api/admin/reports/{self.submission.pk}/resolve', json.dumps({'action':'reject','note':'不匹配','version':1,'report_snapshot':report_snapshot(self.submission)}), content_type='application/json').status_code
                 if operation == 'like':
                     return client.put(f'/api/submissions/{self.submission.pk}/like').status_code
                 return client.post(f'/api/submissions/{self.submission.pk}/report').status_code

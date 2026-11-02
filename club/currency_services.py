@@ -25,15 +25,32 @@ def positive_id(value):
 def get_or_create_balance(member):
     """Get or create currency balance for a member"""
     balance, created = CurrencyBalance.objects.get_or_create(
-        team=member.team,
-        member=member,
-        defaults={"balance": 0}
+        user_id=member.user_id,
+        defaults={"balance": 0, "team":member.team, "member":member}
     )
     return balance
 
 
 @transaction.atomic
-def add_currency(member, amount, transaction_type, description="", created_by=None):
+def adjust_currency(member, amount, transaction_type, description="", created_by=None):
+    """Administrative adjustments may create debt; ordinary spending must not."""
+    if type(amount) is not int or amount == 0:
+        raise ValueError('调整金额必须为非零整数')
+    balance = get_or_create_balance(member)
+    balance = CurrencyBalance.objects.select_for_update().get(pk=balance.pk)
+    result = balance.balance + amount
+    if not -2147483648 <= result <= 2147483647:
+        raise ValueError('调整后余额超出存储范围')
+    balance.balance = result
+    balance.save(update_fields=['balance', 'updated_at'])
+    CurrencyTransaction.objects.create(user_id=member.user_id, team=member.team, member=member,
+        amount=amount, balance_after=result, transaction_type=transaction_type,
+        description=description, created_by=created_by)
+    return result
+
+
+@transaction.atomic
+def add_currency(member, amount, transaction_type, description="", created_by=None, *, tip=None):
     """Add currency to a member's balance"""
     if type(amount) is not int or amount < 0:
         raise ValueError("金额必须为非负整数")
@@ -51,14 +68,15 @@ def add_currency(member, amount, transaction_type, description="", created_by=No
         balance_after=balance.balance,
         transaction_type=transaction_type,
         description=description,
-        created_by=created_by
+        created_by=created_by,
+        tip=tip,
     )
 
     return balance.balance
 
 
 @transaction.atomic
-def deduct_currency(member, amount, transaction_type, description="", created_by=None):
+def deduct_currency(member, amount, transaction_type, description="", created_by=None, *, tip=None):
     """Deduct currency from a member's balance"""
     if type(amount) is not int or amount <= 0:
         raise ValueError("扣除金额必须为正整数")
@@ -78,7 +96,8 @@ def deduct_currency(member, amount, transaction_type, description="", created_by
         balance_after=balance.balance,
         transaction_type=transaction_type,
         description=description,
-        created_by=created_by
+        created_by=created_by,
+        tip=tip,
     )
 
     return balance.balance
@@ -150,6 +169,7 @@ def perform_checkin(member, *, day=None):
 @transaction.atomic
 def makeup_checkin(member, checkin_date):
     """Spend one ticket to persist a single historical submission permission."""
+    User.objects.select_for_update().get(pk=member.user_id)
     from .semester_calendar import ensure_current_semester
     ensure_current_semester(member.team)
     if checkin_date >= timezone.localdate():
@@ -175,14 +195,14 @@ def makeup_checkin(member, checkin_date):
         raise ValueError('该日期已签到或已有有效提交，无需补签')
     from django.db.models import Sum
     def result(already_open):
-        remaining = UserInventory.objects.filter(team=member.team, member=member,
+        remaining = UserInventory.objects.filter(member__user_id=member.user_id,
             item__item_type='makeup_ticket', quantity__gt=0).aggregate(total=Sum('quantity'))['total'] or 0
         return {'success': True, 'remaining_tickets': remaining, 'checkin_date': checkin_date.isoformat(),
                 'week_id': week.pk, 'already_open': already_open, 'completed': False}
     if permission:
         return result(True)
     inventory = UserInventory.objects.select_for_update(of=('self',)).filter(
-        team=member.team, member=member, item__team=member.team,
+        member__user_id=member.user_id,
         item__item_type='makeup_ticket', quantity__gt=0).order_by('pk').first()
     if not inventory:
         item = ShopItem.objects.filter(team=member.team, item_type='makeup_ticket',
@@ -209,6 +229,7 @@ def purchase_item(member, item_id, quantity=1, request_id=None):
     if type(quantity) is not int or not 1 <= quantity <= 100:
         raise ValueError("购买数量必须是 1–100 的整数")
     item_id=positive_id(item_id)
+    User.objects.select_for_update().get(pk=member.user_id)
     if not TeamMembership.objects.select_for_update().get(pk=member.pk).is_active:
         raise ValueError('当前成员权限已失效')
     token=None
@@ -301,10 +322,9 @@ def calculate_contest_reward(problems_solved, is_ak, team):
 
 def get_transaction_history(member, limit=50):
     """Get transaction history for a member"""
-    return CurrencyTransaction.objects.filter(
-        team=member.team,
-        member=member
-    )[:limit]
+    return CurrencyTransaction.objects.filter(user_id=member.user_id).select_related(
+        'tip__sender__user__account_closure','tip__recipient__user__account_closure',
+        'tip__sender_user__account_closure')[:limit]
 
 
 def initialize_default_currency_config(team):

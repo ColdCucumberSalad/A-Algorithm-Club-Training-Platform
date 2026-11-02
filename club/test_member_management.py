@@ -85,14 +85,14 @@ class MemberManagementTests(TestCase):
         self.assertEqual(self.profile(name='Taken').status_code,400)
         self.member.refresh_from_db();self.assertEqual(self.member.display_name,'Alice')
 
-    def test_balance_has_ledger_and_rejects_stale_or_negative_values(self):
+    def test_balance_has_ledger_allows_debt_and_rejects_stale_values(self):
         CurrencyBalance.objects.create(team=self.team,member=self.member,balance=5)
         self.assertEqual(self.patch({'action':'balance','balance':12,'expected_balance':5}).status_code,200)
         self.assertEqual(CurrencyTransaction.objects.get(member=self.member).amount,7)
         self.assertEqual(self.patch({'action':'balance','balance':12,'expected_balance':5}).status_code,409)
         self.assertEqual(CurrencyTransaction.objects.filter(member=self.member).count(),1)
-        self.assertEqual(self.patch({'action':'balance','balance':-1,'expected_balance':12}).status_code,400)
-        self.assertEqual(self.patch({'action':'balance','balance':3,'expected_balance':12}).status_code,200)
+        self.assertEqual(self.patch({'action':'balance','balance':-1,'expected_balance':12}).status_code,200)
+        self.assertEqual(self.patch({'action':'balance','balance':3,'expected_balance':-1}).status_code,200)
         self.assertEqual(CurrencyBalance.objects.get(member=self.member).balance,3)
 
     def test_grants_are_idempotent_and_quantity_adjustment_cannot_mint_items(self):

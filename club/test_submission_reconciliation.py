@@ -54,7 +54,7 @@ class SubmissionReconciliationTests(TestCase):
             self.client.post(f'/api/submissions/{item.pk}/report')
         self.client.force_login(self.owner)
         path = f'/api/admin/reports/{item.pk}/resolve' if report else f'/api/submissions/{item.pk}/reject'
-        response = self.client.post(path, json.dumps({'action':'reject','version':item.version,'note':'无效截图'}), content_type='application/json')
+        response = self.client.post(path, json.dumps({'action':'reject','version':item.version,'note':'无效截图','report_snapshot':fixtures.report_snapshot(item)}), content_type='application/json')
         self.assertEqual(response.status_code, 200, response.content)
         self.client.force_login(self.author)
 

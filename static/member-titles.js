@@ -6,10 +6,11 @@ window.MemberTitles = (() => {
     if (!title || typeof title.text !== 'string' || !title.text.trim()) return '';
     const color = /^#[0-9a-f]{6}$/i.test(title.color || '') ? title.color : '#c96c7a';
     const font = fonts.has(title.font) ? title.font : 'system';
+    const style = ['plain','chroma','wings','captain','president','deputy'].includes(title.style)?title.style:'plain';
     const channels = color.slice(1).match(/../g).map(c=>parseInt(c,16)/255).map(c=>c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4));
     const luminance = channels[0]*.2126+channels[1]*.7152+channels[2]*.0722;
     const tone = luminance>.4?'light':luminance<.15?'dark':'normal';
-    return `<span class="member-title-badge" data-title-tone="${tone}" data-title-font="${font}" style="--member-title-color:${color}">${escape(title.text.trim().slice(0,20))}</span>`;
+    return `<span class="member-title-badge" data-title-style="${style}" data-title-tone="${tone}" data-title-font="${font}" style="--member-title-color:${color}">${escape(title.text.trim().slice(0,20))}</span>`;
   }
   function list(titles) {return (Array.isArray(titles)?titles:titles?[titles]:[]).slice(0,8).map(markup).join('');}
   function cohort(value,compact=false) {

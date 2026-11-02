@@ -3,7 +3,7 @@ import uuid
 from unittest.mock import patch
 from django.test import TestCase,Client
 from . import test_community as fixtures
-from .models import TeamMembership,CurrencyBalance,CurrencyTransaction,SubmissionTip,Submission
+from .models import Team,TeamMembership,CurrencyBalance,CurrencyTransaction,SubmissionTip,Submission
 
 
 class TipTests(TestCase):
@@ -56,6 +56,78 @@ class TipTests(TestCase):
         self.assertEqual(CurrencyBalance.objects.get(member=self.sender).balance,20)
         self.assertFalse(SubmissionTip.objects.exists())
         self.assertFalse(CurrencyTransaction.objects.exists())
+
+    def legacy_descriptions(self):
+        # Simulate retained rows predating the description cleanup migration.
+        CurrencyTransaction.objects.filter(transaction_type='tip_sent').update(
+            description=f'打赏 {self.author_member.display_name} 的提交 #{self.target.pk}')
+        CurrencyTransaction.objects.filter(transaction_type='tip_received').update(
+            description=f'收到 {self.sender.display_name} 对提交 #{self.target.pk} 的打赏')
+
+    def close(self,user):
+        client=Client();client.force_login(user)
+        response=client.post('/api/account/close',json.dumps({'confirmation':'注销账号',
+            'password':'test-password'}),content_type='application/json')
+        self.assertEqual(response.status_code,200,response.content)
+
+    def test_closed_recipient_name_is_hidden_in_senders_global_ledger(self):
+        self.assertEqual(self.tip().status_code,200)
+        self.legacy_descriptions()
+        old_name=self.author_member.display_name
+        receipt=SubmissionTip.objects.values().get()
+        self.author_member.display_name='Renamed since tip';self.author_member.save()
+        self.close(self.author)
+        other=Team.objects.create(name='Another team',code='TIP-HISTORY-OTHER',created_by=self.owner)
+        TeamMembership.objects.create(team=other,user=self.reader,display_name='Elsewhere')
+        for team in (self.team,other):
+            session=self.client.session;session['team_id']=team.pk;session.save()
+            response=self.client.get('/api/currency/transactions')
+            self.assertEqual(response.status_code,200,response.content)
+            entry=response.json()['transactions'][0]
+            self.assertNotIn(old_name,entry['description'])
+            self.assertEqual(entry['description'],f'打赏 已注销用户 的提交 #{self.target.pk}')
+            self.assertEqual((entry['amount'],entry['balance_after']),(-7,13))
+        self.assertEqual(SubmissionTip.objects.values().get(),receipt)
+
+    def test_closed_sender_name_is_hidden_in_recipients_ledger(self):
+        self.assertEqual(self.tip().status_code,200)
+        self.legacy_descriptions()
+        old_name=self.sender.display_name
+        self.sender.display_name='Renamed old sender';self.sender.save()
+        self.close(self.reader)
+        self.client.force_login(self.author)
+        entry=self.client.get('/api/currency/transactions').json()['transactions'][0]
+        self.assertEqual(entry['description'],f'收到 已注销用户 对提交 #{self.target.pk} 的打赏')
+        self.assertNotIn(old_name,entry['description'])
+        self.assertEqual((entry['amount'],entry['balance_after']),(7,7))
+
+    def test_new_tip_ledger_does_not_store_nickname_snapshots(self):
+        self.assertEqual(self.tip().status_code,200)
+        descriptions=list(CurrencyTransaction.objects.order_by('pk').values_list('description',flat=True))
+        self.assertEqual(descriptions,[f'打赏提交 #{self.target.pk}',f'收到提交 #{self.target.pk} 的打赏'])
+
+    def test_recipient_sees_current_sender_name_and_exact_amount(self):
+        self.assertEqual(self.tip().status_code,200)
+        receipt=SubmissionTip.objects.get()
+        self.assertEqual(list(CurrencyTransaction.objects.order_by('pk').values_list('tip_id',flat=True)),[receipt.pk,receipt.pk])
+        self.client.force_login(self.author)
+        entry=self.client.get('/api/currency/transactions').json()['transactions'][0]
+        self.assertEqual(entry['description'],f'收到 {self.sender.display_name} 对提交 #{self.target.pk} 的打赏')
+        self.assertEqual((entry['amount'],entry['balance_after']),(7,7))
+        old_name=self.sender.display_name
+        self.sender.display_name='Current sender name';self.sender.save()
+        entry=self.client.get('/api/currency/transactions').json()['transactions'][0]
+        self.assertIn('Current sender name',entry['description'])
+        self.assertNotIn(old_name,entry['description'])
+
+    def test_unlinked_legacy_receipt_does_not_guess_identity_from_old_text(self):
+        self.assertEqual(self.tip().status_code,200)
+        CurrencyTransaction.objects.filter(transaction_type='tip_received').update(tip=None,
+            description=f'收到 Private old nickname 对提交 #{self.target.pk} 的打赏')
+        self.client.force_login(self.author)
+        entry=self.client.get('/api/currency/transactions').json()['transactions'][0]
+        self.assertEqual(entry['description'],f'收到提交 #{self.target.pk} 的打赏')
+        self.assertEqual(entry['amount'],7)
 
 
 class PasswordTests(TestCase):

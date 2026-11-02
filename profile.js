@@ -50,6 +50,11 @@
   function renderIdentity() {
     page.querySelector('#personalGrade').textContent = data.cohort?.squad_label || (data.read_only ? '系统管理员' : '未分队');
     page.querySelector('#personalMemberTitle').innerHTML=window.MemberTitles?.list(data.titles||data.title)||'';
+    let wardrobe=page.querySelector('#titleWardrobe');if(!wardrobe){wardrobe=document.createElement('section');wardrobe.id='titleWardrobe';wardrobe.className='personal-basics title-wardrobe';page.querySelector('.personal-password').before(wardrobe);}
+    const awarded=data.awarded_titles||[];wardrobe.hidden=data.read_only||!awarded.length;
+    const selected=data.titles?.length===1?data.titles[0].text:null;
+    wardrobe.innerHTML='<h2>佩戴称号</h2><div class="title-wardrobe-options"><button type="button" class="secondary-button" data-wear-none aria-pressed="'+(!data.titles?.length)+'">不佩戴</button>'+awarded.map((title,i)=>'<button type="button" class="title-wear-choice" data-wear-index="'+i+'" aria-pressed="'+(selected===title.text)+'">'+MemberTitles.markup(title)+'</button>').join('')+'</div>';
+    wardrobe.onclick=async event=>{const button=event.target.closest('button');if(!button)return;const title=button.hasAttribute('data-wear-none')?null:awarded[Number(button.dataset.wearIndex)]?.text;if(title===undefined)return;button.disabled=true;try{const result=await request('/api/profile/titles/wear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title})});data.titles=result.titles;renderIdentity();if(typeof loadLeaderboard==='function')loadLeaderboard();message('称号佩戴已更新');}catch(error){message(error.message,true);}finally{button.disabled=false;}};
   }
   function buildPage() {
     page = document.createElement('section'); page.id = 'personalPage'; page.className = 'personal-page';
@@ -73,6 +78,7 @@
           <section class="personal-platform-section" aria-labelledby="platformTitle"><div class="personal-platform-heading"><div><span class="personal-step">02 / CONNECT YOUR PLATFORMS</span><h2 id="platformTitle">算法平台</h2></div><div class="platform-heading-actions"><span id="bindingCount" class="binding-count"></span><button id="claimPlatformRewards" class="primary-button" type="button" hidden>领取过题奖励</button><button id="syncAllPlatforms" class="secondary-button" type="button">同步全部账号</button></div></div>
             <div id="platformGrid" class="platform-grid"></div>
           </section>
+          <section class="personal-basics account-close-section"><div><h2>注销全局账号</h2><p class="muted">注销会停用所有团队身份，请先核对影响。</p></div><button type="button" class="secondary-button" data-close-own-account>注销账号</button></section>
         </div>
       </main>`;
     backdrop = document.createElement('div'); backdrop.className = 'personal-backdrop'; backdrop.hidden = true;

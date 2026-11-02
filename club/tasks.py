@@ -122,21 +122,42 @@ def sync_platform_binding(binding_id, token):
                 PlatformBinding.objects.filter(pk=current.pk).update(status='failed', error=message)
 
 
+def _contest_sync_is_current(user_id, token):
+    from .models import ContestSyncState
+    return ContestSyncState.objects.filter(user_id=user_id,token=token,status='pending',
+        user__is_active=True,user__account_closure__isnull=True).exists()
+
+
+def _lock_contest_sync_state(user_id, token):
+    """Inside a write transaction: user first, then sync state and history rows."""
+    from django.contrib.auth.models import User
+    from .models import AccountClosure,ContestSyncState
+    user=User.objects.select_for_update().filter(pk=user_id).first()
+    if not user or not user.is_active or AccountClosure.objects.filter(user=user).exists():
+        return None
+    return ContestSyncState.objects.select_for_update().filter(
+        user_id=user_id,token=token,status='pending').first()
+
+
 @shared_task(soft_time_limit=750, time_limit=780)
 def discover_contest_progress(user_id, token):
     from django.db import transaction
-    from .models import ContestSyncState, ContestParticipation, PlatformBinding
+    from .models import ContestParticipation, PlatformBinding
     from .contest_progress_sources import discover, Remote, SyncError
+    if not _contest_sync_is_current(user_id,token):
+        return
     pending = []
     messages = {}
     for binding in PlatformBinding.objects.filter(user_id=user_id):
+        if not _contest_sync_is_current(user_id,token):
+            return
         if binding.platform == 'qoj':
             continue
         remote = Remote()
         try:
             rows = discover(remote, binding.platform, binding.account)
             with transaction.atomic():
-                state = ContestSyncState.objects.select_for_update().filter(user_id=user_id, token=token).first()
+                state = _lock_contest_sync_state(user_id,token)
                 if not state:
                     return
                 if not PlatformBinding.objects.filter(pk=binding.pk, account=binding.account).exists():
@@ -153,7 +174,7 @@ def discover_contest_progress(user_id, token):
         finally:
             remote.session.close()
     with transaction.atomic():
-        state = ContestSyncState.objects.select_for_update().filter(user_id=user_id, token=token).first()
+        state = _lock_contest_sync_state(user_id,token)
         if not state:
             return
         state.progressed_at=timezone.now()
@@ -177,10 +198,10 @@ def enqueue_hydration(contest_id, token):
 @shared_task(soft_time_limit=155, time_limit=165)
 def hydrate_contest_progress(contest_id, token):
     from django.db import transaction
-    from .models import ContestSyncState, ContestParticipation, ContestProblemProgress, PlatformBinding
+    from .models import ContestParticipation, ContestProblemProgress, PlatformBinding
     from .contest_progress_sources import hydrate, Remote, SyncError
     c = ContestParticipation.objects.filter(pk=contest_id).first()
-    if not c or str(c.hydrated_token)==str(token) or not ContestSyncState.objects.filter(user=c.user, token=token, status='pending').exists():
+    if not c or str(c.hydrated_token)==str(token) or not _contest_sync_is_current(c.user_id,token):
         return
     remote = Remote(); rows = None; error = ''
     try:
@@ -191,7 +212,7 @@ def hydrate_contest_progress(contest_id, token):
         remote.session.close()
     verified_ends_at=c.ends_at
     with transaction.atomic():
-        state = ContestSyncState.objects.select_for_update().filter(user=c.user, token=token).first()
+        state = _lock_contest_sync_state(c.user_id,token)
         if not state:
             return
         c = ContestParticipation.objects.select_for_update().get(pk=c.pk)

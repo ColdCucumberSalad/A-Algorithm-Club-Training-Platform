@@ -1,5 +1,5 @@
 function uiProblemTitle(title){if(/^https?:\/\//i.test(title||''))return '题目名称待解析';return adminTestMode&&title==='测试题目'?'未命名题目':title||'未命名题目';}
-function uiMemberName(name){return adminTestMode&&/^管理员测试用户(?:（测试）)?$/.test(name||'')?'管理员':name||'成员';}
+function uiMemberName(name){if((name||'').startsWith('已注销用户·'))return '已注销用户';return adminTestMode&&/^管理员测试用户(?:（测试）)?$/.test(name||'')?'管理员':name||'成员';}
 function problemPlatformMarkup(url){
   let host='';try{host=new URL(url).hostname.toLowerCase();}catch{}
   const matches=domain=>host===domain||host.endsWith('.'+domain);
@@ -77,13 +77,15 @@ async function communityRequest(url, options) {
   return data;
 }
 
-async function confirmSubmissionReversal(id, action, {alwaysConfirm=false} = {}) {
+async function confirmSubmissionReversal(id, action, {alwaysConfirm=false,authorPenalty=0} = {}) {
   const preview=await communityRequest(`/api/submissions/${id}/reversal-preview?action=${action}`);
   const lines=[action==='delete'?'将删除整条提交及其材料，此操作无法恢复。':'将驳回该提交，并重新计算关联积分和签到。'];
   if(preview.reward_reversal)lines.push(`将撤回签到及连签奖励 ${preview.reward_reversal} Coins。`);
   for(const item of preview.items||[])lines.push(`该操作会导致“${item.name}”被回收（${item.quantity} 件），按原价返还 ${item.refund} Coins。`);
-  const debt=preview.reward_reversal>0&&preview.balance_after<0;
-  if(debt)lines.push(`回收后仍有 ${-preview.balance_after} Coins 待抵扣，将记为负余额。`);
+  if(authorPenalty>0)lines.push(`举报成立额外扣除 ${authorPenalty} Coins。`);
+  const balanceAfter=preview.balance_after-authorPenalty;
+  const debt=(preview.reward_reversal>0||authorPenalty>0)&&balanceAfter<0;
+  if(debt)lines.push(`处理后仍有 ${-balanceAfter} Coins 待抵扣，将记为负余额；后续收入先抵扣欠额。`);
   if(alwaysConfirm||preview.items?.length||debt){
     if(!await window.clubDialog.confirm({title:action==='delete'?'删除提交记录':'确认驳回与物品回收',
       text:lines.join('\n\n'),confirmText:action==='delete'?'确认删除':'确认驳回'}))return null;
@@ -110,11 +112,11 @@ function submissionCard(item, moderation = false) {
     const languageLabel=language?([...($('#submissionCodeLanguage')?.options||[])].find(option=>option.value===language)?.textContent.trim()||language):'';
     const languageTag=languageLabel?`<span class="submission-language-tag" aria-label="代码语言：${escapeHtml(languageLabel)}" title="代码语言：${escapeHtml(languageLabel)}">${escapeHtml(languageLabel)}</span>`:'';
     showcaseRecords.set(Number(item.id),item);
-    return `<article class="solution-card solution-summary panel" data-submission="${item.id}"><div class="member-line">${memberAvatar(item.member_id,uiMemberName(item.member_name))}<div class="submission-member-info"><strong>${escapeHtml(uiMemberName(item.member_name))}</strong><small>提交于 ${new Date(item.submitted_at).toLocaleString('zh-CN')}</small></div>${languageTag}</div><section class="solution-reasoning"><h3>题解思路</h3><p>${escapeHtml(logic?.text||'暂未填写题解思路。')}</p></section><button type="button" class="secondary-button solution-detail-button" data-solution-detail="${item.id}">查看详情</button><div class="solution-actions"><button class="secondary-button ${item.liked?'is-liked':''}" data-like="${item.id}" data-liked="${item.liked}" aria-pressed="${Boolean(item.liked)}" ${item.own?'disabled':''}>赞 ${item.likes}</button>${item.can_tip?`<button class="secondary-button" data-tip="${item.id}">打赏</button>`:''}<button class="text-button" data-report="${item.id}" ${item.own||item.reported?'disabled':''}>${item.reported?'已举报':'举报'}</button>${item.can_reject?`<button class="text-button" data-direct-reject="${item.id}" data-version="${item.version}">驳回</button>`:''}</div></article>`;
+    return `<article class="solution-card solution-summary panel" data-submission="${item.id}"><div class="member-line">${memberAvatar(item.member_id,uiMemberName(item.member_name))}<div class="submission-member-info"><strong>${escapeHtml(uiMemberName(item.member_name))}</strong><small>提交于 ${new Date(item.submitted_at).toLocaleString('zh-CN')}</small></div>${languageTag}</div><section class="solution-reasoning"><h3>题解思路</h3><p>${escapeHtml(logic?.text||'暂未填写题解思路。')}</p></section><button type="button" class="secondary-button solution-detail-button" data-solution-detail="${item.id}">查看详情</button><div class="solution-actions">${item.can_admin_edit?`<button class="secondary-button" type="button" data-admin-edit="${item.id}">编辑题解</button>`:''}<button class="secondary-button ${item.liked?'is-liked':''}" data-like="${item.id}" data-liked="${item.liked}" aria-pressed="${Boolean(item.liked)}" ${item.own?'disabled':''}>赞 ${item.likes}</button>${item.can_tip?`<button class="secondary-button" data-tip="${item.id}">打赏</button>`:''}<button class="text-button" data-report="${item.id}" data-cancel-report="${Boolean(item.can_cancel_report)}" ${item.own||(item.reported&&!item.can_cancel_report)?'disabled':''}>${item.can_cancel_report?'取消举报':item.reported?'已处理':'举报'}</button>${item.can_reject?`<button class="text-button" data-direct-reject="${item.id}" data-version="${item.version}">驳回</button>`:''}</div></article>`;
   }
   return `<article class="solution-card panel" data-submission="${item.id}">
     <div class="member-line">${memberAvatar(item.member_id,uiMemberName(item.member_name))}<div><strong>${escapeHtml(uiMemberName(item.member_name))}</strong><small>${escapeHtml(item.semester_name)} · 第${item.week}周<br>归属日期：${escapeHtml(item.record_date || '')}<br>上传：${new Date(item.submitted_at).toLocaleString('zh-CN')}</small></div></div>
-    ${moderation ? `<h3>${escapeHtml(item.problem_title)}</h3><small>${escapeHtml(item.team_name || '')}</small><p class="muted">${item.reports} 人举报 · 版本 ${item.version}</p>` : ''}
+    ${moderation ? `${item.report_reasons?.length?`<section class="report-reasons"><strong>举报理由</strong>${item.report_reasons.map(reason=>`<p>${escapeHtml(reason||'旧版举报未填写理由')}</p>`).join('')}</section>`:''}<h3>${escapeHtml(item.problem_title)}</h3><small>${escapeHtml(item.team_name || '')}</small><p class="muted">${item.reports} 人举报 · 版本 ${item.version}</p>` : ''}
     <div class="solution-excerpt">
     ${code?.text ? `<div class="shared-content blog-content"><strong>代码 · ${escapeHtml(parseSubmissionCode(code.text).language)}</strong><div class="blog-rendered" data-markdown="${escapeHtml(code.text)}"></div></div>` : ''}
     ${blog?.text ? `<div class="shared-content blog-content"><strong>Blog</strong><div class="blog-rendered" data-markdown="${escapeHtml(blog.text)}"></div></div>` : ''}
@@ -219,7 +221,8 @@ async function loadAdminQueue({append = false, page = 1} = {}) {
   try {
     const data = await communityRequest(`/api/admin/reports?page=${page}`);
     if (version !== reportRequest || currentView !== 'admin') return;
-    const html = data.submissions.map(item => submissionCard(item, true)).join('');
+    ModerationWindows.store(data.submissions,append);
+    const html = data.submissions.map(item => `<article class="report-case tm-card"><div><h3>${escapeHtml(uiProblemTitle(item.problem_title))}</h3><p class="muted">${escapeHtml(item.member_name)} · ${escapeHtml(item.team_name)} · ${item.reports} 条举报 · 版本 ${item.version}</p></div><button class="secondary-button" type="button" data-open-report="${item.id}">查看并处理</button></article>`).join('');
     if (!append) host.innerHTML = html || '<div class="queue-empty">当前没有待处理举报</div>';
     else host.insertAdjacentHTML('beforeend', html);
     renderSubmissionBlogs(host);
@@ -285,6 +288,10 @@ document.addEventListener('click', async event => {
   }
   if(button.dataset.tip){openTipDialog(button.dataset.tip);return;}
   if (!button.dataset.like && !button.dataset.report && !button.dataset.resolve && !button.dataset.directReject) return;
+  let reportReason=null;
+  if(button.dataset.report&&button.dataset.cancelReport!=='true'){reportReason=await window.ReportReason.prompt();if(!reportReason)return;}
+  let reportCoins;
+  if(button.dataset.resolve==='reject'){try{reportCoins=ModerationWindows.coinSettings();}catch(error){showToast(error.message);return;}}
   let note = '';
   if (button.dataset.resolve === 'reject' || button.dataset.directReject) {
     note = await rejectionNote();
@@ -297,8 +304,10 @@ document.addEventListener('click', async event => {
       button.dataset.liked = String(data.liked); button.textContent = `赞 ${data.likes}`;
       button.classList.toggle('is-liked', data.liked); button.setAttribute('aria-pressed', String(data.liked));
     } else if (button.dataset.report) {
-      await communityRequest(`/api/submissions/${button.dataset.report}/report`, {method: 'POST'});
-      button.textContent = '已举报'; button.dataset.done = 'true'; showToast('举报已交由管理员处理');
+      const cancelling=button.dataset.cancelReport==='true';
+      const result=await communityRequest(`/api/submissions/${button.dataset.report}/report`,cancelling?{method:'DELETE'}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:reportReason})});
+      button.dataset.cancelReport=String(!cancelling&&result.can_cancel);button.textContent=cancelling?'举报':result.can_cancel?'取消举报':'已处理';
+      showToast(cancelling?'已取消举报':'举报已交由管理员处理');
     } else if (button.dataset.directReject) {
       const preview=await confirmSubmissionReversal(button.dataset.directReject,'reject');if(!preview)return;
       await communityRequest(`/api/submissions/${button.dataset.directReject}/reject`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note,version:Number(button.dataset.version),recovery_token:preview.token})});
@@ -306,13 +315,13 @@ document.addEventListener('click', async event => {
       if (galleryProblem) await openProblem(galleryProblem);
       await refreshAfterMutation();
     } else {
-      const preview=button.dataset.resolve==='reject'?await confirmSubmissionReversal(button.dataset.id,'reject'):null;
+      const preview=button.dataset.resolve==='reject'?await confirmSubmissionReversal(button.dataset.id,'reject',{authorPenalty:reportCoins?.author_penalty||0}):null;
       if(button.dataset.resolve==='reject'&&!preview)return;
-      await communityRequest(`/api/admin/reports/${button.dataset.id}/resolve`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:button.dataset.resolve, note, version:Number(button.dataset.version),recovery_token:preview?.token})});
+      await communityRequest(`/api/admin/reports/${button.dataset.id}/resolve`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:button.dataset.resolve, note, version:Number(button.dataset.version),report_snapshot:button.dataset.reportSnapshot?JSON.parse(button.dataset.reportSnapshot):undefined,report_coins:reportCoins,recovery_token:preview?.token})});
       showToast(button.dataset.resolve === 'reject' ? '已退回，积分、签到奖励与过题量已重新计算' : '已驳回举报');
-      await loadWorkbench(); await refreshAfterMutation();
+      ModerationWindows.closeReview();await loadWorkbench(); await refreshAfterMutation();
     }
-  } catch (error) { showToast(error.message); }
+  } catch (error) { showToast(error.message);if(button.dataset.resolve&&error.status===409){ModerationWindows.closeReview();await loadAdminQueue();ModerationWindows.openReport(button.dataset.id);} }
   finally { if (button.dataset.done !== 'true') button.disabled = false; }
 });
 

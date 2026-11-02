@@ -24,7 +24,7 @@ from openpyxl.utils import get_column_letter
 from django.contrib.auth.hashers import check_password
 from functools import wraps
 
-from .models import FileDeletion, ReviewLog, Semester, SemesterMemberTotal, Submission, SubmissionPart, Team, TeamMembership, Week, create_internal_username
+from .models import AccountClosure, FileDeletion, ReviewLog, Semester, SemesterMemberTotal, Submission, SubmissionPart, Team, TeamMembership, Week, create_internal_username
 from .services import build_weeks, progress_rows, qualified, refresh_totals, week_bounds, score_part
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -206,7 +206,10 @@ def join_team(request):
     if request.method != 'POST':
         return api_error('仅支持POST', 405)
     if request.user.is_superuser:return api_error('系统管理员可直接切换管理团队，无需加入',403)
-    User.objects.select_for_update(no_key=True).get(pk=request.user.pk)
+    locked_user=User.objects.select_for_update(no_key=True).get(pk=request.user.pk)
+    if not locked_user.is_active or AccountClosure.objects.filter(user=locked_user).exists():
+        return api_error('账号已停用或注销，不能加入团队',403)
+    if locked_user.is_superuser:return api_error('系统管理员可直接切换管理团队，无需加入',403)
     data = body(request)
     code,name=[str(data.get(key,'')).strip() for key in ('team_code','name')]
     if not code or len(code) > 32 or len(name) > 40:
@@ -217,19 +220,19 @@ def join_team(request):
     if not team:
         return api_error('团队码不存在，请检查后重试', 404)
     if not name:
-        prior = TeamMembership.objects.filter(user=request.user, is_active=True).order_by('-joined_at').first()
-        base = (prior.display_name if prior else request.user.first_name or request.user.username)[:40]
+        prior = TeamMembership.objects.filter(user=locked_user, is_active=True).order_by('-joined_at').first()
+        base = (prior.display_name if prior else locked_user.first_name or locked_user.username)[:40]
         name = base
         suffix = 2
         while TeamMembership.objects.filter(team=team, display_name=name).exists():
             tail = f'-{suffix}'
             name = base[:40-len(tail)] + tail
             suffix += 1
-    if TeamMembership.objects.filter(team=team).filter(Q(user=request.user) | Q(display_name=name)).exists():
+    if TeamMembership.objects.filter(team=team).filter(Q(user=locked_user) | Q(display_name=name)).exists():
         return api_error('已经加入该团队或昵称已被使用')
     try:
         with transaction.atomic():
-            membership = TeamMembership.objects.create(user=request.user, team=team, display_name=name, role=TeamMembership.MEMBER)
+            membership = TeamMembership.objects.create(user=locked_user, team=team, display_name=name, role=TeamMembership.MEMBER)
     except IntegrityError:
         return api_error('昵称已被使用或团队信息已变化，请刷新后重试',409)
     request.session['team_id'] = team.pk
@@ -503,7 +506,8 @@ def members(request):
             for member in roster]
     if request.user.is_superuser and membership.team.currency_enabled:
         from .models import CurrencyBalance
-        balances = dict(CurrencyBalance.objects.filter(team=membership.team).values_list('member_id', 'balance'))
+        wallets = dict(CurrencyBalance.objects.filter(user_id__in=TeamMembership.objects.filter(team=membership.team).values('user_id')).values_list('user_id','balance'))
+        balances = {m.pk:wallets.get(m.user_id,0) for m in TeamMembership.objects.filter(team=membership.team)}
         for row in rows:
             row['currency_balance'] = balances.get(row['id'], 0)
     return JsonResponse({'members': rows, 'team_name': membership.team.name})
@@ -689,7 +693,6 @@ def submissions(request, submission_id=None, edit=False):
                     return api_error('当前学期已结束或尚未开放，不能更换为其他题目', 409)
                 if week.is_closed or not week.starts_at <= now < week.ends_at:
                     return api_error('该周次已截止或尚未开放，不能更换为其他题目', 409)
-            from django.db.models import Q
             original_url = canonical_problem(problem_url)[1] if problem_url else ''
             duplicates = Submission.objects.filter(member__user_id=request.user.pk).filter(
                 Q(original_problem_url=original_url) | Q(original_problem_url='', is_duplicate=False, problem__url=original_url))
@@ -972,6 +975,9 @@ def submission_reversal_preview(request, submission_id):
     if target.semester.archived_at and not (action == 'delete' and target.is_duplicate):
         return api_error('学期已归档，不能修改', 409)
     from .reward_recovery import quote
-    response = JsonResponse(quote(target,request.user,action))
+    try:
+        response = JsonResponse(quote(target,request.user,action))
+    except ValueError as exc:
+        return api_error(str(exc))
     response['Cache-Control'] = 'private, no-store'
     return response
