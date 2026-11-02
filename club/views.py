@@ -503,7 +503,8 @@ def members(request):
             for member in roster]
     if request.user.is_superuser and membership.team.currency_enabled:
         from .models import CurrencyBalance
-        balances = dict(CurrencyBalance.objects.filter(team=membership.team).values_list('member_id', 'balance'))
+        wallets = dict(CurrencyBalance.objects.filter(user_id__in=TeamMembership.objects.filter(team=membership.team).values('user_id')).values_list('user_id','balance'))
+        balances = {m.pk:wallets.get(m.user_id,0) for m in TeamMembership.objects.filter(team=membership.team)}
         for row in rows:
             row['currency_balance'] = balances.get(row['id'], 0)
     return JsonResponse({'members': rows, 'team_name': membership.team.name})

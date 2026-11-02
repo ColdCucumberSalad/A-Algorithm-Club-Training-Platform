@@ -17,7 +17,7 @@ SALT = 'submission-reward-recovery-v1'
 
 def build_plan(target):
     member, day = target.member, target.record_date
-    balance = CurrencyBalance.objects.filter(member=member, team=member.team).values_list('balance', flat=True).first() or 0
+    balance = CurrencyBalance.objects.filter(user_id=member.user_id).values_list('balance', flat=True).first() or 0
     other = Submission.objects.filter(member=member, record_date=day, is_valid=True).exclude(pk=target.pk).exists()
     required = 0
     if not other:
@@ -34,12 +34,12 @@ def build_plan(target):
     deficit = max(0, required-balance) if required else 0
     recoveries = []
     if deficit:
-        purchases = list(Purchase.objects.filter(member=member,team=member.team,
+        purchases = list(Purchase.objects.filter(member__user_id=member.user_id,
             item__item_type__in=['makeup_ticket','consumable','physical','redeem_code']).select_related('item').order_by('pk'))
         units = {p.pk:{} for p in purchases}
         for unit in ShopFulfillment.objects.filter(purchase_id__in=units):
             units[unit.purchase_id][unit.sequence] = unit
-        available = {row.item_id:row for row in UserInventory.objects.filter(member=member,team=member.team,quantity__gt=0)}
+        available = {row.item_id:row for row in UserInventory.objects.filter(member__user_id=member.user_id,quantity__gt=0)}
         unused, pending = defaultdict(list), []
         for purchase in purchases:
             price = purchase.total_price//purchase.quantity
@@ -97,8 +97,8 @@ def lock_recovery_state(member):
     TeamMembership.objects.select_for_update().get(pk=member.pk)
     balance = get_or_create_balance(member)
     CurrencyBalance.objects.select_for_update().get(pk=balance.pk)
-    list(UserInventory.objects.select_for_update().filter(member=member).order_by('pk'))
-    list(ShopFulfillment.objects.select_for_update(of=('self',)).filter(purchase__member=member).order_by('pk'))
+    list(UserInventory.objects.select_for_update().filter(member__user_id=member.user_id).order_by('pk'))
+    list(ShopFulfillment.objects.select_for_update(of=('self',)).filter(purchase__member__user_id=member.user_id).order_by('pk'))
 
 
 def authorize(request, target, action, data):
@@ -124,13 +124,13 @@ def reclaim(member, entries):
     from .currency_services import add_currency
     for entry in entries:
         if entry['inventory_id']:
-            inventory = UserInventory.objects.select_for_update().get(pk=entry['inventory_id'],member=member)
+            inventory = UserInventory.objects.select_for_update().get(pk=entry['inventory_id'],member__user_id=member.user_id)
             if inventory.quantity < 1:
                 raise ValueError('背包物品数量已变化，请重新确认')
             inventory.quantity -= 1
             inventory.save(update_fields=['quantity','updated_at'])
         if entry['unit_id']:
-            unit = ShopFulfillment.objects.select_for_update().get(pk=entry['unit_id'],purchase__member=member)
+            unit = ShopFulfillment.objects.select_for_update().get(pk=entry['unit_id'],purchase__member__user_id=member.user_id)
             if unit.status not in ('ready','dispatching'):
                 raise ValueError('物品已经使用或派送完成，不能回收')
         else:

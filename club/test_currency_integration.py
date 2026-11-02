@@ -97,7 +97,7 @@ class CurrencyIntegrationTests(TestCase):
         self.assertEqual(self.post('/api/currency/admin/adjust',{'member_id':self.member.pk,'amount':-6}).status_code,400)
         self.assertEqual(self.post('/api/currency/admin/adjust',{'member_id':self.member.pk,'amount':True}).status_code,400)
         self.assertEqual(self.config(currency_enabled=False).status_code,200)
-        self.assertEqual(self.client.get('/api/currency/balance').status_code,403)
+        self.assertEqual(self.client.get('/api/currency/balance').status_code,200)  # Global wallet remains readable when this team's rewards/shop are disabled.
         self.assertEqual(self.client.get('/api/currency/shop/items').status_code,403)
         self.assertTrue(all('currency_balance' not in r for r in self.client.get('/api/members').json()['members']))
 

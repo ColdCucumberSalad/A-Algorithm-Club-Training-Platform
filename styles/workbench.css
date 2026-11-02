@@ -122,85 +122,85 @@ html[data-site-mode="dark"] #adminView :is(input, select) { color-scheme: dark; 
 .team-management-dialog:not([open]) { display: none; }
 .team-management-dialog[open] { display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
 .team-management-dialog::backdrop { background: var(--site-overlay-dim, #00000066); }
-.team-management-dialog [hidden] { display: none !important; }
-.team-management-dialog .tm-header { padding: 24px 28px 18px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-.team-management-dialog .tm-header h2 { margin: 6px 0 0; color: var(--site-text, var(--ink)); font-size: calc(24px * var(--site-ui-scale, 1)); overflow-wrap: anywhere; }
-.team-management-dialog .section-label { color: var(--site-accent, var(--teal)); margin: 0; }
-.team-management-dialog .close-button { flex: none; color: var(--site-text, var(--ink)); background: var(--site-fill, var(--canvas)); border: 1px solid var(--site-border, var(--line)); border-radius: var(--site-inner-radius, 12px); }
-.team-management-dialog .tm-tabs { display: flex; gap: 6px; margin: 0 28px 18px; padding: 5px; background: var(--site-fill, var(--canvas)); border-radius: var(--site-inner-radius, 14px); }
-.team-management-dialog .tm-tabs button { flex: 1; padding: 12px; border-radius: var(--site-inner-radius, 10px); color: var(--site-secondary, var(--muted)); font-weight: 700; }
-.team-management-dialog .tm-tabs [aria-selected="true"] { background: var(--site-selected, var(--teal-soft)); color: var(--site-accent, var(--teal)); }
-.team-management-dialog .tm-content { overflow: auto; overscroll-behavior: contain; padding: 0 28px 28px; min-height: 0; }
-.team-management-dialog :is(h3, h4, label, legend, summary) { color: var(--site-text, var(--ink)); }
-.team-management-dialog h3 { font-size: calc(22px * var(--site-ui-scale, 1)); margin: 6px 0; }
-.team-management-dialog h4 { font-size: calc(16px * var(--site-ui-scale, 1)); margin: 0 0 16px; }
-.team-management-dialog :is(small, .muted, .workbench-hint, .tm-empty) { color: var(--site-secondary, var(--muted)); line-height: 1.7; }
-.team-management-dialog small { display: block; font-size: calc(12px * var(--site-ui-scale, 1)); font-weight: 400; }
-.team-management-dialog :is(input:not([type=checkbox]), select, textarea) { width: 100%; min-width: 0; padding: 11px 13px; color: var(--site-text, var(--ink)); background: var(--site-fill, var(--canvas)); border: 1px solid var(--site-border, var(--line)); border-radius: var(--site-inner-radius, 12px); font: inherit; box-shadow: none; }
-.team-management-dialog :is(input, select, textarea, button):focus-visible { outline: 2px solid var(--site-accent, var(--teal)); outline-offset: 2px; }
-.team-management-dialog input::placeholder { color: var(--site-secondary, var(--muted)); opacity: .8; }
-.team-management-dialog input[type=checkbox] { accent-color: var(--site-accent, var(--teal)); }
-.team-management-dialog :is(.primary-button, .secondary-button) { padding: 11px 16px; min-height: 42px; border-radius: var(--site-inner-radius, 12px); white-space: normal; }
-.team-management-dialog .primary-button { color: var(--site-button-text, #fff); background: var(--site-accent, var(--teal)); border: 1px solid var(--site-accent, var(--teal)); box-shadow: none; }
-.team-management-dialog .secondary-button { background: var(--site-fill, var(--canvas)); color: var(--site-text, var(--ink)); border: 1px solid var(--site-border, var(--line)); box-shadow: none; }
-.team-management-dialog button:hover { filter: brightness(.97); }
-.team-management-dialog :is(.tm-form, .workbench-form) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; }
-.team-management-dialog :is(.tm-form, .tm-grant, .tm-balance, .workbench-form) label { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: calc(13px * var(--site-ui-scale, 1)); font-weight: 600; }
-.team-management-dialog .tm-form > :is(h4, .tm-actions) { grid-column: 1 / -1; }
-.team-management-dialog .tm-actions { display: flex; justify-content: flex-end; }
-.team-management-dialog .tm-password { display: flex; align-items: center; gap: 6px; }
-.team-management-dialog .tm-password button { width: 42px; height: 42px; flex: none; background: var(--site-fill, var(--canvas)); color: var(--site-accent, var(--teal)); border: 1px solid var(--site-border, var(--line)); border-radius: var(--site-inner-radius, 12px); }
-.team-management-dialog .tm-password svg { width: 20px; height: 20px; vertical-align: middle; }
-.team-management-dialog :is(.tm-card, .workbench-cleanup, .workbench-semester-dates, .currency-config-options, .problem-reward-grid fieldset) { min-width: 0; padding: 22px; border: 1px solid var(--site-border, var(--line)); background: var(--site-surface, var(--panel)); border-radius: var(--site-inner-radius, 16px); margin: 0 0 18px; }
-.team-management-dialog .workbench-check { flex-direction: row !important; align-items: center; padding: 12px; border: 1px solid var(--site-border, var(--line)); border-radius: var(--site-inner-radius, 12px); background: var(--site-fill, var(--canvas)); }
-.team-management-dialog .workbench-currency-settings { border: 0; padding-top: 0; margin-top: 0; }
-.team-management-dialog .currency-config-panel.workbench-form { display: block; }
-.team-management-dialog .currency-config-panel > :is(label, p) { margin-bottom: 14px; }
-.team-management-dialog .workbench-form-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.team-management-dialog .tm-member-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; align-items: start; }
-.team-management-dialog .tm-member-sidebar { position: sticky; top: 0; min-width: 0; }
-.team-management-dialog .tm-search { display: grid; gap: 8px; font-size: 13px; margin-bottom: 16px; }
-.team-management-dialog #tmMemberList { max-height: 480px; overflow: auto; overscroll-behavior: contain; }
-.team-management-dialog .tm-member-choice { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 12px; border: 1px solid transparent; border-radius: var(--site-inner-radius, 12px); margin-bottom: 6px; color: var(--site-text, var(--ink)); }
-.team-management-dialog .tm-member-choice > span:last-child { min-width: 0; overflow-wrap: anywhere; }
-.team-management-dialog .tm-member-choice:is(:hover, [aria-pressed="true"]) { background: var(--site-selected, var(--teal-soft)); border-color: var(--site-border, var(--line)); }
-.team-management-dialog .tm-avatar { width: 36px; height: 36px; display: grid; place-items: center; flex: none; font-weight: 700; background: var(--site-avatar-background, var(--teal-soft)); color: var(--site-avatar-text, var(--teal)); border-radius: 12px; }
-.team-management-dialog .tm-member-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0 18px; }
-.team-management-dialog .tm-role { color: var(--site-accent, var(--teal)); background: var(--site-selected, var(--teal-soft)); border-radius: 20px; padding: 6px 12px; font-size: 12px; white-space: nowrap; }
-.team-management-dialog .tm-balance { display: grid; grid-template-columns: 1fr minmax(100px, 160px) auto; gap: 16px; align-items: end; }
-.team-management-dialog .tm-balance h4 { margin-bottom: 8px; }
-.team-management-dialog .tm-balance p { margin: 0; }
-.team-management-dialog .tm-inventory { max-height: 320px; overflow: auto; padding: 0 2px; }
-.team-management-dialog .tm-inventory-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--site-border, var(--line)); }
-.team-management-dialog .tm-inventory-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.team-management-dialog .tm-quantity { display: grid; gap: 4px; width: 95px; flex: none; font-size: 11px; color: var(--site-secondary, var(--muted)); }
-.team-management-dialog .tm-grant { display: grid; grid-template-columns: minmax(0, 1fr) 85px auto; gap: 12px; align-items: end; margin-top: 20px; }
-.team-management-dialog .tm-grant > small { grid-column: 1 / -1; }
-.team-management-dialog .tm-empty { padding: 20px 10px; text-align: center; }
-html[data-site-mode="dark"] .team-management-dialog :is(input, select) { color-scheme: dark; }
-.team-management-dialog .tm-title-color input { width: 100%; height: 44px; padding: 5px; cursor: pointer; }
-.team-management-dialog .tm-title-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px; border: 1px dashed var(--site-border,var(--line)); border-radius: var(--site-inner-radius,12px); min-height: 62px; }
-.team-management-dialog .tm-title-form .tm-actions { gap: 10px; }
-.team-management-dialog .tm-title-rows { grid-column: 1 / -1; display: grid; gap: 12px; }
-.team-management-dialog .tm-title-edit-row { display: grid; grid-template-columns: minmax(100px,1fr) minmax(100px,150px) 62px auto; gap: 12px; padding: 14px; align-items: end; background: var(--site-fill,var(--canvas)); border: 1px solid var(--site-border,var(--line)); border-radius: var(--site-inner-radius,12px); }
-.team-management-dialog .tm-title-edit-row .tm-title-color input { height: 44px; min-height: 0; }
-.team-management-dialog .tm-title-form #tmTitlePreview { grid-column: 1 / -1; }
-.team-management-dialog .tm-title-form .tm-actions { flex-wrap: wrap; }
-@media(max-width:760px) { .team-management-dialog .tm-title-edit-row { grid-template-columns: 1fr 1fr; gap: 10px; } }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) [hidden] { display: none !important; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-header { padding: 24px 28px 18px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-header h2 { margin: 6px 0 0; color: var(--site-text, var(--ink)); font-size: calc(24px * var(--site-ui-scale, 1)); overflow-wrap: anywhere; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .section-label { color: var(--site-accent, var(--teal)); margin: 0; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .close-button { flex: none; color: var(--site-text, var(--ink)); background: var(--site-fill, var(--canvas)); border: 1px solid var(--site-border, var(--line)); border-radius: var(--site-inner-radius, 12px); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-tabs { display: flex; gap: 6px; margin: 0 28px 18px; padding: 5px; background: var(--site-fill, var(--canvas)); border-radius: var(--site-inner-radius, 14px); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-tabs button { flex: 1; padding: 12px; border-radius: var(--site-inner-radius, 10px); color: var(--site-secondary, var(--muted)); font-weight: 700; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-tabs [aria-selected="true"] { background: var(--site-selected, var(--teal-soft)); color: var(--site-accent, var(--teal)); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-content { overflow: auto; overscroll-behavior: contain; padding: 0 28px 28px; min-height: 0; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) :is(h3, h4, label, legend, summary) { color: var(--site-text, var(--ink)); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) h3 { font-size: calc(22px * var(--site-ui-scale, 1)); margin: 6px 0; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) h4 { font-size: calc(16px * var(--site-ui-scale, 1)); margin: 0 0 16px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) :is(small, .muted, .workbench-hint, .tm-empty) { color: var(--site-secondary, var(--muted)); line-height: 1.7; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) small { display: block; font-size: calc(12px * var(--site-ui-scale, 1)); font-weight: 400; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) :is(input:not([type=checkbox]), select, textarea) { width: 100%; min-width: 0; padding: 11px 13px; color: var(--site-text, var(--ink)); background: var(--site-fill, var(--canvas)); border: 1px solid var(--site-border, var(--line)); border-radius: var(--site-inner-radius, 12px); font: inherit; box-shadow: none; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) :is(input, select, textarea, button):focus-visible { outline: 2px solid var(--site-accent, var(--teal)); outline-offset: 2px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) input::placeholder { color: var(--site-secondary, var(--muted)); opacity: .8; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) input[type=checkbox] { accent-color: var(--site-accent, var(--teal)); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) :is(.primary-button, .secondary-button) { padding: 11px 16px; min-height: 42px; border-radius: var(--site-inner-radius, 12px); white-space: normal; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .primary-button { color: var(--site-button-text, #fff); background: var(--site-accent, var(--teal)); border: 1px solid var(--site-accent, var(--teal)); box-shadow: none; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .secondary-button { background: var(--site-fill, var(--canvas)); color: var(--site-text, var(--ink)); border: 1px solid var(--site-border, var(--line)); box-shadow: none; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) button:hover { filter: brightness(.97); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) :is(.tm-form, .workbench-form) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) :is(.tm-form, .tm-grant, .tm-balance, .workbench-form) label { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: calc(13px * var(--site-ui-scale, 1)); font-weight: 600; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-form > :is(h4, .tm-actions) { grid-column: 1 / -1; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-actions { display: flex; justify-content: flex-end; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-password { display: flex; align-items: center; gap: 6px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-password button { width: 42px; height: 42px; flex: none; background: var(--site-fill, var(--canvas)); color: var(--site-accent, var(--teal)); border: 1px solid var(--site-border, var(--line)); border-radius: var(--site-inner-radius, 12px); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-password svg { width: 20px; height: 20px; vertical-align: middle; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) :is(.tm-card, .workbench-cleanup, .workbench-semester-dates, .currency-config-options, .problem-reward-grid fieldset) { min-width: 0; padding: 22px; border: 1px solid var(--site-border, var(--line)); background: var(--site-surface, var(--panel)); border-radius: var(--site-inner-radius, 16px); margin: 0 0 18px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .workbench-check { flex-direction: row !important; align-items: center; padding: 12px; border: 1px solid var(--site-border, var(--line)); border-radius: var(--site-inner-radius, 12px); background: var(--site-fill, var(--canvas)); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .workbench-currency-settings { border: 0; padding-top: 0; margin-top: 0; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .currency-config-panel.workbench-form { display: block; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .currency-config-panel > :is(label, p) { margin-bottom: 14px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .workbench-form-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-member-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; align-items: start; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-member-sidebar { position: sticky; top: 0; min-width: 0; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-search { display: grid; gap: 8px; font-size: 13px; margin-bottom: 16px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) #tmMemberList { max-height: 480px; overflow: auto; overscroll-behavior: contain; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-member-choice { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 12px; border: 1px solid transparent; border-radius: var(--site-inner-radius, 12px); margin-bottom: 6px; color: var(--site-text, var(--ink)); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-member-choice > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-member-choice:is(:hover, [aria-pressed="true"]) { background: var(--site-selected, var(--teal-soft)); border-color: var(--site-border, var(--line)); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-avatar { width: 36px; height: 36px; display: grid; place-items: center; flex: none; font-weight: 700; background: var(--site-avatar-background, var(--teal-soft)); color: var(--site-avatar-text, var(--teal)); border-radius: 12px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-member-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 4px 0 18px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-role { color: var(--site-accent, var(--teal)); background: var(--site-selected, var(--teal-soft)); border-radius: 20px; padding: 6px 12px; font-size: 12px; white-space: nowrap; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-balance { display: grid; grid-template-columns: 1fr minmax(100px, 160px) auto; gap: 16px; align-items: end; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-balance h4 { margin-bottom: 8px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-balance p { margin: 0; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-inventory { max-height: 320px; overflow: auto; padding: 0 2px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-inventory-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--site-border, var(--line)); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-inventory-row > div { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-quantity { display: grid; gap: 4px; width: 95px; flex: none; font-size: 11px; color: var(--site-secondary, var(--muted)); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-grant { display: grid; grid-template-columns: minmax(0, 1fr) 85px auto; gap: 12px; align-items: end; margin-top: 20px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-grant > small { grid-column: 1 / -1; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-empty { padding: 20px 10px; text-align: center; }
+html[data-site-mode="dark"] :is(.team-management-dialog,.global-account-modal,.moderation-modal) :is(input, select) { color-scheme: dark; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-title-color input { width: 100%; height: 44px; padding: 5px; cursor: pointer; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-title-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px; border: 1px dashed var(--site-border,var(--line)); border-radius: var(--site-inner-radius,12px); min-height: 62px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-title-form .tm-actions { gap: 10px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-title-rows { grid-column: 1 / -1; display: grid; gap: 12px; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-title-edit-row { display: grid; grid-template-columns: minmax(100px,1fr) minmax(100px,150px) 62px auto; gap: 12px; padding: 14px; align-items: end; background: var(--site-fill,var(--canvas)); border: 1px solid var(--site-border,var(--line)); border-radius: var(--site-inner-radius,12px); }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-title-edit-row .tm-title-color input { height: 44px; min-height: 0; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-title-form #tmTitlePreview { grid-column: 1 / -1; }
+:is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-title-form .tm-actions { flex-wrap: wrap; }
+@media(max-width:760px) { :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-title-edit-row { grid-template-columns: 1fr 1fr; gap: 10px; } }
 @media (max-width: 760px) {
   .team-management-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
-  .team-management-dialog .tm-header { padding: 18px 16px; }
-  .team-management-dialog .tm-tabs { margin: 0 16px 16px; }
-  .team-management-dialog .tm-content { padding: 0 16px 18px; }
-  .team-management-dialog .tm-member-layout { grid-template-columns: 1fr; gap: 16px; }
-  .team-management-dialog .tm-member-sidebar { position: static; }
-  .team-management-dialog #tmMemberList { display: flex; max-height: none; gap: 6px; }
-  .team-management-dialog .tm-member-choice { width: auto; min-width: 180px; }
-  .team-management-dialog :is(.tm-form, .workbench-form) { grid-template-columns: 1fr; }
-  .team-management-dialog .tm-card { padding: 16px; }
-  .team-management-dialog .tm-balance { grid-template-columns: 1fr 1fr; }
-  .team-management-dialog .tm-balance > button { grid-column: 1 / -1; }
-  .team-management-dialog .tm-grant { grid-template-columns: minmax(0, 1fr) 75px; }
-  .team-management-dialog .tm-grant > button { grid-column: 1 / -1; }
-  .team-management-dialog .tm-inventory-row { flex-wrap: wrap; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-header { padding: 18px 16px; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-tabs { margin: 0 16px 16px; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-content { padding: 0 16px 18px; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-member-layout { grid-template-columns: 1fr; gap: 16px; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-member-sidebar { position: static; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) #tmMemberList { display: flex; max-height: none; gap: 6px; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-member-choice { width: auto; min-width: 180px; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) :is(.tm-form, .workbench-form) { grid-template-columns: 1fr; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-card { padding: 16px; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-balance { grid-template-columns: 1fr 1fr; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-balance > button { grid-column: 1 / -1; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-grant { grid-template-columns: minmax(0, 1fr) 75px; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-grant > button { grid-column: 1 / -1; }
+  :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-inventory-row { flex-wrap: wrap; }
 }

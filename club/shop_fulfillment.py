@@ -113,7 +113,7 @@ def fulfillment_inventory(member):
         'quantity': 1, 'status': unit.status, 'icon': '/api/currency/shop/items/' + str(unit.purchase.item_id) + '/icon' if unit.purchase.item.icon else None,
         'purchased_at': unit.purchase.purchased_at.isoformat(), 'can_redeem': unit.status == 'ready',
         'code': key_cipher().decrypt(unit.encrypted_code.encode()).decode() if unit.status == 'redeemed' and unit.encrypted_code else None}
-        for unit in ShopFulfillment.objects.filter(purchase__member=member, purchase__team=member.team).select_related('purchase__item').order_by('-pk')]
+        for unit in ShopFulfillment.objects.filter(purchase__member__user_id=member.user_id).select_related('purchase__item').order_by('-pk')]
 
 
 @api_login_required
@@ -123,21 +123,21 @@ def use_consumable(request, inventory_id):
     member = membership_for(request)
     if not member or not member.pk or request.user.is_superuser or getattr(request, 'admin_test_mode', False):
         return api_error('请使用持有物品的成员账号', 403)
-    if not member.team.currency_enabled:
-        return api_error('该团队未启用货币系统', 403)
     try:
         token = uuid.UUID(str(body(request).get('request_id', '')))
     except (ValueError, TypeError, AttributeError):
         return api_error('使用请求编号无效', 400)
+    from django.contrib.auth.models import User
+    User.objects.select_for_update().get(pk=member.user_id)
     if not TeamMembership.objects.select_for_update().filter(pk=member.pk, is_active=True).exists():
         return api_error('当前成员权限已失效', 403)
     inventory = UserInventory.objects.select_for_update(of=('self',)).filter(pk=inventory_id,
-        member=member, team=member.team, item__item_type='consumable').select_related('item').first()
+        member__user_id=member.user_id, item__item_type='consumable').select_related('item').first()
     if not inventory:
         return api_error('消耗品不存在', 404)
     prior = ShopFulfillment.objects.filter(request_key=token).select_related('purchase').first()
     if prior:
-        if prior.purchase.member_id != member.pk or prior.purchase.item_id != inventory.item_id or prior.purchase.team_id != member.team_id:
+        if prior.purchase.member.user_id != member.user_id or prior.purchase.item_id != inventory.item_id:
             return api_error('使用请求编号已被使用', 409)
         return private_json({'ok': True, 'duplicate': True, 'status': prior.status, 'fulfillment_id': prior.pk})
     if inventory.quantity < 1:
@@ -145,7 +145,7 @@ def use_consumable(request, inventory_id):
     # Existing consumables already have purchase history but no per-unit fulfillment.
     # Allocate one unused purchase unit on demand, keeping old backpacks usable.
     from django.db.models import Count, F
-    purchase = Purchase.objects.filter(member=member, team=member.team, item=inventory.item).annotate(
+    purchase = Purchase.objects.filter(member=inventory.member, item=inventory.item).annotate(
         used_units=Count('fulfillments')).filter(quantity__gt=F('used_units')).order_by('pk').first()
     if not purchase:
         return api_error('物品购买记录不完整，请联系管理员', 409)
@@ -186,9 +186,11 @@ def redeem(request, unit_id):
     member = membership_for(request)
     if not member or not member.pk or request.user.is_superuser:
         return api_error('请使用购买商品的成员账号', 403)
+    from django.contrib.auth.models import User
+    User.objects.select_for_update().get(pk=member.user_id)
     TeamMembership.objects.select_for_update().get(pk=member.pk)
     unit = ShopFulfillment.objects.select_for_update().filter(pk=unit_id,
-        purchase__member=member, purchase__team=member.team).select_related('purchase__item').first()
+        purchase__member__user_id=member.user_id).select_related('purchase__item').first()
     if not unit or unit.purchase.item.item_type != 'redeem_code':
         return api_error('物品不存在', 404)
     if unit.status == 'redeemed':

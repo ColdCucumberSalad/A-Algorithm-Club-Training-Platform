@@ -53,7 +53,8 @@ def ranking_data(member, scope, platform='codeforces', period='semester'):
         for m in members:
             rows[m.pk].update(value=totals.get(m.user_id, 0), unit='题', detail='累计过题' if period == 'all' else '本学期过题')
     elif scope == 'wealth':
-        balances = dict(CurrencyBalance.objects.filter(team=member.team, member_id__in=rows).values_list('member_id','balance'))
+        wallets = dict(CurrencyBalance.objects.filter(user_id__in=[m.user_id for m in members]).values_list('user_id','balance'))
+        balances = {m.pk:wallets.get(m.user_id,0) for m in members}
         for mid,row in rows.items(): row.update(value=balances.get(mid,0), unit='RBC Coins', detail='当前余额')
     else:
         if platform not in RATING_PLATFORMS:

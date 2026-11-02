@@ -27,6 +27,7 @@ window.TeamManagement = (() => {
     });
     document.addEventListener('keydown', event => {
       if (!dialog.open || document.querySelector('.swal2-container, #wbConfirmModal.open, #wbRestoreModal.open')) return;
+      if(document.querySelector('#accountActionModal.open,#globalAccountsDialog.open'))return;
       if (event.key === 'Escape') { event.preventDefault(); dialog.close(); return; }
       if (event.key !== 'Tab') return;
       const focusable = [...dialog.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]')].filter(el => el.getClientRects().length && el.tabIndex >= 0);
@@ -48,6 +49,9 @@ window.TeamManagement = (() => {
         event.target.closest('button').setAttribute('aria-label',show?'隐藏新密码':'显示新密码');
         return;
       }
+      const kick=event.target.closest('[data-tm-kick]');
+      if(kick){const selectedTeam=teamId,selectedMember=memberId;if(!await clubDialog.confirm({title:'踢出团队',text:'只停用当前团队身份，账号、全局 Coins 和背包保留。',confirmText:'确认踢出'}))return;if(teamId!==selectedTeam||memberId!==selectedMember)return;try{await communityRequest(`/api/management/teams/${teamId}/members/${memberId}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation:kick.dataset.tmKick})});await loadMembers();showToast('已踢出当前团队');}catch(error){showToast(error.message);}return;}
+      const closeAccount=event.target.closest('[data-tm-close-account]');if(closeAccount){AccountManagement.closeById(Number(closeAccount.dataset.tmCloseAccount));return;}
       const revoke = event.target.closest('[data-tm-revoke]');
       if (revoke) {
         const selectedTeam = teamId, selectedMember = memberId;
@@ -80,7 +84,7 @@ window.TeamManagement = (() => {
       } else if (kind === 'balance') {
         await mutate(button,'settings',{action:'balance',balance:Number(form.elements.balance.value),expected_balance:Number(form.dataset.balance)});
       } else if (kind === 'quantity') {
-        await mutate(button,'inventory',{action:'quantity',item_id:Number(form.dataset.item),quantity:Number(form.elements.quantity.value),expected_quantity:Number(form.dataset.quantity)});
+        await mutate(button,'inventory',{action:'quantity',inventory_id:Number(form.dataset.inventory),item_id:Number(form.dataset.item),quantity:Number(form.elements.quantity.value),expected_quantity:Number(form.dataset.quantity)});
       } else if (kind === 'grant') {
         form.dataset.requestId ||= crypto.randomUUID();
         await mutate(button,'inventory',{action:'grant',item_id:Number(form.elements.item.value),quantity:Number(form.elements.quantity.value),request_id:form.dataset.requestId});
@@ -121,8 +125,8 @@ window.TeamManagement = (() => {
   }
   const statuses = {ready:'待核销',redeemed:'已核销',dispatching:'派发中',delivered:'派送成功',consumed:'已消耗',reclaimed:'已收回'};
   const titleFonts={system:'默认黑体',serif:'典雅宋体',kai:'手写楷体',mono:'等宽字体',rounded:'圆润字体'};
-  function titleRow(title,fonts=titleFonts){return `<div class="tm-title-edit-row" data-title-row><label>称号文字<input data-title-text maxlength="20" required value="${esc(title.text||'')}" placeholder="例如：算法新星"></label><label>字体<select data-title-font>${Object.entries(fonts).map(([key,label])=>`<option value="${esc(key)}" ${key===(title.font||'system')?'selected':''}>${esc(label)}</option>`).join('')}</select></label><label class="tm-title-color">颜色<input data-title-color type="color" value="${esc(title.color||'#c96c7a')}"></label><button type="button" class="secondary-button" data-title-remove aria-label="移除此称号">移除</button></div>`;}
-  function collectTitles(form){return [...form.querySelectorAll('[data-title-row]')].map(row=>({text:row.querySelector('[data-title-text]').value,color:row.querySelector('[data-title-color]').value,font:row.querySelector('[data-title-font]').value}));}
+  function titleRow(title,fonts=titleFonts){return `<div class="tm-title-edit-row" data-title-row><label>称号文字<input data-title-text maxlength="20" required value="${esc(title.text||'')}" placeholder="例如：算法新星"></label><label>字体<select data-title-font>${Object.entries(fonts).map(([key,label])=>`<option value="${esc(key)}" ${key===(title.font||'system')?'selected':''}>${esc(label)}</option>`).join('')}</select></label><label class="tm-title-color">颜色<input data-title-color type="color" value="${esc(title.color||'#c96c7a')}"></label><label>样式<select data-title-style>${Object.entries({plain:"简约",chroma:"炫彩",wings:"羽翼",captain:"先锋徽章",president:"冠冕徽章",deputy:"星盾徽章"}).map(([key,label])=>`<option value="${key}" ${key===(title.style||"plain")?"selected":""}>${label}</option>`).join("")}</select></label><button type="button" class="secondary-button" data-title-remove aria-label="移除此称号">移除</button></div>`;}
+  function collectTitles(form){return [...form.querySelectorAll('[data-title-row]')].map(row=>({text:row.querySelector('[data-title-text]').value,color:row.querySelector('[data-title-color]').value,font:row.querySelector('[data-title-font]').value,style:row.querySelector('[data-title-style]').value}));}
   function previewTitles(form){$('#tmTitlePreview').innerHTML=MemberTitles.list(collectTitles(form))+'<strong>'+esc(rows.find(m=>m.id===memberId)?.name||'成员')+'</strong>';}
   function renderDetail(m) {
     $('#tmMemberDetail').innerHTML = `<div class="tm-member-heading"><div><p class="section-label">MEMBER PROFILE</p><h3>${esc(m.name)}</h3></div><span class="tm-role">${m.role==='admin'?'团队管理员':'普通成员'}</span></div>
@@ -130,8 +134,8 @@ window.TeamManagement = (() => {
       <form class="tm-card tm-form tm-title-form" data-tm-form="title"><h4>成员称号</h4><div data-title-rows class="tm-title-rows">${(m.titles||(m.title?.text?[m.title]:[])).map(title=>titleRow(title,m.title_fonts)).join('')}</div><div class="tm-title-preview" id="tmTitlePreview">${MemberTitles.list(m.titles||m.title)}<strong>${esc(m.name)}</strong></div><div class="tm-actions"><button type="button" class="secondary-button" data-title-add>＋ 添加称号</button><button class="secondary-button" type="button" data-title-clear>清空称号</button><button class="primary-button" type="submit">保存称号</button></div></form>
       <form class="tm-card tm-form" data-tm-form="cohort"><h4>入学年份与分队</h4><label>入学年份（账号通用）<input name="admission_year" type="number" min="2013" max="${new Date().getMonth()>=7?new Date().getFullYear():new Date().getFullYear()-1}" value="${m.cohort?.admission_year||''}" required></label><div class="tm-title-preview">${MemberTitles.cohort(m.cohort)}</div><div class="tm-actions"><button class="secondary-button" type="submit">保存入学年份</button></div></form>
       <form class="tm-card tm-balance" data-tm-form="balance" data-balance="${m.balance}"><div><h4>RBC Coins</h4><p class="muted">当前余额 <strong>${m.balance}</strong> RBC</p></div><label>调整为<input name="balance" type="number" min="0" max="2147483647" value="${m.balance}" required></label><button class="secondary-button" type="submit">保存余额</button></form>
-      <section class="tm-card"><h4>背包物品</h4><div class="tm-inventory">${m.inventory.map(inv=>`<form class="tm-inventory-row" data-tm-form="quantity" data-item="${inv.item_id}" data-quantity="${inv.quantity}"><div><strong>${esc(inv.item__name)}</strong><small>当前 ${inv.quantity} 件</small></div><label class="tm-quantity">保留数量<input type="number" name="quantity" min="0" max="${inv.quantity}" value="${inv.quantity}" required></label><button class="secondary-button" type="submit">保存</button></form>`).join('')}${m.units.map(unit=>`<div class="tm-inventory-row"><div><strong>${esc(unit.item_name)}</strong><small>#${unit.id} · ${esc(statuses[unit.status]||unit.status)}</small></div>${['ready','dispatching'].includes(unit.status)?`<button type="button" class="secondary-button" data-tm-revoke="${unit.id}">收回</button>`:''}</div>`).join('')}${!m.inventory.length&&!m.units.length?'<p class="tm-empty">背包暂无物品</p>':''}</div>
-      <form class="tm-grant" data-tm-form="grant"><label>发放商品<select name="item" required><option value="">选择当前团队商品</option>${items.map(item=>`<option value="${item.id}">${esc(item.name)}</option>`).join('')}</select></label><label>数量<input name="quantity" type="number" min="1" max="100" value="1" required></label><button class="primary-button" type="submit" ${!items.length?'disabled':''}>发放到背包</button><small>管理员发放不扣 Coins，会占用商品库存并保留发放记录。</small></form></section>`;
+      <section class="tm-card"><h4>背包物品</h4><div class="tm-inventory">${m.inventory.map(inv=>`<form class="tm-inventory-row" data-tm-form="quantity" data-item="${inv.item_id}" data-inventory="${inv.id}" data-quantity="${inv.quantity}"><div><strong>${esc(inv.item__name)}</strong><small>当前 ${inv.quantity} 件</small></div><label class="tm-quantity">保留数量<input type="number" name="quantity" min="0" max="${inv.quantity}" value="${inv.quantity}" required></label><button class="secondary-button" type="submit">保存</button></form>`).join('')}${m.units.map(unit=>`<div class="tm-inventory-row"><div><strong>${esc(unit.item_name)}</strong><small>#${unit.id} · ${esc(statuses[unit.status]||unit.status)}</small></div>${['ready','dispatching'].includes(unit.status)?`<button type="button" class="secondary-button" data-tm-revoke="${unit.id}">收回</button>`:''}</div>`).join('')}${!m.inventory.length&&!m.units.length?'<p class="tm-empty">背包暂无物品</p>':''}</div>
+      <form class="tm-grant" data-tm-form="grant"><label>发放商品<select name="item" required><option value="">选择当前团队商品</option>${items.map(item=>`<option value="${item.id}">${esc(item.name)}</option>`).join('')}</select></label><label>数量<input name="quantity" type="number" min="1" max="100" value="1" required></label><button class="primary-button" type="submit" ${!items.length?'disabled':''}>发放到全局背包</button><small>管理员发放不扣 Coins，会占用商品库存并保留发放记录。</small></form></section><section class="tm-card tm-account-danger"><h4>账号与团队</h4><div class="tm-actions"><button type="button" class="secondary-button" data-tm-kick="${esc(m.name)}">踢出当前团队</button><button type="button" class="secondary-button" data-tm-close-account="${m.user_id}">注销全局账号</button></div></section>`;
   }
   async function mutate(button, suffix, payload) {
     if (button.disabled) return;
@@ -161,5 +165,6 @@ window.TeamManagement = (() => {
     if ((force || reopening) && $('#tmTab-members').getAttribute('aria-selected')==='true') loadMembers();
     return {config:$('#tmConfig'), currency:$('#tmCurrency'), notifications:$('#tmNotifications')};
   }
-  return {open};
+  async function openMember(tid,mid){await openTeamSettings(tid);selectTab('members');await loadMembers();if(rows.some(m=>m.id===mid))await selectMember(mid);}
+  return {open,openMember};
 })();

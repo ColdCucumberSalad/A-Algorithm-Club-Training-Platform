@@ -41,9 +41,6 @@ def api_currency_balance(request):
     if not member:
         return api_error("未找到团队成员信息", 404)
 
-    if not member.team.currency_enabled:
-        return api_error("该团队未启用货币系统", 403)
-
     if member.pk and not request.user.is_superuser:
         from .retirement import ensure_retirement_subsidies
         ensure_retirement_subsidies(request.user.pk)
@@ -66,9 +63,6 @@ def api_currency_transactions(request):
     member = membership_for(request)
     if not member:
         return api_error("未找到团队成员信息", 404)
-
-    if not member.team.currency_enabled:
-        return api_error("该团队未启用货币系统", 403)
 
     try:
         limit = int(request.GET.get('limit',50))
@@ -227,7 +221,7 @@ def api_shop_item_icon(request, item_id):
     item = ShopItem.objects.select_related('team').filter(pk=item_id).first()
     if not item or not item.icon or not item.team.currency_enabled:
         raise Http404
-    if not membership_for(request, item.team_id):
+    if not membership_for(request, item.team_id) and not UserInventory.objects.filter(member__user=request.user,item=item).exists() and not Purchase.objects.filter(member__user=request.user,item=item).exists():
         raise Http404
     image_file = None
     try:
@@ -329,12 +323,8 @@ def api_user_inventory(request):
     if not member:
         return api_error("未找到团队成员信息", 404)
 
-    if not member.team.currency_enabled:
-        return api_error("该团队未启用货币系统", 403)
-
     inventory_items = UserInventory.objects.filter(
-        team=member.team,
-        member=member,
+        member__user_id=member.user_id,
         quantity__gt=0
     ).select_related('item')
 

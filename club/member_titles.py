@@ -1,11 +1,13 @@
 """Team-specific honorifics with a deliberately small, safe style vocabulary."""
 import re
 
+STYLES = {'plain':'简约','chroma':'炫彩','wings':'羽翼','captain':'先锋徽章','president':'冠冕徽章','deputy':'星盾徽章'}
+
 FONTS = {'system':'默认黑体','serif':'典雅宋体','kai':'手写楷体','mono':'等宽字体','rounded':'圆润字体'}
 
 
 def validate_title(value):
-    if not isinstance(value,dict) or set(value)-{'text','color','font'}:
+    if not isinstance(value,dict) or set(value)-{'text','color','font','style'}:
         raise ValueError('称号格式无效')
     text = value.get('text','')
     if not isinstance(text,str) or len(text.strip()) > 20 or re.search(r'[\x00-\x1f\x7f]',text):
@@ -17,7 +19,11 @@ def validate_title(value):
         raise ValueError('请选择有效的称号颜色')
     if not isinstance(font,str) or font not in FONTS:
         raise ValueError('请选择支持的称号字体')
-    return {'text':text.strip(),'color':color.lower(),'font':font}
+    style=value.get('style','plain')
+    if not isinstance(style,str) or style not in STYLES: raise ValueError('请选择支持的称号样式')
+    result={'text':text.strip(),'color':color.lower(),'font':font}
+    if style!='plain': result['style']=style
+    return result
 
 
 def title_data(member):
@@ -38,7 +44,7 @@ def validate_titles(value):
     return result
 
 
-def titles_data(member):
+def awarded_titles_data(member):
     try:
         value = member.member_title
         if isinstance(value,dict):
@@ -47,3 +53,9 @@ def titles_data(member):
         return validate_titles(value)
     except ValueError:
         return []
+
+
+def titles_data(member):
+    awarded=awarded_titles_data(member)
+    worn=getattr(member,'worn_titles',None)
+    return awarded if worn is None else [title for title in awarded if title['text'] in worn]
