@@ -228,6 +228,9 @@ class SubmissionPart(models.Model):
 
     @property
     def has_content(self):
+        if self.kind==self.LOGIC:
+            from .submission_content import normalize_logic
+            return bool(normalize_logic(self.text_content) or self.link or self.upload)
         return bool(self.text_content or self.link or self.upload)
 
 

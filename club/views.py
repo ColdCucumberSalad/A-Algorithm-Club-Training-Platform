@@ -26,6 +26,7 @@ from functools import wraps
 
 from .models import AccountClosure, FileDeletion, ReviewLog, Semester, SemesterMemberTotal, Submission, SubmissionPart, Team, TeamMembership, Week, create_internal_username
 from .services import build_weeks, progress_rows, qualified, refresh_totals, week_bounds, score_part
+from .submission_content import normalize_logic
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -146,9 +147,11 @@ def member_streak(member, semester, through_week, *, progress=None):
 
 
 def serialize_part(part, include_content=True):
-    payload = {"id": part.id, "kind": part.kind, "status": part.status, "points": part.points_awarded, "note": part.review_note}
+    points=0 if part.kind==SubmissionPart.LOGIC and not part.has_content else part.points_awarded
+    payload = {"id": part.id, "kind": part.kind, "status": part.status, "points": points, "note": part.review_note}
     if include_content:
-        payload.update({"text": part.text_content, "link": part.link, "upload": f"/api/attachments/{part.id}" if part.upload else None})
+        text=normalize_logic(part.text_content) if part.kind==SubmissionPart.LOGIC else part.text_content
+        payload.update({"text": text, "link": part.link, "upload": f"/api/attachments/{part.id}" if part.upload else None})
     return payload
 
 
@@ -608,7 +611,7 @@ def submissions(request, submission_id=None, edit=False):
             proof.name = uuid.uuid4().hex + extension
         except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError, Image.DecompressionBombWarning):
             return api_error('请上传有效的 PNG、JPG 或 WebP 图片')
-    logic = request.POST.get('logic', '').strip()
+    logic = normalize_logic(request.POST.get('logic', ''))
     blog = request.POST.get('blog', '').strip()
     code = request.POST.get('code', '')
     code_language = request.POST.get('code_language', 'text')
