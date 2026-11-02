@@ -173,6 +173,16 @@ class DuplicateSuccessionTests(TestCase):
         self.second.refresh_from_db()
         self.assertEqual(self.second.parts.get(kind='proof').points_awarded,1)
 
+    def test_promotion_never_restores_saved_placeholder_logic_points(self):
+        self.second.duplicate_state['parts']['logic']={'status':'approved','points':9,'note':''}
+        self.second.save()
+        SubmissionPart.objects.create(submission=self.second,kind='logic',status='rejected',
+            text_content='未提交题解思路。',points_awarded=0)
+        self.assertEqual(self.delete(self.first).status_code,200)
+        self.second.refresh_from_db()
+        self.assertTrue(self.second.is_valid)
+        self.assertEqual(self.second.parts.get(kind='logic').points_awarded,0)
+
     def test_closed_period_duplicate_material_edit_cannot_switch_problem(self):
         url='https://ac.nowcoder.com/acm/problem/123456'
         Problem.objects.create(identity=canonical_problem(url)[0],url=url,status='success',title='另一道题')
