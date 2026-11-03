@@ -148,7 +148,8 @@ def solved_evidence(user_ids):
     for row in PlatformSolvedRecord.objects.filter(binding__user_id__in=modern).select_related('binding'):
         b=row.binding
         add(b.user_id,identity(b.platform,row.problem_key,b.account),row.solved_on,row.title,row.url,b.platform)
-    for base in PlatformSolvedBaseline.objects.filter(binding__user_id__in=modern).select_related('binding'):
+    baselines = list(PlatformSolvedBaseline.objects.filter(binding__user_id__in=modern).select_related('binding'))
+    for base in baselines:
         b=base.binding
         for key in set(base.problem_ids)|set(base.dated_problems):
             try:day=date.fromisoformat(base.dated_problems[key]) if key in base.dated_problems else None
@@ -190,8 +191,31 @@ def solved_evidence(user_ids):
         if c.source_data.get('demo') or (c.user_id,c.platform,c.account) not in accounts:continue
         day=timezone.localdate(row.accepted_at) if row.accepted_at else None
         add(c.user_id,identity(c.platform,contest_key(row),c.account),day,row.title,row.url,c.platform)
-    result.update({uid:{'items':list(items[uid].values()),'total':len(items[uid]),
-                       'undated':sum(v['date'] is None for v in items[uid].values())} for uid in modern})
+    # Aggregate totals are evidence even when an upstream only exposes recent history.
+    # Fill missing identities numerically, never invent dates or add a second copy
+    # of a solve when its detailed record is eventually discovered.
+    floors = defaultdict(dict)
+    for base in baselines:
+        if base.total is None or base.captured_at is None:
+            continue
+        b = base.binding
+        prefix = identity(b.platform, '', b.account)
+        known = {identity(b.platform, key, b.account)
+                 for key in set(base.problem_ids) | set(base.dated_problems)}
+        captured_day = timezone.localdate(base.captured_at)
+        # Only a complete baseline proves that an absent task is new. With an
+        # incomplete baseline, a later AC may simply be a repeat of an old task.
+        increments = sum(key.startswith(prefix) and key not in known
+                         and value['date'] is not None and value['date'] > captured_day
+                         for key, value in items[b.user_id].items()) if base.ids_complete else 0
+        # Multiple accounts on the same platform may overlap: retain the largest
+        # confirmed total rather than summing unknown identities across accounts.
+        floors[b.user_id][prefix] = max(floors[b.user_id].get(prefix, 0), base.total + increments)
+    for uid in modern:
+        missing = sum(max(0, total - sum(key.startswith(prefix) for key in items[uid]))
+                      for prefix, total in floors[uid].items())
+        result[uid] = {'items': list(items[uid].values()), 'total': len(items[uid]) + missing,
+                       'undated': sum(v['date'] is None for v in items[uid].values()) + missing}
     return result
 
 
