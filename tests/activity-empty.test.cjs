@@ -5,7 +5,7 @@ const vm = require('node:vm');
 
 function render(record, day = record, today = '2026-11-01') {
   const elements = {
-    '#activityRecords':{}, '#activityMetric':{value:'ac'}, '#pulseFocus':{},
+    '#activityRecords':{}, '#pulseFocus':{},
     '#activitySubmit':{}, '#openSubmission':{hidden:false},
   };
   const source = fs.readFileSync(require.resolve('../app.js'),'utf8');
@@ -14,7 +14,7 @@ function render(record, day = record, today = '2026-11-01') {
   vm.runInNewContext(source.slice(start,end)+'\nrenderActivityDay(day);', {
     $:selector => elements[selector], $$:() => [],
     activityPayload:{days:record?[record]:[]}, pulseToday:today, day,
-    activityUnit:() => '题', document:{body:{classList:{contains:() => false}}},
+    document:{body:{classList:{contains:() => false}}},
   });
   return elements['#activityRecords'].innerHTML;
 }

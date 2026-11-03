@@ -16,7 +16,7 @@ test('a delayed semester response cannot replace a currently selected total boar
   const pending=[],data={},requests=new Map(),renders=[];
   const context={rankingData:data,leaderboardInFlight:requests,
     rankingKey:(scope,platform,period='semester')=>`${scope}:${period}`,
-    rankingSelection:()=>({scope:'solved',platform:'codeforces',period:'all'}),
+    rankingSelection:target=>({scope:target==='#leaderboardRatingList'?'rating':target==='#leaderboardWealthList'?'wealth':'solved',platform:'codeforces',period:target==='#leaderboardSolvedList'?'semester':'all'}),
     renderLeaderboard:(scope,target)=>renders.push(target),
     clubApi:{request:url=>new Promise(resolve=>pending.push({url,resolve}))}};
   vm.createContext(context);
@@ -26,19 +26,20 @@ test('a delayed semester response cannot replace a currently selected total boar
   assert.match(pending[0].url,/period=semester/);assert.match(pending[1].url,/period=all/);
   pending[1].resolve({ok:true,json:async()=>({rows:[{value:20}]})});await all;
   pending[0].resolve({ok:true,json:async()=>({rows:[{value:3}]})});await term;
-  assert.equal(renders.length,2);
+  assert.equal(renders.length,3);
+  assert.deepEqual(renders,['#leaderboardList','#leaderboardListFull','#leaderboardSolvedList']);
   assert.equal(data['solved:all'][0].value,20);assert.equal(data['solved:semester'][0].value,3);
 });
 
 test('heatmap always uses dated solved counts and explains unknown dates',()=>{
   const nodes=new Map(),calls=[];
   const $=selector=>{
-    if(!nodes.has(selector))nodes.set(selector,{value:selector==='#activityMetric'?'daily':'month',dataset:{},textContent:'',hidden:false});
+    if(!nodes.has(selector))nodes.set(selector,{value:'month',dataset:{},textContent:'',hidden:false,setAttribute(name,value){this[name]=value;}});
     return nodes.get(selector);
   };
   const context={$,
     activityPayload:{end:'2026-11-01',today:'2026-11-01',days:[],ac:{undated:42}},
-    activityUnit:()=>'次',renderActivityMonths:(days,metric,unit)=>{calls.push([metric,unit]);return '';},
+    renderActivityMonths:(days,metric,unit)=>{calls.push([metric,unit]);return '';},
     wireActivityHeatScroll(){},selectedPulseDate:'2026-11-01',updatePulseDay(){},selectPulseDay(){}};
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('function renderTrainingActivity('),source.indexOf('\nasync function loadTrainingActivity')),context);
@@ -47,7 +48,7 @@ test('heatmap always uses dated solved counts and explains unknown dates',()=>{
   assert.equal($('#activityNote').hidden,false);
   assert.match($('#activityNote').textContent,/42.*日期未知/);
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
-  assert.doesNotMatch(html,/<option value="daily">每日一题提交/);
+  assert.doesNotMatch(html,/activityMetric/);
 });
 
 test('a newly completed baseline refreshes ranking and heatmap once while polling stays quiet',()=>{
