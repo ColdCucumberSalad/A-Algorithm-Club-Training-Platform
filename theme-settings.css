@@ -461,7 +461,12 @@ html[data-site-mode="dark"] .workbench-date-fields input{color-scheme:dark;}
 #submissionForm .editor-proof,#submissionForm .editor-logic{display:flex;flex-direction:column;min-height:0;}
 #submissionForm .editor-proof>.field-label,#submissionForm .editor-logic>.field-label{display:flex;flex-direction:column;min-height:0;flex:1;margin:0;}
 #submissionEditorView .upload-box{min-height:80px;flex:1;padding:10px;margin-top:6px;gap:4px;}
-#submissionEditorView .upload-preview{max-height:90px;}
+#submissionEditorView .upload-box:has(.upload-preview){display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(32px,1fr) auto;min-height:128px;align-items:center;justify-items:center;}
+#submissionEditorView .upload-box:has(.upload-preview) .upload-icon{display:none;}
+#submissionEditorView .upload-box:has(.upload-preview)::after{content:"点击更换截图";font-size:10px;line-height:1.4;color:var(--site-secondary,var(--muted));}
+#submissionEditorView .upload-preview{display:block;width:100%;height:100%;min-height:0;max-height:90px;object-fit:contain;margin:0;}
+#submissionEditorView .upload-box strong{display:block;max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#submissionEditorView .upload-box input{width:100%;height:100%;z-index:1;}
 #submissionEditorView .upload-box small{font-size:10px;line-height:1.4;}
 #submissionEditorView #logicText{flex:1;min-height:65px;margin-top:6px;padding:9px 10px;font-size:12px;resize:none;}
 #submissionForm .editor-blog{display:flex;flex-direction:column;min-height:0;}
@@ -469,7 +474,7 @@ html[data-site-mode="dark"] .workbench-date-fields input{color-scheme:dark;}
 #submissionForm>.modal-footer{padding-top:10px;font-size:11px;gap:10px;}
 @media(min-width:961px) and (min-height:650px){
  #submissionEditorView .submission-editor-content{height:min(700px,calc(100dvh - 32px));max-height:calc(100dvh - 32px);padding:20px;}
- #submissionForm{flex:1;grid-template-rows:auto auto minmax(0,1fr) minmax(0,1fr) auto;overflow:hidden;}
+ #submissionForm{flex:1;grid-template-rows:auto auto minmax(190px,1fr) minmax(150px,1fr) auto;overflow:auto;}
  #submissionForm .editor-proof,#submissionForm .editor-logic,#submissionForm .editor-blog{height:100%;}
 }
 @media(max-width:960px), (max-height:649px){
@@ -842,3 +847,6 @@ html[data-site-theme-active="true"] body .auth-story p { color: var(--site-secon
 html[data-site-theme-active="true"] body .auth-story-label { color: var(--site-accent); }
 html[data-site-theme-active="true"] body .auth-story-stat span { background: var(--site-selected); color: var(--site-text); border-color: var(--site-border); }
 @media(max-width:760px) { .settings-surface-row { flex-wrap: wrap; } html body #settingsView .settings-surface-row .settings-mode-tabs { width: 100%; } }
+
+#submissionEditorView .upload-box:has(.upload-preview) strong,
+#submissionEditorView .upload-box:has(.upload-preview) small{display:none;}
