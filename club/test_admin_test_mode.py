@@ -21,6 +21,22 @@ class AdminTestModeTests(TestCase):
         return self.client.post('/api/admin-test-mode',json.dumps({'enabled':value}),content_type='application/json')
     def submit(self,week,day=None,proof=None):
         return self.client.post('/api/submissions',{'week_id':week,'record_date':(day or timezone.localdate()).isoformat(),'problem_url':fixtures.URL,'proof':proof or self.image()})
+    def test_gallery_and_detail_combine_private_and_real_solutions(self):
+        real = Submission.objects.create(team=self.team, member=self.author_member, semester=self.semester, week=self.week, problem=self.problem)
+        dashboard = self.enable()
+        private = self.submit(dashboard['current_week']['id'])
+        self.assertEqual(private.status_code, 201, private.content)
+        private_id = private.json()['submission']['id']
+        Submission.objects.filter(pk=private_id).update(problem=self.problem)
+        gallery = self.client.get('/api/showcase?all=1').json()
+        self.assertEqual(gallery['problems'][0]['count'], 2)
+        detail = self.client.get(f'/api/problems/{self.problem.pk}/submissions', {'cursor': ''}).json()
+        self.assertEqual({r['id'] for r in detail['submissions']}, {real.pk, private_id})
+        real_row = next(r for r in detail['submissions'] if r['id'] == real.pk)
+        self.assertFalse(real_row['can_reject'])
+        self.assertFalse(real_row['can_tip'])
+        self.assertFalse(real_row['own'])
+
     def test_ordinary_user_cannot_enable_or_forge_session(self):
         self.assertEqual(self.toggle(True).status_code,403)
         s=self.client.session;s['admin_test_user']=self.author.pk;s['admin_test_team']=self.team.pk;s.save()

@@ -102,6 +102,9 @@ CELERY_TIMEZONE = TIME_ZONE
 CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'},
           'platform_requests': {'BACKEND': 'django.core.cache.backends.redis.RedisCache',
                                 'LOCATION': os.environ.get('PLATFORM_RATE_CACHE', 'redis://redis:6379/2')}}
+CACHES['gallery'] = {'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+                     'LOCATION': os.environ.get('GALLERY_CACHE', 'redis://redis:6379/3'),
+                     'KEY_PREFIX': 'team-gallery'}
 CELERY_ENABLE_UTC = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_DEFAULT_PRIORITY = 5
