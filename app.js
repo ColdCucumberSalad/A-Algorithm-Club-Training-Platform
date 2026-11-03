@@ -966,7 +966,7 @@ async function loadMySubmissions({force = false} = {}) {
       const logic = item.parts.find((part) => part.kind === 'logic');
       const blog = item.parts.find((part) => part.kind === 'blog');
       const reviewStatus = item.parts.some((part) => part.status === 'pending') ? 'pending' : item.parts.some((part) => part.status === 'approved') ? 'approved' : 'rejected';
-      reviewData[key] = {name:item.member_name, initial:item.member_name.slice(0,1), time:new Date(item.submitted_at).toLocaleString('zh-CN'), logic:logic?.text || '', visibility:item.visibility || 'team', status:reviewStatus, submissionId:item.id, memberId:item.member_id, problemTitle:item.problem_title || '', problemUrl:item.problem_url || '', upload:proof?.upload, fileName:'通过截图', blog:blog?.text || '', code:item.parts.find(part=>part.kind==='code')?.text || ''};
+      reviewData[key] = {name:item.member_name, initial:item.member_name.slice(0,1), time:new Date(item.submitted_at).toLocaleString('zh-CN'), logic:logic?.text || '', logicPart:logic || null, visibility:item.visibility || 'team', status:reviewStatus, submissionId:item.id, memberId:item.member_id, problemTitle:item.problem_title || '', problemUrl:item.problem_url || '', upload:proof?.upload, fileName:'通过截图', blog:blog?.text || '', code:item.parts.find(part=>part.kind==='code')?.text || ''};
       const approved = item.parts.filter((part) => part.status === 'approved').reduce((sum, part) => sum + (part.points || 0), 0);
       return `<div class="live-submission-row">${problemPlatformMarkup(item.problem_url)}<div class="live-submission-info"><strong>${escapeHtml(uiProblemTitle(item.problem_title))}</strong><small>提交于 ${new Date(item.submitted_at).toLocaleString('zh-CN')}${item.rejection_note ? (item.is_duplicate ? ' · ' : ' · 退回原因：') + escapeHtml(item.rejection_note) : ''}</small></div><span class="score">+${approved} 分</span><button class="review-view secondary-button" type="button" data-review="${key}">查看内容</button>${item.can_resubmit ? `<button class="secondary-button" data-resubmit="${item.id}">修改重交</button>` : ""}</div>`;
       }).join('') + '</section>';
@@ -1016,6 +1016,11 @@ function openReview(key, returnToHistory = false) {
     reviewStatus.textContent = approved ? '已通过' : data.status === 'rejected' ? '已退回' : '待审核';
     reviewStatus.className = `status-tag ${approved ? 'approved' : data.status === 'rejected' ? 'rejected' : 'pending'}`;
   }
+  const logicPart = data.logicPart;
+  const hasLogic = Boolean(data.logic?.trim() || logicPart?.link || logicPart?.upload);
+  const logicPoints = hasLogic && logicPart?.status === 'approved' ? Number(logicPart.points) || 0 : 0;
+  $('#reviewLogicStatus').textContent = !hasLogic ? '未提交' : logicPart?.status === 'pending' ? '待审核' : logicPart?.status === 'rejected' ? '已退回' : `+${logicPoints} 分`;
+  $('#reviewLogicStatus').className = logicPoints > 0 ? 'score-chip' : 'empty-chip';
   $('#reviewLogic').textContent = data.logic || '未提交题解思路。';
   const blog = typeof data.blog === 'string' ? data.blog.trim() : '';
   const hasBlog = Boolean(blog);
@@ -1472,7 +1477,7 @@ function renderMemberRecent(items, append = false) {
     const proof = item.parts.find(part=>part.kind==='proof');
     const logic = item.parts.find(part=>part.kind==='logic');
     const blog = item.parts.find(part=>part.kind==='blog');
-    reviewData[key] = {name:item.member_name,initial:item.member_name.slice(0,1),time:new Date(item.submitted_at).toLocaleString('zh-CN'),logic:logic?.text || '',status:'approved',submissionId:item.id,memberId:item.member_id,problemTitle:item.problem_title || '',problemUrl:item.problem_url || '',upload:proof?.upload,fileName:'通过截图',blog:blog?.text || '',code:item.parts.find(part=>part.kind==='code')?.text || ''};
+    reviewData[key] = {name:item.member_name,initial:item.member_name.slice(0,1),time:new Date(item.submitted_at).toLocaleString('zh-CN'),logic:logic?.text || '', logicPart:logic || null,status:'approved',submissionId:item.id,memberId:item.member_id,problemTitle:item.problem_title || '',problemUrl:item.problem_url || '',upload:proof?.upload,fileName:'通过截图',blog:blog?.text || '',code:item.parts.find(part=>part.kind==='code')?.text || ''};
     const points = item.parts.reduce((sum,part)=>sum+(part.points || 0),0);
     list.insertAdjacentHTML('beforeend',`<article class="history-item" data-member-submission="${item.id}"><div class="history-item-icon approved">✓</div><div class="member-recent-copy"><strong>${escapeHtml(uiProblemTitle(item.problem_title || '题目记录'))}</strong><small>${escapeHtml(item.semester_name)} · 第 ${item.week} 周 · 提交于 ${escapeHtml(new Date(item.submitted_at).toLocaleString('zh-CN'))}</small></div><span>${points} 分</span><button class="history-view secondary-button" type="button" data-review="${key}">查看内容</button></article>`);
   }
