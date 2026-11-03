@@ -1,0 +1,11 @@
+/* Build: npm install --prefix .local/shop-ui --no-save tailwindcss@4 @tailwindcss/cli@4 daisyui@5
+   Then: .local/shop-ui/node_modules/.bin/tailwindcss -i styles/shop-components.input.css
+   -o static/vendor/daisyui/shop-components.css --minify */
+@tailwind utilities source(none);
+@source inline("shop-input shop-toggle");
+@plugin "../.local/shop-ui/node_modules/daisyui" {
+  prefix: "shop-";
+  themes: false;
+  include: input, toggle;
+  logs: false;
+}

@@ -148,3 +148,80 @@ class ShopFulfillmentTests(TestCase):
                 'card_api': {'url': 'https://127.0.0.1/cards'}}
         self.assertEqual(self.post(self.admin, '/api/currency/admin/shop', data).status_code, 400)
         self.assertFalse(ShopItem.objects.exists())
+
+    def api_item(self, **kwargs):
+        config = {'url': 'https://cards.example.org/issue?token=public&num=999',
+                  'method': 'POST', 'body': {'product': 'coupon', 'num': 999}, 'response_path': 'data.code'}
+        return self.item(card_source='api', encrypted_card_api=key_cipher().encrypt(json.dumps(config).encode()).decode(), **kwargs)
+
+    def test_api_multi_purchase_freezes_num_and_redeems_one_code_idempotently(self):
+        item = self.api_item(allow_multiple_purchase=True, stock=10)
+        token = str(uuid.uuid4())
+        purchase_item(self.member, item.pk, 4, token)
+        self.assertTrue(purchase_item(self.member, item.pk, 4, token)['duplicate'])
+        unit = ShopFulfillment.objects.get()
+        self.assertEqual(unit.api_num, 4)
+        self.balance.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual((self.balance.balance, item.stock), (88, 6))
+        self.assertEqual(self.owner.get('/api/currency/inventory').json()['inventory'][0]['api_num'], 4)
+        item.allow_multiple_purchase = False
+        item.save()
+        path = f'/api/currency/inventory/{unit.pk}/redeem'
+        with patch('club.shop_fulfillment.http_fetch', side_effect=TimeoutError) as fetch:
+            self.assertEqual(self.post(self.owner, path).status_code, 502)
+            first_key = fetch.call_args.kwargs['headers']['Idempotency-Key']
+            self.assertEqual(json.loads(fetch.call_args.kwargs['payload']), {'product': 'coupon', 'num': 4})
+        with patch('club.shop_fulfillment.http_fetch', return_value='{"data":{"code":"FOUR-USES"}}') as fetch:
+            self.assertEqual(self.post(self.owner, path).json()['code'], 'FOUR-USES')
+            self.assertEqual(json.loads(fetch.call_args.kwargs['payload'])['num'], 4)
+            self.assertEqual(fetch.call_args.kwargs['headers']['Idempotency-Key'], first_key)
+        with patch('club.shop_fulfillment.http_fetch') as fetch:
+            self.assertTrue(self.post(self.owner, path).json()['duplicate'])
+            fetch.assert_not_called()
+
+    def test_api_multi_get_uses_one_num_query_and_preserves_existing_parameters(self):
+        from urllib.parse import parse_qs, urlsplit
+        item = self.api_item(allow_multiple_purchase=True)
+        config = json.loads(key_cipher().decrypt(item.encrypted_card_api.encode()).decode())
+        config['method'] = 'GET'
+        item.encrypted_card_api = key_cipher().encrypt(json.dumps(config).encode()).decode()
+        item.save()
+        purchase_item(self.member, item.pk, 3)
+        with patch('club.shop_fulfillment.http_fetch', return_value='{"data":{"code":"GET-CARD"}}') as fetch:
+            self.assertEqual(self.post(self.owner, f'/api/currency/inventory/{ShopFulfillment.objects.get().pk}/redeem').status_code, 200)
+            self.assertEqual(parse_qs(urlsplit(fetch.call_args.args[0]).query), {'token': ['public'], 'num': ['3']})
+            self.assertIsNone(fetch.call_args.kwargs['payload'])
+
+    def test_api_multi_disabled_and_invalid_quantities_cannot_spend(self):
+        item = self.api_item()
+        for quantity in (2, 0, -1, 1.5, True, '2', 101):
+            with self.assertRaises(ValueError):
+                purchase_item(self.member, item.pk, quantity)
+        self.balance.refresh_from_db()
+        self.assertEqual(self.balance.balance, 100)
+        self.assertFalse(Purchase.objects.exists())
+        item.allow_multiple_purchase = True
+        item.stock = 2
+        item.save()
+        with self.assertRaisesMessage(ValueError, '库存不足'):
+            purchase_item(self.member, item.pk, 3)
+        purchase_item(self.member, item.pk, 1)
+        self.assertEqual(ShopFulfillment.objects.get().api_num, 1)
+
+    def test_api_multi_admin_validation_and_public_visibility(self):
+        from .shop_fulfillment import validate_card_settings
+        item = self.api_item()
+        for invalid in ('true', 1, None):
+            with self.assertRaisesMessage(ValueError, '开关格式无效'):
+                validate_card_settings(item, {'allow_multiple_purchase': invalid}, 'redeem_code')
+        with self.assertRaisesMessage(ValueError, '仅 API 类'):
+            validate_card_settings(item, {'allow_multiple_purchase': True}, 'physical')
+        response = self.admin.put('/api/currency/admin/shop', json.dumps({
+            'item_id': item.pk, 'allow_multiple_purchase': True}), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(self.admin.get('/api/currency/admin/shop').json()['items'][0]['allow_multiple_purchase'])
+        public = self.owner.get('/api/currency/shop/items').json()['items'][0]
+        self.assertTrue(public['allow_multiple_purchase'])
+        self.assertNotIn('encrypted_card_api', public)
+        self.assertNotIn('card_api', public)

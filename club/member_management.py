@@ -176,7 +176,7 @@ def inventory_settings(request, team_id, member_id):
                     raise ValueError('只能收回未核销、未派发的物品')
                 ShopCode.objects.filter(reserved_for=unit,consumed_at__isnull=True).update(reserved_for=None)
                 if item.item_type in ('physical','redeem_code') and item.stock >= 0:
-                    item.stock += 1
+                    item.stock += unit.api_num or 1
                     item.save(update_fields=['stock'])
                 unit.status, unit.reclaimed_at = 'reclaimed', timezone.now()
                 unit.save(update_fields=['status','reclaimed_at'])

@@ -364,7 +364,7 @@ const CurrencyModule = (() => {
         return false;
       }
       const confirmed = await window.clubDialog.confirm({title:'确认购买', kind:'cart',
-        text:`${item.name} ×${quantity}\n需支付 ${Number(item.price) * quantity} RBC，当前余额 ${currencyData.balance} RBC。`,
+        text:`${item.name} ×${quantity}${item.allow_multiple_purchase ? `（合为一张可用 ${quantity} 次的卡密）` : ''}\n需支付 ${Number(item.price) * quantity} RBC，当前余额 ${currencyData.balance} RBC。`,
         confirmText:'确认购买'});
       if (!confirmed) return false;
       if(!purchaseRequests.has(requestKey)) {
@@ -535,6 +535,7 @@ const CurrencyModule = (() => {
                 <h3>${escape(item.name)}</h3>
                 <p>${escape(item.description)}</p>
                 ${backpack && item.code ? `<div class="join fulfillment-code"><pre class="join-item"><code>${escape(item.code)}</code></pre><button class="join-item secondary-button" type="button" data-copy-card="${item.fulfillment_id}">复制</button></div>` : ''}
+                ${backpack && item.api_num ? `<small class="stock-info">一张卡密 · 可用 ${item.api_num} 次</small>` : ''}
                 ${!backpack && item.stock !== -1 ? `<small class="stock-info">库存: ${item.stock}</small>` : ''}
                 ${!backpack && item.purchase_limit ? `<small class="purchase-limit-info">每人限购 ${item.purchase_limit} 件 · 已购 ${item.purchased_quantity} 件</small>` : ''}
                 ${!backpack && item.purchase_blocked ? `<small class="purchase-limit-info">${escape(item.purchase_block_reason)}</small>` : ''}
@@ -543,8 +544,10 @@ const CurrencyModule = (() => {
                 ${backpack ? `${item.status ? `<span class="shop-owned-label">${({ready:'待核销',redeemed:'已核销',dispatching:'派送中',delivered:'派送成功',consumed:'已消耗',reclaimed:'已回收'})[item.status]}</span>` : `<span class="shop-owned-label">当前拥有</span><strong class="shop-owned-count">${item.quantity}<small> 个</small></strong>`}${item.can_use ? `<button class="primary-button" type="button" data-use-consumable="${item.inventory_id}">使用</button>` : ''}${item.can_redeem ? `<button class="primary-button" type="button" data-redeem-card="${item.fulfillment_id}">消耗并获取卡密</button>` : ''}` : `
                 <div class="shop-item-price">
                   <img src="${escape(coinIconSrc)}" alt="" class="shop-price-coin" aria-hidden="true" />
-                  <strong>${item.price}</strong><span>RBC</span>
+                  <strong data-shop-total="${item.id}">${item.price}</strong><span>RBC${item.allow_multiple_purchase ? ' 合计' : ''}</span>
                 </div>
+                <div class="shop-purchase-actions">
+                ${item.allow_multiple_purchase ? `<label class="shop-quantity">数量<input class="shop-input" type="number" min="1" max="${Math.max(1, item.stock === -1 ? 100 : Math.min(100, item.stock))}" step="1" value="1" inputmode="numeric" data-shop-quantity="${item.id}" aria-label="${escape(item.name)}购买数量" ${!currencyData.canPurchase || item.stock === 0 ? 'disabled' : ''} /></label>` : ''}
                 <button
                   class="primary-button shop-buy-btn"
                   data-item-id="${item.id}"
@@ -557,6 +560,7 @@ const CurrencyModule = (() => {
                   </svg>
                   ${!currencyData.canPurchase ? '管理预览' : item.purchase_blocked ? '不可购买' : item.purchase_limit_reached ? '已达购买上限' : item.stock === 0 ? '已售罄' : '购买'}
                 </button>
+                </div>
                 `}
               </div>
             </div>
@@ -593,15 +597,35 @@ const CurrencyModule = (() => {
       catch(error){showToast(error.message);button.disabled=false;}
     });
     container.querySelectorAll('[data-copy-card]').forEach(button=>button.onclick=async()=>{const entry=displayItems.find(item=>String(item.fulfillment_id)===button.dataset.copyCard);try{await navigator.clipboard.writeText(entry.code);showToast('卡密已复制');}catch{showToast('复制失败，请选中卡密手动复制');}});
+    container.querySelectorAll('[data-shop-quantity]').forEach(input => {
+      const normalize = () => {
+        const value = Number(input.value);
+        input.value = String(Math.min(Number(input.max), Math.max(1, Number.isFinite(value) ? Math.floor(value) : 1)));
+        const item = items.find(item => String(item.id) === input.dataset.shopQuantity);
+        container.querySelector(`[data-shop-total="${input.dataset.shopQuantity}"]`).textContent = Number(item.price) * Number(input.value);
+      };
+      input.addEventListener('change', normalize);
+      input.addEventListener('blur', normalize);
+      input.addEventListener('input', () => {
+        if (input.validity.valid && input.value) {
+          const item = items.find(item => String(item.id) === input.dataset.shopQuantity);
+          container.querySelector(`[data-shop-total="${input.dataset.shopQuantity}"]`).textContent = Number(item.price) * Number(input.value);
+        }
+      });
+    });
     // Attach purchase handlers
     container.querySelectorAll(".shop-buy-btn").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         const button=e.currentTarget;
         if(button.disabled)return;
         const itemId=Number(button.getAttribute("data-item-id"));
+        const quantityInput=container.querySelector(`[data-shop-quantity="${itemId}"]`);
+        quantityInput?.dispatchEvent(new Event('change'));
+        const quantity=quantityInput ? Number(quantityInput.value) : 1;
+        if(quantityInput)quantityInput.disabled=true;
         button.disabled=true;button.textContent='确认中…';
-        try {await purchaseItem(itemId, 1, items.find(item => Number(item.id) === itemId)); await renderShopView(container);}
-        finally {button.disabled=false;}
+        try {await purchaseItem(itemId, quantity, items.find(item => Number(item.id) === itemId)); await renderShopView(container);}
+        finally {button.disabled=false;if(quantityInput)quantityInput.disabled=false;}
       });
     });
   }

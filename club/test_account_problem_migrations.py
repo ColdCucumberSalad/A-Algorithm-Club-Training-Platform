@@ -10,7 +10,7 @@ from django.utils import timezone
 class AccountProblemMigrationTests(TransactionTestCase):
     """Both already-deployed branch histories must upgrade without fake migrations."""
 
-    merged = [('club', '0055_card_activation_receipt')]
+    merged = [('club', '0057_api_card_multiple_purchase')]
 
     def test_pro_migration_keeps_legacy_goods_stock_and_purchases_unchanged(self):
         apps = self.migrate([('club', '0052_correct_empty_logic_scores')])

@@ -806,7 +806,7 @@ function resetSubmissionForm() {
   form.reset();
   const title = $('.upload-box strong');
   const hint = $('#proofHint');
-  if (title) { title.textContent = '点击上传截图'; title.removeAttribute('title'); }
+  if (title) { title.textContent = '点击上传或粘贴截图'; title.removeAttribute('title'); }
   if (hint) hint.textContent = adminTestMode ? '可留空；上传时支持 PNG、JPG、WebP，不超过 5MB' : '支持 PNG、JPG、WebP，单张不超过 5MB';
   if (typeof clearBlogEditor === 'function') clearBlogEditor();
   setSubmissionCodeDraft('');
@@ -1220,6 +1220,28 @@ $('#submissionForm').addEventListener('submit', async (event) => {
   editingSubmission=null;resubmitting=null;submissionEditReturnState=null;
   refreshAfterMutation({refreshAdmin: canManage});
   if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); submitButton.textContent = '提交记录'; }
+});
+document.addEventListener('paste', (event) => {
+  if (!$('#submissionModal').classList.contains('open') || event.defaultPrevented) return;
+  if ($('#blogEditorOverlay')?.getAttribute('aria-hidden') === 'false') return;
+  const clipboard = event.clipboardData;
+  const file = Array.from(clipboard?.files || []).find(file => file.type.startsWith('image/'))
+    || Array.from(clipboard?.items || []).find(item => item.kind === 'file' && item.type.startsWith('image/'))?.getAsFile();
+  if (!file) return;
+  event.preventDefault();
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    showToast('截图仅支持 PNG、JPG、WebP 格式');
+    return;
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    showToast('截图不能超过 5MB');
+    return;
+  }
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  const input = $('#proofImage');
+  input.files = transfer.files;
+  input.dispatchEvent(new Event('change', {bubbles: true}));
 });
 $('#proofImage').addEventListener('change', (event) => {
   const file = event.target.files?.[0];

@@ -246,6 +246,9 @@ def purchase_item(member, item_id, quantity=1, request_id=None):
     except ShopItem.DoesNotExist:
         raise ValueError("商品不存在或已下架")
 
+    if item.item_type == 'redeem_code' and item.card_source == 'api' and quantity > 1 and not item.allow_multiple_purchase:
+        raise ValueError('该商品未开启单次多购，请每次购买1件')
+
     from .grades import is_retired
     if item.item_type == 'physical' and is_retired(member.user_id):
         raise ValueError('大三+用户不可购买实物类商品')
