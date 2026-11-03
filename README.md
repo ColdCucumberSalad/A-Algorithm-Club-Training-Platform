@@ -2,6 +2,14 @@
 
 **A-Algorithm-Club-Training-Platform**
 
+## RBC Helper 商品配置与 App 卡密验证
+
+商城核销类商品新增“内部 Pro 卡密”来源，可配置 RBC Helper 和订阅天数（默认 31 天）。购买保存时长快照，背包领取卡密；旧商品、价格、库存和用户数据不自动修改。
+
+App 通过 HTTPS 调用 `POST /api/app/cards/verify`，发送 `{"code":"RBC-..."}`，返回 `{"valid":true,"app":"rbc_helper","duration_days":31}`。首次有效验证返回订阅天数和激活回执凭据，先占用卡密 30 秒；App 激活完成后回执确认，才将卡密作废。占用期间重复验证返回占用错误，超时未确认则释放；不绑定设备、不生成登录凭据、不管理或累计订阅到期时间；App 自行处理激活与计时。
+
+部署执行 `python manage.py migrate`（新增 `0053_app_pro_codes`、`0054_card_consumed`、`0055_card_activation_receipt`），更新 Web 和商城静态资源，保留原加密密钥，正确配置 HTTPS 和 `APP_TRUSTED_PROXY_CIDRS`。商品与库存须由管理员配置。请求字段、响应、错误码及调用示例见 [App 卡密验证 API 说明](docs/app-pro.md)。
+
 This project was born out of the need to make it easier to compile statistics on members’ training records and to encourage club members to train themselves.
 
 这是一个 Django + PostgreSQL + Celery 的团队训练平台，提供团队、学期、周次、即时计分、团队提交、点赞举报、排行榜、成员历史、RBC 商店和 Excel 导出接口。前端支持独立板块主题、深浅色外观和训练进展分析。

@@ -93,6 +93,10 @@ SECURE_SSL_REDIRECT = os.environ.get("DJANGO_SECURE_SSL_REDIRECT", "0") == "1"
 SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", "0"))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
 SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
+# Native app credentials require HTTPS by default; opt out only for local development.
+APP_REQUIRE_HTTPS = os.environ.get('APP_REQUIRE_HTTPS', '1') == '1'
+APP_TRUSTED_PROXY_CIDRS = tuple(cidr.strip() for cidr in os.environ.get(
+    'APP_TRUSTED_PROXY_CIDRS', '127.0.0.0/8,::1/128').split(',') if cidr.strip())
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 7 * 1024 * 1024
 

@@ -16,8 +16,11 @@ from . import system_management_views as system_management
 from .admin_test_mode import toggle as toggle_test_mode
 
 from . import shop_fulfillment
+from . import app_views
 
 urlpatterns = [
+    path('app/cards/verify', app_views.card_verify),
+    path('app/cards/confirm', app_views.card_confirm),
     path('management/submissions/<int:submission_id>',admin_submission_views.edit_submission),
     path('profile/titles/wear', profile_views.wear_title),
     path('account',account_views.current_account),

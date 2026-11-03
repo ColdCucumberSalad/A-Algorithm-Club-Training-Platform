@@ -10,7 +10,30 @@ from django.utils import timezone
 class AccountProblemMigrationTests(TransactionTestCase):
     """Both already-deployed branch histories must upgrade without fake migrations."""
 
-    merged = [('club', '0052_correct_empty_logic_scores')]
+    merged = [('club', '0055_card_activation_receipt')]
+
+    def test_pro_migration_keeps_legacy_goods_stock_and_purchases_unchanged(self):
+        apps = self.migrate([('club', '0052_correct_empty_logic_scores')])
+        uid, sid, _ = self.seed(apps, global_wallet=True)
+        member = apps.get_model('club', 'Submission').objects.get(pk=sid).member
+        item = apps.get_model('club', 'ShopItem').objects.create(team_id=member.team_id,
+            name='RBC Helper Pro', price=3, stock=0, item_type='redeem_code', card_source='inventory')
+        purchase = apps.get_model('club', 'Purchase').objects.create(team_id=member.team_id,
+            member_id=member.pk, item_id=item.pk, quantity=1, total_price=3)
+        unit = apps.get_model('club', 'ShopFulfillment').objects.create(
+            purchase_id=purchase.pk, sequence=1, item_name=item.name, status='ready')
+        apps = self.migrate(self.merged)
+        current = apps.get_model('club', 'ShopItem').objects.get(pk=item.pk)
+        self.assertEqual((current.name, current.stock, current.card_source), (item.name, 0, 'inventory'))
+        self.assertEqual(current.pro_app, '')
+        self.assertIsNone(current.pro_duration_days)
+        current_unit = apps.get_model('club', 'ShopFulfillment').objects.get(pk=unit.pk)
+        self.assertEqual((current_unit.status, current_unit.pro_app), ('ready', ''))
+        self.assertIsNone(current_unit.pro_duration_days)
+        self.assertEqual(apps.get_model('club', 'Purchase').objects.get(pk=purchase.pk).total_price, 3)
+        self.assertEqual(apps.get_model('club', 'CurrencyBalance').objects.get(user_id=uid).balance, 12)
+        for model in ('ProRedeemCode', 'AppRateLimit'):
+            self.assertEqual(apps.get_model('club', model).objects.count(), 0)
 
     def migrate(self, targets):
         executor = MigrationExecutor(connection)
