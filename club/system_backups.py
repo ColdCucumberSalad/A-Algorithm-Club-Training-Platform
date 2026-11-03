@@ -81,7 +81,8 @@ def archive_path(backup_id):
 
 def backup_models():
     # Session restoration would revive obsolete logins. Migration state is schema metadata.
-    return [model for model in apps.get_models() if model._meta.managed and model._meta.app_label != 'sessions']
+    return [model for model in apps.get_models() if model._meta.managed and model._meta.app_label != 'sessions'
+            and model._meta.label_lower not in ('club.appaccesstoken', 'club.appratelimit')]
 
 
 def create_snapshot(label='手动备份'):
@@ -201,6 +202,9 @@ def restore_snapshot(backup_id, operation_id):
                 call_command('loaddata', str(folder / 'database.json'), verbosity=0)
                 from django.contrib.sessions.models import Session
                 Session.objects.all().delete()
+                from .models import AppAccessToken, AppRateLimit
+                AppAccessToken.objects.all().delete()
+                AppRateLimit.objects.all().delete()
                 from .models import ContestSyncState, Problem, CleanupJob
                 ContestSyncState.objects.filter(status='pending').update(status='failed', remaining=0,
                     messages={'system':'系统已恢复，请重新同步比赛进度'}, finished_at=timezone.now())

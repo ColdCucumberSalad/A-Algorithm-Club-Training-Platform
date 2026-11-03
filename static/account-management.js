@@ -28,6 +28,23 @@ window.AccountManagement=(()=>{
     accountDialog=document.createElement('div');accountDialog.id='globalAccountsDialog';accountDialog.className='modal-backdrop global-account-overlay';accountDialog.setAttribute('aria-hidden','true');
     accountDialog.innerHTML=`<section class="modal global-account-modal" role="dialog" aria-modal="true" aria-labelledby="gmTitle"><header class="modal-header"><div><p class="section-label">GLOBAL ACCOUNTS</p><h2 id="gmTitle">全局账号管理</h2></div><button class="close-button" type="button" data-gm-close aria-label="关闭账号管理">×</button></header><div class="gm-layout"><aside class="gm-sidebar"><input id="wbAccountSearch" type="search" placeholder="搜索账号、名字或团队" aria-label="搜索全局账号"><div class="gm-list-tools"><span id="gmTotal" class="muted"></span><button class="text-button" id="wbAccountsRefresh" type="button">刷新</button></div><div id="wbAccountsList"></div><button class="secondary-button" id="wbAccountsMore" type="button" hidden>加载更多</button></aside><main id="gmDetail" class="gm-detail"><p class="muted">选择账号查看资料</p></main></div></section>`;
     document.body.append(accountDialog);accountDialog.querySelector('[data-gm-close]').onclick=closeAccounts;
+    accountDialog.addEventListener('change',event=>{if(event.target.matches('[data-pro-action]'))updateProFields(event.target.form);});
+    accountDialog.addEventListener('submit',async event=>{
+      const form=event.target;if(!form.matches('[data-pro-form]'))return;event.preventDefault();
+      const id=Number(form.dataset.user),button=event.submitter;if(button.disabled)return;button.disabled=true;
+      form.querySelector('[role=alert]').textContent='';
+      try{
+        const values=Object.fromEntries(new FormData(form)),payload={action:values.action,reason:values.reason,expected_revision:Number(form.dataset.revision)};
+        if(values.action==='extend')payload.days=Number(values.days);
+        if(values.action==='set_expiry')payload.expires_at=new Date(values.expires_at).toISOString();
+        const signature=JSON.stringify(payload);
+        if(form.dataset.command!==signature){form.dataset.command=signature;form.dataset.requestId=crypto.randomUUID();}
+        payload.request_id=form.dataset.requestId;
+        await request(`/api/management/accounts/${id}/pro`,payload);
+        if(id===selectedId)await selectAccount(id);notify('Pro 设置已保存');
+      }catch(error){form.querySelector('[role=alert]').textContent=error.message;}
+      finally{button.disabled=false;}
+    });
     document.addEventListener('keydown',event=>{if(!accountDialog.classList.contains('open')||modal?.classList.contains('open'))return;if(event.key==='Escape'){event.preventDefault();closeAccounts();return;}if(event.key!=='Tab')return;const els=[...accountDialog.querySelectorAll('button:not(:disabled),input,select')].filter(el=>el.getClientRects().length),first=els[0],last=els.at(-1);if(event.shiftKey&&(document.activeElement===first||!accountDialog.contains(document.activeElement))){event.preventDefault();last?.focus();}else if(!event.shiftKey&&(document.activeElement===last||!accountDialog.contains(document.activeElement))){event.preventDefault();first?.focus();}});
     accountDialog.addEventListener('submit',async event=>{
       const form=event.target,action=form.dataset.gmForm;if(!action)return;event.preventDefault();const id=selectedId,button=event.submitter;button.disabled=true;
@@ -63,7 +80,23 @@ window.AccountManagement=(()=>{
     $('#gmDetail').innerHTML=`<header class="tm-member-heading"><h3>${esc(user.account)}</h3><span class="account-state">${user.closed?'已注销':user.system_admin?'系统管理员':'全局账号'}</span></header><section class="tm-card"><h4>团队身份</h4><div class="gm-team-list">${user.teams.map(team=>`<div><span><strong>${esc(team.name)}</strong><small>${esc(team.display_name)} · ${team.role==='admin'?'团队管理员':'普通成员'}${team.active?'':' · 已退出'}</small></span>${team.active&&editable?`<button type="button" class="secondary-button" data-gm-team="${team.id}" data-gm-member="${team.member_id}">管理团队身份</button>`:''}</div>`).join('')||'<p class="muted">尚未加入团队</p>'}</div></section>
       ${editable?`<form class="tm-card tm-form" data-gm-form="account"><h4>登录账号</h4><label>账号<input name="account" value="${esc(user.account)}" minlength="3" maxlength="150" required></label><label>设置新密码<input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="留空保留当前密码"></label><div class="tm-actions"><button class="primary-button" type="submit">保存账号设置</button></div></form>`:''}
       <form class="tm-card tm-balance" data-gm-form="balance" data-balance="${user.balance}"><div><h4>全局 RBC Coins</h4><p class="muted">所有团队共用此余额；可设置负数，后续收入先抵扣欠额</p></div><label>余额<input name="balance" type="number" min="-2147483648" max="2147483647" step="1" value="${user.balance}" required ${editable?'':'disabled'}></label>${editable?'<button class="secondary-button" type="submit">保存余额</button>':''}</form>
+      ${proSection(user,editable&&user.active)}
       <section class="tm-card"><h4>全局背包</h4><div class="tm-inventory">${user.inventory.map(inv=>`<form class="tm-inventory-row" data-gm-form="quantity" data-inventory="${inv.id}" data-item="${inv.item_id}" data-quantity="${inv.quantity}"><div><strong>${esc(inv.item__name)}</strong><small>来源：${esc(inv.team__name)}</small></div><label>保留数量<input name="quantity" type="number" min="0" max="${inv.quantity}" value="${inv.quantity}" required ${editable?'':'disabled'}></label>${editable?'<button class="secondary-button" type="submit">保存</button>':''}</form>`).join('')}${user.units.map(unit=>`<div class="tm-inventory-row"><div><strong>${esc(unit.item_name)}</strong><small>${esc(unit.purchase__team__name)} · ${esc(states[unit.status]||unit.status)}</small></div>${editable&&['ready','dispatching'].includes(unit.status)?`<button class="secondary-button" type="button" data-gm-revoke="${unit.id}">收回</button>`:''}</div>`).join('')}${!user.inventory.length&&!user.units.length?'<p class="muted">背包暂无物品</p>':''}</div>${editable&&user.items.length?`<form class="tm-grant" data-gm-form="grant"><label>发放商品<select name="item" required>${user.items.map(item=>`<option value="${item.id}">${esc(item.team__name)} · ${esc(item.name)}</option>`).join('')}</select></label><label>数量<input name="quantity" type="number" min="1" max="100" value="1" required></label><button class="primary-button" type="submit">发放到背包</button></form>`:''}</section>${editable?`<section class="tm-card"><h4>注销全局账号</h4><button type="button" class="secondary-button" data-global-account-close="${user.id}">注销账号</button></section>`:''}`;
+  }
+  const proDate=value=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'未开通';
+  function updateProFields(form){
+    const action=form.elements.action.value;
+    for(const field of form.querySelectorAll('[data-pro-field]')){
+      const active=field.dataset.proField===action;field.hidden=!active;
+      for(const input of field.querySelectorAll('input')){input.disabled=!active;input.required=active;}
+    }
+  }
+  function proSection(user,editable){
+    const pro=user.pro;if(!pro)return '';
+    const actions={redeem:'卡密兑换',extend:'手动延长',set_expiry:'设置到期',revoke:'撤销 Pro',revoke_tokens:'撤销 App 登录'};
+    return `<section class="tm-card gm-pro"><div class="gm-pro-heading"><h4>RBC Helper Pro</h4><span class="account-state">${pro.active?'已开通':pro.expires_at?'已到期或已撤销':'未开通'}</span></div><p>到期时间：<strong>${esc(proDate(pro.expires_at))}</strong></p><p class="muted">服务器时间：${esc(proDate(pro.server_time))} · 待兑换卡密：${Number(pro.unredeemed_codes)}</p>
+      ${editable?`<form class="gm-pro-form" data-pro-form data-user="${user.id}" data-revision="${pro.revision}"><label>操作<select name="action" data-pro-action><option value="extend">手动延长</option><option value="set_expiry">设置到期时间</option><option value="revoke">撤销 Pro</option><option value="revoke_tokens">撤销全部 App 登录</option></select></label><label data-pro-field="extend">延长天数<input name="days" type="number" min="1" max="36500" step="1" value="31" required></label><label data-pro-field="set_expiry" hidden>到期时间（本地时区）<input name="expires_at" type="datetime-local" disabled></label><label>操作原因<input name="reason" maxlength="300" required autocomplete="off"></label><p class="muted">撤销 Pro 立即结束当前权益，已兑换卡密不能再次加时；尚未兑换的卡密仍可使用。撤销 App 登录后需重新登录。</p><p class="account-form-error" role="alert"></p><button type="submit" class="primary-button">保存 Pro 设置</button></form>`:''}
+      <details class="gm-pro-audit"><summary>操作审计（最近 50 条）</summary><ol>${pro.audit.map(a=>`<li><strong>${esc(actions[a.action]||a.action)}</strong><span>${esc(proDate(a.created_at))} · ${esc(a.actor||'已删除账号')}</span><span>${esc(proDate(a.before_expires_at))} → ${esc(proDate(a.after_expires_at))}</span>${a.reason?`<p>${esc(a.reason)}</p>`:''}</li>`).join('')||'<li class="muted">暂无记录</li>'}</ol></details></section>`;
   }
   async function openSelf(){
     try{const user=await read('/api/account');if(user.system_admin){notify('系统管理员不能注销自己');return;}showClosure(user,false);}catch(error){notify(error.message);}

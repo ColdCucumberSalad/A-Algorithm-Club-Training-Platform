@@ -2,6 +2,25 @@
 
 **A-Algorithm-Club-Training-Platform**
 
+## RBC Helper API 接入
+
+新增迁移 `0053_app_pro_codes`、`0054_card_device`，运行 `python manage.py migrate`。旧商品、价格、库存和用户数据不自动更改。商城核销类商品可选择“内部 Pro 卡密”、RBC Helper、时长（默认31天），并由管理员设置库存。购买保存时长快照，背包领取卡密，核销后开始计时。
+
+当前 App **只输入卡密，不要求网站账号密码**。使用 HTTPS：
+
+```http
+POST /api/app/cards/redeem
+Content-Type: application/json
+
+{"code":"RBC-...","device_secret":"本机安全存储的64位十六进制随机秘密"}
+```
+
+返回 `{token,token_expires_at,user:{id,username},pro:{active,expires_at,server_time}}`。卡密首次核销绑定设备凭据哈希，同设备重试不重复加时，其他设备不能重复核销；续期卡须来自同一购买账号，服务端按 `max(now, expires_at)` 叠加有效期。App平时本机判断到期，不轮询接口，离线授权无法立即获知管理员撤销。响应中的卡密凭据不是网站登录token。
+
+全局账号管理增加 Pro 查询、延长、设到期、撤销及审计。原账号 Bearer API 保留兼容，非当前 App 必经流程。仅保存token/设备凭据哈希，浏览器管理仍使用session和CSRF。生产要求HTTPS；Docker代理需配置实际 `APP_TRUSTED_PROXY_CIDRS`，代理覆盖 `X-Real-IP`，后端8000不得公网直达。Web/Worker/Beat应同步更新，保留原加密密钥。不会随代码上传本机卡密、账号、数据库或密钥。
+
+完整请求响应、旧账号API和上线检查见 [App Pro 说明](docs/app-pro.md)。
+
 This project was born out of the need to make it easier to compile statistics on members’ training records and to encourage club members to train themselves.
 
 这是一个 Django + PostgreSQL + Celery 的团队训练平台，提供团队、学期、周次、即时计分、团队提交、点赞举报、排行榜、成员历史、RBC 商店和 Excel 导出接口。前端支持独立板块主题、深浅色外观和训练进展分析。

@@ -378,7 +378,8 @@ const CurrencyAdminModule = (() => {
             <small id="itemPurchaseLimitHint">每个账号累计可购买的件数，0 表示不限购。已购买、已派送的数量均计入。</small>
           </div>
           <div id="cardSourceFields" hidden>
-            <div class="form-group"><label>卡密来源</label><select id="itemCardSource"><option value="inventory" ${item?.card_source !== 'api' ? 'selected' : ''}>库存类</option><option value="api" ${item?.card_source === 'api' ? 'selected' : ''}>API 类</option></select></div>
+            <div class="form-group"><label for="itemCardSource">卡密来源</label><select id="itemCardSource"><option value="inventory" ${!item?.card_source || item.card_source === 'inventory' ? 'selected' : ''}>库存类</option><option value="api" ${item?.card_source === 'api' ? 'selected' : ''}>API 类</option><option value="pro" ${item?.card_source === 'pro' ? 'selected' : ''}>内部 Pro 卡密</option></select></div>
+            <div id="cardProFields" hidden><div class="form-group"><label for="itemProApp">Pro 应用</label><select id="itemProApp"><option value="">请选择应用</option><option value="rbc_helper" ${item?.pro_app === 'rbc_helper' ? 'selected' : ''}>RBC Helper</option></select></div><div class="form-group"><label for="itemProDays">每张卡密时长（天）</label><input id="itemProDays" type="number" min="1" max="36500" step="1" value="${Number(item?.pro_duration_days || 31)}"><small>背包领取后生成专属卡密；使用同一网站账号登录 App 兑换后开始计时，时长可叠加。购买时保存权益配置。库存仍按上方设置，0 表示暂不可购买。</small></div></div>
             <div class="form-group" id="cardStockFields"><label>追加卡密（每行一个）</label><textarea id="itemCardCodes" rows="6" autocomplete="off" placeholder="每行填写一条卡密"></textarea><small>可分配卡密：${Number(item?.available_codes || 0)}。已预留、已核销的卡密会保留；重复卡密不重复入库。</small></div>
             <div class="form-group" id="cardApiFields"><label>API 配置（JSON）</label><textarea id="itemCardApi" rows="8" autocomplete="off" spellcheck="false" placeholder='{"url":"https://example.com/cards","method":"POST","headers":{},"body":{},"response_path":"data.code"}'></textarea><small>${item?.has_card_api ? '已有配置，留空保留。' : ''}配置会加密保存。接口需识别 Idempotency-Key 请求头，避免重试重复发卡。</small></div>
           </div>
@@ -399,7 +400,7 @@ const CurrencyAdminModule = (() => {
     document.body.appendChild(modal);
     const updateLimitField=()=>{modal.querySelector('#itemPurchaseLimitField').hidden=modal.querySelector('#itemType').value!=='physical';};
     modal.querySelector('#itemType').addEventListener('change',updateLimitField);updateLimitField();
-    const updateCardFields=()=>{const redeem=modal.querySelector('#itemType').value==='redeem_code';modal.querySelector('#cardSourceFields').hidden=!redeem;const api=modal.querySelector('#itemCardSource').value==='api';modal.querySelector('#cardStockFields').hidden=api;modal.querySelector('#cardApiFields').hidden=!api;};
+    const updateCardFields=()=>{const redeem=modal.querySelector('#itemType').value==='redeem_code';modal.querySelector('#cardSourceFields').hidden=!redeem;const source=modal.querySelector('#itemCardSource').value;modal.querySelector('#cardStockFields').hidden=source!=='inventory';modal.querySelector('#cardApiFields').hidden=source!=='api';modal.querySelector('#cardProFields').hidden=source!=='pro';};
     modal.querySelector('#itemType').addEventListener('change',updateCardFields);modal.querySelector('#itemCardSource').addEventListener('change',updateCardFields);updateCardFields();
 
     // Close handlers
@@ -443,9 +444,15 @@ const CurrencyAdminModule = (() => {
       if(!Number.isInteger(itemData.purchase_limit)||itemData.purchase_limit<0||itemData.purchase_limit>2147483647){alert('限购数量必须为0（不限购）或正整数');return;}
       if(itemData.item_type==='redeem_code'){
         itemData.card_source=modal.querySelector('#itemCardSource').value;
-        itemData.card_codes=modal.querySelector('#itemCardCodes').value;
-        const config=modal.querySelector('#itemCardApi').value.trim();
-        if(config){try{itemData.card_api=JSON.parse(config);}catch{alert('API 配置不是有效 JSON');return;}}
+        if(itemData.card_source==='pro'){
+          itemData.pro_app=modal.querySelector('#itemProApp').value;
+          itemData.pro_duration_days=Number(modal.querySelector('#itemProDays').value);
+          if(!itemData.pro_app||!Number.isInteger(itemData.pro_duration_days)||itemData.pro_duration_days<1||itemData.pro_duration_days>36500){alert('请选择 Pro 应用并填写 1–36500 天的整数时长');return;}
+        }else{
+          if(itemData.card_source==='inventory')itemData.card_codes=modal.querySelector('#itemCardCodes').value;
+          const config=modal.querySelector('#itemCardApi').value.trim();
+          if(itemData.card_source==='api'&&config){try{itemData.card_api=JSON.parse(config);}catch{alert('API 配置不是有效 JSON');return;}}
+        }
       }
       if (iconData) {
         itemData.icon = iconData;

@@ -132,6 +132,8 @@ def close_user(user_id,actor):
     user.username='closed_'+uuid.uuid4().hex;user.email='';user.first_name='';user.last_name=''
     user.is_active=False;user.set_unusable_password();user.save(update_fields=['username','email','first_name','last_name','is_active','password'])
     user.groups.clear()
+    from .models import AppAccessToken
+    AppAccessToken.objects.filter(user=user, revoked_at__isnull=True).update(revoked_at=now)
     AccountClosure.objects.create(user=user,closed_by=actor)
     return True
 
@@ -161,6 +163,8 @@ def close_account(request,user_id=None):
 
 def account_detail(user):
     data=account_data(user)
+    from .pro_services import management_data
+    data['pro'] = management_data(user)
     data['inventory']=list(UserInventory.objects.filter(member__user=user).select_related('item','team').values('id','item_id','quantity','item__name','item__item_type','team__name'))
     data['units']=list(ShopFulfillment.objects.filter(purchase__member__user=user).values('id','item_name','status','purchase__team__name'))
     teams=list(user.team_memberships.values_list('team_id',flat=True))
