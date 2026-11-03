@@ -61,7 +61,7 @@ test('the rejected-record action uses record eligibility rather than overview da
   const entries=new Map(),calls=[];
   const context={ownRecords:new Map([[8,record]]),$:key=>{if(!entries.has(key))entries.set(key,{dataset:{}});return entries.get(key);},
     openModal:async(...args)=>{calls.push(args);return true;},showToast(){},uiProblemTitle:x=>x,
-    setSubmissionCodeDraft(){},renderSubmissionDraftBlog(){},resubmitting:null};
+    setSubmissionCodeDraft(){},renderSubmissionDraftBlog(){},startSubmissionDraft(){},resubmitting:null};
   vm.createContext(context);
   vm.runInContext(community.slice(community.indexOf('async function beginResubmit('),community.indexOf("\ndocument.addEventListener('DOMContentLoaded'",community.indexOf('async function beginResubmit('))),context);
   assert.equal(await vm.runInContext('beginResubmit(8)',context),true);
@@ -82,7 +82,7 @@ test('normal editing uses can_edit while rejected resubmission keeps its separat
     const entries=new Map(),calls=[],messages=[];
     const context={ownRecords:new Map([[8,record]]),$:key=>{if(!entries.has(key))entries.set(key,{dataset:{}});return entries.get(key);},
       openModal:async(...args)=>{calls.push(args);return true;},showToast:message=>messages.push(message),uiProblemTitle:x=>x,
-      setSubmissionCodeDraft(){},renderSubmissionDraftBlog(){},resubmitting:null,editingSubmission:null,
+      setSubmissionCodeDraft(){},renderSubmissionDraftBlog(){},startSubmissionDraft(){},resubmitting:null,editingSubmission:null,
       captureEditReturn:()=>({}),closeReview(){},restoreEditReturn(){},submissionEditReturnState:null};
     vm.createContext(context);
     vm.runInContext(community.slice(community.indexOf('async function beginResubmit('),community.indexOf("\ndocument.addEventListener('DOMContentLoaded'",community.indexOf('async function beginResubmit('))),context);
