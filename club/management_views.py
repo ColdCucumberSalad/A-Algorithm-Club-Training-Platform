@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
+from django.db.models.deletion import ProtectedError
 from django.db.models import Q, Count, Sum, F
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
@@ -129,7 +130,10 @@ def delete_team(request, team_id):
         return api_error('团队不存在', 404)
     if body(request).get('confirmation') != team.code:
         return api_error('请输入正确团队码确认删除')
-    delete_team_data(team)
+    try:
+        delete_team_data(team)
+    except ProtectedError:
+        return api_error('团队仍有未结算的德州扑克座位，请先离桌结算后再删除团队', 409)
     if request.session.get('team_id') == team_id:
         request.session.pop('team_id', None)
     return JsonResponse({'ok': True})

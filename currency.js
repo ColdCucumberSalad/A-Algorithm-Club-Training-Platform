@@ -642,6 +642,12 @@ const CurrencyModule = (() => {
     updateCurrencyDisplay,
     showTransactionHistory,
     getCurrencyData: () => ({ ...currencyData }),
+    syncBalance: balance => {
+      if (Number.isInteger(balance) && currencyData.enabled) {
+        currencyData.balance = balance;
+        updateCurrencyDisplay();
+      }
+    },
   };
 })();
 

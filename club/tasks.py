@@ -393,6 +393,13 @@ def refresh_qoj_overlay(binding_id,token,binding_token):
         remote.session.close()
 
 
+@shared_task(soft_time_limit=50, time_limit=60)
+def sweep_poker_rooms():
+    from .models import PokerRoom
+    from .poker_services import sweep_room
+    for room_id in PokerRoom.objects.filter(closed=False).values_list('pk', flat=True).iterator():
+        sweep_room(room_id)
+
 @shared_task(priority=8)
 def sync_bound_accounts_nightly(day=None):
     """One account at a time, at least 30 seconds between dispatch checks.

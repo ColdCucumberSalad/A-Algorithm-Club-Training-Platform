@@ -1,0 +1,12 @@
+/* Build: install tailwindcss@4, @tailwindcss/cli@4 and daisyui@5 in .local/poker-ui,
+   then run its tailwindcss CLI with -i styles/poker-components.input.css
+   -o static/vendor/daisyui/poker-components.css --minify. No global reset. */
+@tailwind utilities source(none);
+@source inline("pk-btn pk-range pk-input pk-select");
+@plugin "../.local/poker-ui/node_modules/daisyui" {
+  prefix: "pk-";
+  themes: false;
+  include: button, range, input, select;
+  root: "#pokerView";
+  logs: false;
+}

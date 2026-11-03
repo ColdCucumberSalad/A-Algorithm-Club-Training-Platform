@@ -1,4 +1,5 @@
 from django.urls import path
+from . import poker_views
 from . import extension_views
 from . import account_views, admin_submission_views
 from . import member_management
@@ -19,6 +20,10 @@ from . import shop_fulfillment
 from . import app_views
 
 urlpatterns = [
+    path('poker/rooms', poker_views.rooms),
+    path('poker/rooms/chips', poker_views.chips),
+    path('poker/rooms/<uuid:room_id>', poker_views.room),
+
     path('app/cards/verify', app_views.card_verify),
     path('app/cards/confirm', app_views.card_confirm),
     path('management/submissions/<int:submission_id>',admin_submission_views.edit_submission),

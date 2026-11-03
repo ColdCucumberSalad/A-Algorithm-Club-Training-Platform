@@ -407,6 +407,8 @@ class CurrencyTransaction(models.Model):
         ("tip_received", "收到打赏"),
         ("report_reward", "有效举报奖励"),
         ("report_penalty", "被举报扣除"),
+        ("poker_buyin", "德州扑克买入"),
+        ("poker_cashout", "德州扑克离桌结算"),
     ]
 
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE, related_name="coin_transactions")
@@ -831,3 +833,50 @@ class SubmissionTip(models.Model):
     submission = models.ForeignKey(Submission,null=True,on_delete=models.SET_NULL)
     amount = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class PokerChipBalance(models.Model):
+    user = models.OneToOneField(User, on_delete=models.PROTECT, related_name='poker_chips')
+    balance = models.PositiveBigIntegerField(default=0)
+
+
+class PokerRoom(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='poker_rooms')
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='created_poker_rooms')
+    name = models.CharField(max_length=40)
+    mode = models.CharField(max_length=10, choices=[('coins', 'RBC Coins 多人局'),
+        ('friendly', '赠币多人练习'), ('practice', '赠币人机练习')], default='coins')
+    max_players = models.PositiveSmallIntegerField(default=6)
+    big_blind = models.PositiveIntegerField(default=2)
+    buy_in = models.PositiveIntegerField(default=1000)
+    hand = models.JSONField(default=dict)
+    hand_number = models.PositiveIntegerField(default=0)
+    dealer = models.SmallIntegerField(default=-1)
+    version = models.PositiveIntegerField(default=0)
+    closed = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class PokerSeat(models.Model):
+    room = models.ForeignKey(PokerRoom, on_delete=models.CASCADE, related_name='seats')
+    user = models.OneToOneField(User, null=True, blank=True, on_delete=models.PROTECT, related_name='poker_seat')
+    member = models.ForeignKey(TeamMembership, null=True, blank=True, on_delete=models.PROTECT)
+    bot_name = models.CharField(max_length=40, blank=True)
+    number = models.PositiveSmallIntegerField()
+    stack = models.PositiveIntegerField(default=0)
+    ready = models.BooleanField(default=False)
+    leaving = models.BooleanField(default=False)
+    last_seen = models.DateTimeField(default=timezone.now)
+
+    @property
+    def player_id(self):
+        return str(self.user_id) if self.user_id else f'bot:{self.pk}'
+
+    @property
+    def display_name(self):
+        return self.member.display_name if self.member_id else self.bot_name
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['room', 'number'], name='unique_poker_room_seat')]

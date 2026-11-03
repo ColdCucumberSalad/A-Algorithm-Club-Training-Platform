@@ -1,5 +1,5 @@
 (() => {
-  const root = document.getElementById('extensionsView');
+  const root = document.getElementById('extensionResources');
   const escape = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let items = [];
   async function api(url, options) {
@@ -9,10 +9,12 @@
     return payload;
   }
   async function load() {
+    window.PokerModule?.close();
     root.innerHTML = '<p role="status">正在加载资源…</p>';
     try {
       const result = await api('/api/extensions'); items = result.items;
-      root.innerHTML = `<section class="page-heading"><div><p class="kicker">EXPLORE & LEARN</p><h1>拓展</h1></div>${result.can_manage ? '<button class="primary-button" id="extensionAdd">＋ 添加资源</button>' : ''}</section><div class="extension-wall">${items.map(item => `<article class="extension-tile"><a class="extension-link" href="${escape(item.href)}" ${item.kind === 'link' ? 'target="_blank" rel="noopener noreferrer"' : 'download'} aria-label="${escape(item.title)} · ${item.kind === 'file' ? '下载文件' : '打开链接'}">${item.cover ? `<img src="${escape(item.cover)}" alt="" loading="lazy">` : `<span class="extension-placeholder" aria-hidden="true">${item.kind === 'file' ? '↓' : '↗'}</span>`}<span class="extension-copy"><small>${item.kind === 'file' ? '↓ 文件下载' : '↗ 外部链接'}</small><strong>${escape(item.title)}</strong><span>${escape(item.description || '')}</span></span></a>${result.can_manage ? `<div class="extension-controls"><button data-edit="${item.id}">编辑</button><button data-delete="${item.id}">删除</button></div>` : ''}</article>`).join('')}</div>${items.length ? '' : '<div class="panel empty-state"><h2>资源墙等待上新</h2><p>系统管理员添加的链接与文件会展示在这里。</p></div>'}`;
+      root.innerHTML = `<section class="page-heading"><div><p class="kicker">EXPLORE & LEARN</p><h1>拓展</h1></div>${result.can_manage ? '<button class="primary-button" id="extensionAdd">＋ 添加资源</button>' : ''}</section><div class="extension-wall"><button type="button" class="extension-tile poker-entry" id="pokerEntry"><span class="extension-placeholder" aria-hidden="true">♠</span><span class="extension-copy"><small>RBC POKER CLUB</small><strong>德州扑克</strong><span>多人联机 · 免费练习 · 人机对战</span></span></button>${items.map(item => `<article class="extension-tile"><a class="extension-link" href="${escape(item.href)}" ${item.kind === 'link' ? 'target="_blank" rel="noopener noreferrer"' : 'download'} aria-label="${escape(item.title)} · ${item.kind === 'file' ? '下载文件' : '打开链接'}">${item.cover ? `<img src="${escape(item.cover)}" alt="" loading="lazy">` : `<span class="extension-placeholder" aria-hidden="true">${item.kind === 'file' ? '↓' : '↗'}</span>`}<span class="extension-copy"><small>${item.kind === 'file' ? '↓ 文件下载' : '↗ 外部链接'}</small><strong>${escape(item.title)}</strong><span>${escape(item.description || '')}</span></span></a>${result.can_manage ? `<div class="extension-controls"><button data-edit="${item.id}">编辑</button><button data-delete="${item.id}">删除</button></div>` : ''}</article>`).join('')}</div>`;
+      root.querySelector('#pokerEntry').onclick = () => window.PokerModule.open();
       root.querySelector('#extensionAdd')?.addEventListener('click', () => editor());
       root.querySelectorAll('[data-edit]').forEach(button => button.onclick = () => editor(items.find(i => i.id === Number(button.dataset.edit))));
       root.querySelectorAll('[data-delete]').forEach(button => button.onclick = () => remove(items.find(i => i.id === Number(button.dataset.delete))));
