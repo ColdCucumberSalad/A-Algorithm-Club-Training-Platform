@@ -60,6 +60,7 @@ This project was born out of the need to make it easier to compile statistics on
 支持 Codeforces、AtCoder、牛客、洛谷、LeetCode、QOJ，每个平台可添加多个账号。牛客填写数字 UID，洛谷填写 UID 或用户名；LeetCode 中国站填写 `cn:用户名`。
 
 账号卡片提供保存、同步、完整同步和解绑，支持全部账号同步。CF 可选填 API Key／Secret，牛客、力扣可选填 Cookie，QOJ 填写 Cookie；AtCoder 和洛谷只需账号。凭据加密保存，留空保留，勾选清除后移除。
+LeetCode 账号填写 `cn:ID` 时同步中国站，填写普通 `ID` 时同步海外站；Cookie 必须属于对应站点及账号。填写 Cookie 后分页读取本人的提交历史，不填写时仅获取公开的近期 AC 记录；中国站与海外站分别适配题目字段。
 
 首次同步读取历史题目，后续同步增量更新。同平台多账号的过题按题目合并去重，Rating 排行榜使用最高的当前 Rating。过题榜、热力图及补题 Tracker 使用同一份题目记录。
 
