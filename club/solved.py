@@ -200,8 +200,11 @@ def solved_evidence(user_ids):
             continue
         b = base.binding
         prefix = identity(b.platform, '', b.account)
-        known = {identity(b.platform, key, b.account)
-                 for key in set(base.problem_ids) | set(base.dated_problems)}
+        raw_keys = set(base.problem_ids) | set(base.dated_problems)
+        known = {identity(b.platform, key, b.account) for key in raw_keys}
+        # A raw history can contain multiple proven aliases of the same task.
+        # Do not restore those duplicates as anonymous solves via the floor.
+        baseline_total = max(0, base.total - (len(raw_keys) - len(known)))
         captured_day = timezone.localdate(base.captured_at)
         # Only a complete baseline proves that an absent task is new. With an
         # incomplete baseline, a later AC may simply be a repeat of an old task.
@@ -210,7 +213,7 @@ def solved_evidence(user_ids):
                          for key, value in items[b.user_id].items()) if base.ids_complete else 0
         # Multiple accounts on the same platform may overlap: retain the largest
         # confirmed total rather than summing unknown identities across accounts.
-        floors[b.user_id][prefix] = max(floors[b.user_id].get(prefix, 0), base.total + increments)
+        floors[b.user_id][prefix] = max(floors[b.user_id].get(prefix, 0), baseline_total + increments)
     for uid in modern:
         missing = sum(max(0, total - sum(key.startswith(prefix) for key in items[uid]))
                       for prefix, total in floors[uid].items())

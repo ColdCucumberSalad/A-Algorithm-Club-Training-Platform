@@ -409,6 +409,11 @@ def sync_bound_accounts_nightly(day=None):
     day = day or today
     if day != today:
         return {'status': 'expired'}
+    # Release timeout-update binding locks before acquiring any user locks.
+    # Manual retries lock user -> membership -> binding and may run concurrently.
+    with transaction.atomic():
+        PlatformBinding.objects.filter(status='pending', requested_at__lt=now-timedelta(minutes=30)).update(
+            status='failed', error='同步超时，请手动重试')
     with transaction.atomic():
         # Serialize duplicate dispatchers across processes without a new model.
         with connection.cursor() as cursor:
@@ -416,10 +421,6 @@ def sync_bound_accounts_nightly(day=None):
             if not cursor.fetchone()[0]:
                 return {'status': 'busy'}
         pending = PlatformBinding.objects.filter(status='pending')
-        # A page normally finishes in <165 seconds. Stop abandoned chains after
-        # 30 minutes without progress; the next manual request can resume them.
-        pending.filter(requested_at__lt=now-timedelta(minutes=30)).update(
-            status='failed', error='同步超时，请手动重试')
         if pending.exists():
             transaction.on_commit(lambda: sync_bound_accounts_nightly.apply_async(
                 kwargs={'day': day}, countdown=30, priority=8))

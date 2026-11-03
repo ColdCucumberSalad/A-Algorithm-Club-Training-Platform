@@ -1,8 +1,10 @@
+import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from unittest.mock import patch
-from django.test import TestCase
+from django.test import Client, TestCase, TransactionTestCase
 from django.utils import timezone
-from django.db import connection
+from django.db import close_old_connections, connection
 from django.test.utils import CaptureQueriesContext
 from . import test_community as fixtures
 from .models import PlatformBinding, PlatformSolvedRecord
@@ -81,3 +83,46 @@ class NightlySyncTests(TestCase):
     def test_no_active_team_is_skipped(self):
         self.author.team_memberships.update(is_active=False)
         self.assertEqual(sync_bound_accounts_nightly()['status'], 'complete')
+
+
+class NightlySyncLockTests(TransactionTestCase):
+    setUp = fixtures.CommunityTests.setUp
+
+    @patch('club.tasks.sync_bound_accounts_nightly.apply_async')
+    @patch('club.platform_account_views.enqueue')
+    def test_timeout_lock_is_released_before_dispatcher_takes_user_lock(self, enqueue, again):
+        from .profile_views import lock_active_member
+        stale = PlatformBinding.objects.create(user=self.author, platform='codeforces',
+            account='stale', status='pending', requested_at=timezone.now()-timedelta(hours=1))
+        ready = PlatformBinding.objects.create(user=self.author, platform='nowcoder',
+            account='123', status='ready', synced_at=timezone.now()-timedelta(days=2))
+
+        def manual_retry():
+            close_old_connections()
+            try:
+                client = Client()
+                client.force_login(self.author)
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '2s'")
+                return client.post('/api/profile/platform-accounts/sync',
+                    json.dumps({'ids': [stale.pk]}), content_type='application/json').status_code
+            finally:
+                connection.close()
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            def retry_before_user_lock(user_id, member_id):
+                # The dispatcher has already updated the stale row. A real manual
+                # request on another connection must now be able to lock that row.
+                self.assertEqual(pool.submit(manual_retry).result(timeout=10), 202)
+                return lock_active_member(user_id, member_id)
+
+            with patch('club.profile_views.lock_active_member', side_effect=retry_before_user_lock) as guard:
+                result = sync_bound_accounts_nightly()
+
+        guard.assert_called_once()
+        self.assertEqual(result, {'status': 'started', 'binding_id': ready.pk})
+        stale.refresh_from_db()
+        ready.refresh_from_db()
+        self.assertEqual((stale.status, ready.status), ('pending', 'pending'))
+        self.assertEqual(enqueue.call_count, 2)
+        again.assert_called_once()

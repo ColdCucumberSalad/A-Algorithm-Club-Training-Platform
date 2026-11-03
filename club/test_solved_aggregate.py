@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
-from .models import PlatformBinding, PlatformSolvedBaseline, PlatformSolvedRecord
+from .models import PlatformBinding, PlatformSolvedBaseline, PlatformSolvedRecord, TrackerCatalog
 from .solved import solved_evidence, semester_solved_counts
 
 
@@ -58,3 +58,44 @@ class AggregateSolvedTests(TestCase):
     def test_incomplete_baseline_cannot_prove_later_solve_is_new(self):
         PlatformSolvedRecord.objects.create(binding=self.binding, problem_key='possibly-repeated', solved_on=timezone.localdate())
         self.assertEqual(self.evidence()['total'], 79)
+
+
+class NowcoderAliasFloorTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='alias-floor-test')
+        self.binding = PlatformBinding.objects.create(user=self.user, platform='nowcoder',
+            account='123', sync_state={'version': 2})
+        self.day = timezone.localdate() - timedelta(days=2)
+        keys = ['contest/10/a', 'problem/100']
+        self.base = PlatformSolvedBaseline.objects.create(binding=self.binding, total=2,
+            captured_at=timezone.now()-timedelta(days=1), problem_ids=keys,
+            dated_problems={key: self.day.isoformat() for key in keys}, ids_complete=True)
+        for key in keys:
+            PlatformSolvedRecord.objects.create(binding=self.binding, problem_key=key, solved_on=self.day)
+        TrackerCatalog.objects.create(kind='nowcoder', contests=[{'problems': [
+            {'key': 'contest/10/a', 'aliases': ['problem/100']}]}])
+
+    def evidence(self):
+        return solved_evidence([self.user.pk])[self.user.pk]
+
+    def test_complete_dated_aliases_do_not_create_anonymous_solve(self):
+        data = self.evidence()
+        self.assertEqual((data['total'], data['undated'], len(data['items'])), (1, 0, 1))
+
+    def test_incomplete_baseline_retains_truly_unknown_solves(self):
+        self.base.total = 10
+        self.base.ids_complete = False
+        self.base.save()
+        data = self.evidence()
+        self.assertEqual((data['total'], data['undated']), (9, 8))
+
+    def test_complete_baseline_still_counts_new_solve(self):
+        PlatformSolvedRecord.objects.create(binding=self.binding, problem_key='problem/200',
+            solved_on=timezone.localdate())
+        data = self.evidence()
+        self.assertEqual((data['total'], data['undated']), (2, 0))
+
+    def test_unproven_aliases_are_not_discounted(self):
+        TrackerCatalog.objects.all().delete()
+        data = self.evidence()
+        self.assertEqual((data['total'], data['undated']), (2, 0))
