@@ -1,7 +1,7 @@
 /* Non-searchable platform filters; native change handlers remain the source of truth. */
 document.addEventListener('DOMContentLoaded', () => {
   if (!window.TomSelect) return;
-  document.querySelectorAll('[data-rating-platform], #contestPlatform').forEach(select => {
+  document.querySelectorAll('[data-rating-platform], .personal-ranking-label [data-solved-period], #contestPlatform').forEach(select => {
     if (select.tomselect) return;
     const label = select.getAttribute('aria-label') || '比赛平台';
     new TomSelect(select, {
