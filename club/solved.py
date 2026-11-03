@@ -127,6 +127,10 @@ def solved_evidence(user_ids):
     result=_baseline_evidence([uid for uid in user_ids if uid not in modern]) if len(modern)<len(user_ids) else {}
     items=defaultdict(dict)
     accounts={(b.user_id,b.platform,b.account) for b in bindings}
+    leetcode_regions=defaultdict(set)
+    for binding in bindings:
+        if binding.platform=='leetcode':
+            leetcode_regions[binding.user_id].add('cn' if binding.account.startswith('cn:') else 'us')
     today=timezone.localdate()
     nc_aliases={}
     catalog=TrackerCatalog.objects.filter(kind='nowcoder').first()
@@ -136,8 +140,13 @@ def solved_evidence(user_ids):
                 aliases=[p['key']]+p.get('aliases',[])
                 canonical=next((key for key in aliases if key.startswith('problem/')),p['key'])
                 for key in aliases:nc_aliases[key.lower()]=canonical.lower()
-    def identity(platform,key,account=''):
-        prefix=('leetcode_cn' if account.startswith('cn:') else 'leetcode_us') if platform=='leetcode' else platform
+    def identity(platform,key,uid=None):
+        prefix=platform
+        if platform=='leetcode':
+            regions=leetcode_regions[uid]
+            # Current bindings govern both old credits and live evidence. When
+            # both regions are bound, share identities and keep the larger floor.
+            prefix='leetcode_'+next(iter(regions)) if len(regions)==1 else 'leetcode'
         if platform=='nowcoder':key=nc_aliases.get(key.lower(),key)
         return prefix+':'+key.lower()
     def add(uid,key,day=None,title='',url='',source=''):
@@ -147,32 +156,30 @@ def solved_evidence(user_ids):
             items[uid][key]={'date':day,'title':title or key,'url':url,'source':source}
     for row in PlatformSolvedRecord.objects.filter(binding__user_id__in=modern).select_related('binding'):
         b=row.binding
-        add(b.user_id,identity(b.platform,row.problem_key,b.account),row.solved_on,row.title,row.url,b.platform)
-    for base in PlatformSolvedBaseline.objects.filter(binding__user_id__in=modern).select_related('binding'):
+        add(b.user_id,identity(b.platform,row.problem_key,b.user_id),row.solved_on,row.title,row.url,b.platform)
+    baselines = list(PlatformSolvedBaseline.objects.filter(binding__user_id__in=modern).select_related('binding'))
+    for base in baselines:
         b=base.binding
         for key in set(base.problem_ids)|set(base.dated_problems):
             try:day=date.fromisoformat(base.dated_problems[key]) if key in base.dated_problems else None
             except (TypeError,ValueError):day=None
-            add(b.user_id,identity(b.platform,key,b.account),day,key,problem_url(b.platform,key,b.account),b.platform)
+            add(b.user_id,identity(b.platform,key,b.user_id),day,key,problem_url(b.platform,key,b.account),b.platform)
     progress=list(ContestProblemProgress.objects.filter(participation__user_id__in=modern,accepted=True).select_related('participation'))
     historical_aliases={}
     for row in progress:
         c=row.participation
         raw=f'{c.platform}:{c.contest_key}:{row.problem_key}'.lower()
-        historical_aliases[(c.user_id,raw)]=identity(c.platform,contest_key(row),c.account)
+        historical_aliases[(c.user_id,raw)]=identity(c.platform,contest_key(row),c.user_id)
     def ledger_key(uid,key):
         if (uid,key.lower()) in historical_aliases:return historical_aliases[(uid,key.lower())]
-        parts=key.split(':')
+        parts=key.lower().split(':')
         if parts[0]=='atcoder' and len(parts)>=3:
             problem=parts[-1].lower()
             return 'atcoder:'+(problem if problem.startswith(parts[1].lower()+'_') else parts[1].lower()+'_'+problem)
         if parts[0]=='nowcoder' and len(parts)==3:
             return identity('nowcoder',f'contest/{parts[1]}/{parts[2]}')
-        if parts[0]=='leetcode' and len(parts)>=3:
-            slug=parts[-1].lower()
-            if any(prefix+':'+slug in items[uid] for prefix in ('leetcode_cn','leetcode_us')):return None
-            regions={b.account.startswith('cn:') for b in bindings if b.user_id==uid and b.platform=='leetcode'}
-            if len(regions)==1:return identity('leetcode',slug,'cn:' if next(iter(regions)) else '')
+        if parts[0] in {'leetcode','leetcode_cn','leetcode_us'} and len(parts)>=2:
+            return identity('leetcode',parts[-1],uid=uid)
         return key.lower()
     for credit in SolvedProblemCredit.objects.filter(user_id__in=modern):
         add(credit.user_id,ledger_key(credit.user_id,credit.problem_key),source='过题记录')
@@ -181,17 +188,43 @@ def solved_evidence(user_ids):
     for row in Submission.objects.filter(member__user_id__in=modern,is_valid=True,problem__isnull=False,
             parts__kind=SubmissionPart.PROOF,parts__status=SubmissionPart.APPROVED).select_related('member','problem'):
         key=row.problem.identity.lower()
-        if key.startswith('leetcode:'):
-            key=('leetcode_cn:' if 'leetcode.cn/' in row.problem.url else 'leetcode_us:')+key.split(':',1)[1]
+        if key.startswith(('leetcode:','leetcode_cn:','leetcode_us:')):
+            key=ledger_key(row.member.user_id,key)
         if key.startswith('nowcoder:'):key=identity('nowcoder',key.split(':',1)[1])
         add(row.member.user_id,key,row.record_date,row.problem.title,row.problem.url,'训练记录')
     for row in progress:
         c=row.participation
         if c.source_data.get('demo') or (c.user_id,c.platform,c.account) not in accounts:continue
         day=timezone.localdate(row.accepted_at) if row.accepted_at else None
-        add(c.user_id,identity(c.platform,contest_key(row),c.account),day,row.title,row.url,c.platform)
-    result.update({uid:{'items':list(items[uid].values()),'total':len(items[uid]),
-                       'undated':sum(v['date'] is None for v in items[uid].values())} for uid in modern})
+        add(c.user_id,identity(c.platform,contest_key(row),c.user_id),day,row.title,row.url,c.platform)
+    # Aggregate totals are evidence even when an upstream only exposes recent history.
+    # Fill missing identities numerically, never invent dates or add a second copy
+    # of a solve when its detailed record is eventually discovered.
+    floors = defaultdict(dict)
+    for base in baselines:
+        if base.total is None or base.captured_at is None:
+            continue
+        b = base.binding
+        prefix = identity(b.platform, '', b.user_id)
+        raw_keys = set(base.problem_ids) | set(base.dated_problems)
+        known = {identity(b.platform, key, b.user_id) for key in raw_keys}
+        # A raw history can contain multiple proven aliases of the same task.
+        # Do not restore those duplicates as anonymous solves via the floor.
+        baseline_total = max(0, base.total - (len(raw_keys) - len(known)))
+        captured_day = timezone.localdate(base.captured_at)
+        # Only a complete baseline proves that an absent task is new. With an
+        # incomplete baseline, a later AC may simply be a repeat of an old task.
+        increments = sum(key.startswith(prefix) and key not in known
+                         and value['date'] is not None and value['date'] > captured_day
+                         for key, value in items[b.user_id].items()) if base.ids_complete else 0
+        # Multiple accounts on the same platform may overlap: retain the largest
+        # confirmed total rather than summing unknown identities across accounts.
+        floors[b.user_id][prefix] = max(floors[b.user_id].get(prefix, 0), baseline_total + increments)
+    for uid in modern:
+        missing = sum(max(0, total - sum(key.startswith(prefix) for key in items[uid]))
+                      for prefix, total in floors[uid].items())
+        result[uid] = {'items': list(items[uid].values()), 'total': len(items[uid]) + missing,
+                       'undated': sum(v['date'] is None for v in items[uid].values()) + missing}
     return result
 
 
