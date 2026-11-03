@@ -286,6 +286,7 @@ async function beginResubmit(id, {edit = false} = {}) {
   $('#modalTitle').textContent = uiProblemTitle(record.problem_title || '修改并重新提交');
   setSubmissionCodeDraft(record.parts.find(p=>p.kind==='code')?.text||'');
   renderSubmissionDraftBlog();
+  startSubmissionDraft(record, {edit});
   return true;
 }
 

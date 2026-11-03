@@ -731,7 +731,59 @@ function playFeedback(type,modified=false) {
   }, 1700);
 }
 
+// Store only text fields. File inputs and object URLs never enter localStorage.
+let submissionDraftOwner = null;
+let activeSubmissionDraftKey = null;
+let submissionDraftStorageWarned = false;
+const submissionDraftFields = {
+  problemUrl: '#problemUrl', logic: '#logicText', code: '#submissionCodeInput',
+  language: '#submissionCodeLanguage', markdown: '#blogMarkdownInput',
+};
+function saveSubmissionDraft() {
+  if (!activeSubmissionDraftKey) return;
+  try {
+    const fields = Object.fromEntries(Object.entries(submissionDraftFields).map(([name, selector]) => [name, $(selector).value]));
+    if (Object.entries(fields).some(([name, value]) => name !== 'language' && value.length)) {
+      localStorage.setItem(activeSubmissionDraftKey, JSON.stringify({version: 1, fields}));
+    } else localStorage.removeItem(activeSubmissionDraftKey);
+  } catch (_) {
+    if (!submissionDraftStorageWarned) {
+      showToast('本地草稿保存失败，请保留当前页面或自行备份文字内容');
+      submissionDraftStorageWarned = true;
+    }
+  }
+}
+function startSubmissionDraft(record = null, {edit = false} = {}) {
+  activeSubmissionDraftKey = null;
+  if (!submissionDraftOwner) return;
+  const form = $('#submissionForm');
+  const target = record ? [edit ? 'edit' : 'resubmit', record.id] : ['new', form.dataset.weekId, form.dataset.recordDate];
+  activeSubmissionDraftKey = 'club-submission-draft-v1:' + JSON.stringify([...submissionDraftOwner, ...target]);
+  try {
+    const draft = JSON.parse(localStorage.getItem(activeSubmissionDraftKey) || 'null');
+    if (draft?.version !== 1 || !draft.fields || !Object.keys(submissionDraftFields).every(name => typeof draft.fields[name] === 'string')) return;
+    for (const [name, selector] of Object.entries(submissionDraftFields)) $(selector).value = draft.fields[name];
+    if (!$('#submissionCodeLanguage').value) $('#submissionCodeLanguage').value = 'text';
+    renderCodeDraft();
+    renderSubmissionDraftBlog();
+    showToast('已恢复本地草稿，图片如需上传请重新选择');
+  } catch (_) { /* Unavailable storage or an invalid draft must not block editing. */ }
+}
+function clearSubmissionDraft() {
+  const key = activeSubmissionDraftKey;
+  activeSubmissionDraftKey = null;
+  if (key) { try { localStorage.removeItem(key); } catch (_) {} }
+}
+for (const selector of Object.values(submissionDraftFields)) {
+  $(selector)?.addEventListener('input', saveSubmissionDraft);
+  $(selector)?.addEventListener('change', saveSubmissionDraft);
+}
+window.addEventListener('pagehide', saveSubmissionDraft);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveSubmissionDraft(); });
+
 function resetSubmissionForm() {
+  saveSubmissionDraft();
+  activeSubmissionDraftKey = null;
   $('#proofImage').required = !adminTestMode;
   $('#submissionCodeInput').setAttribute('aria-required',String(!adminTestMode));
   const problemInput = $('#problemUrl');
@@ -789,7 +841,7 @@ $('#submissionCodeInput').addEventListener('scroll',syncCodeEditorScroll);
 $('#submissionCodeInput').addEventListener('keydown',event=>{
   if(event.key!=='Tab'||event.shiftKey)return;
   event.preventDefault();const input=event.target;
-  input.setRangeText('    ',input.selectionStart,input.selectionEnd,'end');renderCodeDraft();
+  input.setRangeText('    ',input.selectionStart,input.selectionEnd,'end');renderCodeDraft();saveSubmissionDraft();
 });
 function selectReviewMaterial(kind){
   for(const value of ['code','blog']){
@@ -843,6 +895,7 @@ async function openModal(forceToday = false, correction = null) {
   if(adminTestMode) $('.form-note span:last-child').textContent='无需补签券';
   else if (correction) $('.form-note span:last-child').textContent = '修改被驳回记录 · 保留首次提交时间 · 无需补签券';
   else if (historical) $('.form-note span:last-child').textContent = '已开放补交 · 学期结束前有效';
+  if (!correction) startSubmissionDraft();
   showSubmissionEditor();
   return true;
 }
@@ -863,6 +916,8 @@ function showSubmissionEditor(){
   $('#modalTitle').focus({preventScroll:true});
 }
 function closeModal(){
+  saveSubmissionDraft();
+  activeSubmissionDraftKey = null;
   $('#submissionModal').classList.remove('open');
   $('#submissionModal').setAttribute('aria-hidden','true');
   const state=submissionScrollState;if(!state)return;
@@ -1133,6 +1188,7 @@ $('#submissionForm').addEventListener('submit', async (event) => {
   if (submitButton?.disabled) return;
   if (submitButton) { submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); submitButton.dataset.label = submitButton.textContent; submitButton.textContent = '正在提交…'; }
   if (demoMode) {
+    clearSubmissionDraft();
     closeModal();
     resetSubmissionForm();
     playFeedback('submission-success');
@@ -1140,6 +1196,7 @@ $('#submissionForm').addEventListener('submit', async (event) => {
     if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); submitButton.textContent = submitButton.dataset.label || '提交记录'; }
     return;
   }
+  saveSubmissionDraft();
   const wasEditing=Boolean(editingSubmission);
   const formData = new FormData(form);
   formData.set('week_id', form.dataset.weekId || '');
@@ -1158,6 +1215,7 @@ $('#submissionForm').addEventListener('submit', async (event) => {
       throw new Error(payload.error || '提交失败，请稍后重试');
     }
   } catch (error) { showToast(error.message || '提交失败，请稍后重试'); if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); submitButton.textContent = submitButton.dataset.label || '提交记录'; } return; }
+  clearSubmissionDraft();
   closeModal();
   resetSubmissionForm();
   playFeedback('submission-success',wasEditing);
@@ -1370,6 +1428,8 @@ async function loadLiveData() {
       return;
     }
     const me = await meResponse.json();
+    submissionDraftOwner = me.account && (me.test_target_team?.id || me.team?.id)
+      ? [me.account, me.test_target_team?.id || me.team.id, !!me.test_mode] : null;
     adminTestMode=!!me.test_mode;
     if(adminTestMode)me.name=uiMemberName(me.name);
     if(me.site_admin||adminTestMode){
