@@ -10,7 +10,7 @@ from django.utils import timezone
 class AccountProblemMigrationTests(TransactionTestCase):
     """Both already-deployed branch histories must upgrade without fake migrations."""
 
-    merged = [('club', '0054_card_device')]
+    merged = [('club', '0053_app_pro_codes')]
 
     def test_pro_migration_keeps_legacy_goods_stock_and_purchases_unchanged(self):
         apps = self.migrate([('club', '0052_correct_empty_logic_scores')])
@@ -32,7 +32,7 @@ class AccountProblemMigrationTests(TransactionTestCase):
         self.assertIsNone(current_unit.pro_duration_days)
         self.assertEqual(apps.get_model('club', 'Purchase').objects.get(pk=purchase.pk).total_price, 3)
         self.assertEqual(apps.get_model('club', 'CurrencyBalance').objects.get(user_id=uid).balance, 12)
-        for model in ('ProEntitlement', 'ProRedeemCode', 'AppRateLimit'):
+        for model in ('ProRedeemCode', 'AppRateLimit'):
             self.assertEqual(apps.get_model('club', model).objects.count(), 0)
 
     def migrate(self, targets):

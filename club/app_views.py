@@ -3,7 +3,6 @@ import ipaddress
 from datetime import timedelta
 
 from django.conf import settings
-from django.contrib.auth.models import User
 from django.db import transaction
 from django.http import JsonResponse
 from django.utils import timezone
@@ -11,7 +10,7 @@ from django.utils.crypto import salted_hmac
 from django.views.decorators.csrf import csrf_exempt
 
 from .models import AppRateLimit
-from .pro_services import fingerprint, pro_data, redeem_code
+from .pro_services import APP_KEY, MAX_DURATION_DAYS, fingerprint
 from .views import body
 
 
@@ -71,7 +70,7 @@ def client_address(request):
 
 
 @csrf_exempt
-def card_redeem(request):
+def card_verify(request):
     from .models import ProRedeemCode
     if settings.APP_REQUIRE_HTTPS and not request.is_secure():
         return error('App 接口必须通过 HTTPS 访问', 403)
@@ -82,30 +81,12 @@ def card_redeem(request):
     if limited('card-ip', client_address(request), 30, 300):
         return throttle_error()
     data = body(request)
-    code, device = data.get('code'), data.get('device_secret')
-    if not isinstance(code, str) or not 1 <= len(code.strip()) <= 200 or not isinstance(device, str) or len(device) != 64 or any(c not in '0123456789abcdef' for c in device):
-        return error('卡密或设备凭据无效', 400)
-    candidate = ProRedeemCode.objects.filter(code_hash=fingerprint(code.strip())).values_list('owner_id', flat=True).first()
-    if candidate is None:
-        return error('卡密无效', 400)
-    with transaction.atomic():
-        user = User.objects.select_for_update().filter(pk=candidate, is_active=True).first()
-        if not user:
-            return error('卡密不可用', 400)
-        card = ProRedeemCode.objects.select_for_update().get(code_hash=fingerprint(code.strip()))
-        device_hash = fingerprint(device)
-        if card.redeemed_at and card.device_hash != device_hash:
-            return error('此卡密已被核销', 409)
-        if card.device_hash and card.device_hash != device_hash:
-            return error('此卡密已被核销', 409)
-        # A device's consecutive cards must belong to the same purchasing account.
-        if ProRedeemCode.objects.filter(device_hash=device_hash).exclude(owner=user).exists():
-            return error('请使用同一购买账号的续期卡密', 409)
-        try:
-            redeem_code(user, code.strip())
-        except ValueError as exc:
-            return error(str(exc), 400)
-        card.device_hash = device_hash
-        card.save(update_fields=['device_hash'])
-        return response({'token': device, 'token_expires_at': '8999-01-01T00:00:00+00:00',
-            'user': {'id': 'card:' + str(user.pk), 'username': '卡密授权'}, 'pro': pro_data(user)})
+    code = data.get('code')
+    if not isinstance(code, str) or not 1 <= len(code.strip()) <= 200:
+        return error('请提供有效格式的卡密', 400)
+    card = ProRedeemCode.objects.filter(
+        code_hash=fingerprint(code.strip()), app=APP_KEY,
+        duration_days__gte=1, duration_days__lte=MAX_DURATION_DAYS,
+        fulfillment__status='redeemed').values('duration_days').first()
+    return response({'valid': card is not None, 'app': APP_KEY,
+                     'duration_days': card['duration_days'] if card else None})

@@ -10,21 +10,10 @@ class AppRateLimit(models.Model):
     attempts = models.PositiveIntegerField(default=0)
 
 
-class ProEntitlement(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='pro_entitlements')
-    app = models.CharField(max_length=40)
-    expires_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=['user', 'app'], name='unique_user_pro_app')]
-
-
 class ProRedeemCode(models.Model):
-    device_hash = models.CharField(max_length=64, blank=True)
     fulfillment = models.OneToOneField('club.ShopFulfillment', on_delete=models.PROTECT, related_name='pro_code')
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='pro_codes')
     app = models.CharField(max_length=40)
     duration_days = models.PositiveIntegerField()
     code_hash = models.CharField(max_length=64, unique=True)
     issued_at = models.DateTimeField(auto_now_add=True)
-    redeemed_at = models.DateTimeField(null=True, blank=True)

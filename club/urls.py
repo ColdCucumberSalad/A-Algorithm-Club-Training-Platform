@@ -19,7 +19,7 @@ from . import shop_fulfillment
 from . import app_views
 
 urlpatterns = [
-    path('app/cards/redeem', app_views.card_redeem),
+    path('app/cards/verify', app_views.card_verify),
     path('management/submissions/<int:submission_id>',admin_submission_views.edit_submission),
     path('profile/titles/wear', profile_views.wear_title),
     path('account',account_views.current_account),

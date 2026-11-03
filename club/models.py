@@ -633,7 +633,7 @@ class ShopCode(models.Model):
 
 
 # Import card verification models into Django's model discovery and migration state.
-from .pro_models import AppRateLimit, ProEntitlement, ProRedeemCode  # noqa: E402,F401
+from .pro_models import AppRateLimit, ProRedeemCode  # noqa: E402,F401
 
 
 class UserProfile(models.Model):
