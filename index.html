@@ -24,7 +24,7 @@
     <link rel="stylesheet" href="styles/atlas-enhanced.css?v=cohort-20261102e" />
   <link rel="stylesheet" href="styles/site-theme.css?v=ui-20261101l" />
   <link rel="stylesheet" href="styles/gallery-week-picker.css?v=1" />
-<link rel="stylesheet" href="static/club-dialog.css?v=1" /><link rel="stylesheet" href="static/team-join.css?v=1" /><link rel="stylesheet" href="static/glass-drag.css?v=1"><link rel="stylesheet" href="theme-settings.css?v=20261103-proof3" />
+<link rel="stylesheet" href="static/club-dialog.css?v=1" /><link rel="stylesheet" href="static/team-join.css?v=1" /><link rel="stylesheet" href="static/glass-drag.css?v=1"><link rel="stylesheet" href="theme-settings.css?v=heatmap-original-scale-20261104" />
 <script src="theme-model.js?v=cohort-20261102e"></script><script src="theme-settings.js?v=cohort-20261102e" defer></script>
   <link rel="stylesheet" href="styles/workbench.css?v=global-accounts-20261102" />
   <link rel="stylesheet" href="/static/vendor/daisyui/notification-components.css?v=20261102" />
@@ -187,10 +187,10 @@
 
               <div class="metric-foot"><span>保持每天的训练节拍</span></div>
             </article></section>
-              <div class="activity-calendar-heading"><strong id="activityPeriod">训练热力图</strong><div class="activity-controls"><span class="activity-range-label">时间范围</span><input type="hidden" id="activityRange" value="month"><button type="button" id="activitySemester" aria-pressed="false">当前学期</button><div id="activityMonthLabel" class="activity-month-picker"><div class="activity-month-actions"><button type="button" id="activityMonthCalendar" popovertarget="activityMonthPopover" aria-label="选择热力图月份" title="选择月份"><svg class="activity-calendar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/></svg></button><button type="button" id="activityMonthTrigger" aria-pressed="true">按月</button></div><input type="month" id="activityMonth" hidden tabindex="-1" aria-hidden="true"><div id="activityMonthPopover" class="activity-month-popover" popover="auto" aria-label="选择热力图月份"></div></div></div></div>
+              <div class="activity-calendar-heading"><strong id="activityPeriod">训练热力图</strong><div class="activity-controls"><input type="hidden" id="activityRange" value="month"><div id="activityMonthLabel" class="activity-month-picker"><div class="activity-month-actions"><button type="button" id="activityMonthCalendar" popovertarget="activityMonthPopover" aria-label="选择热力图月份" title="选择月份"><svg class="activity-calendar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/></svg></button></div><input type="month" id="activityMonth" hidden tabindex="-1" aria-hidden="true"><div id="activityMonthPopover" class="activity-month-popover" popover="auto" aria-label="选择热力图月份"></div></div></div></div>
               <div class="activity-heat-layout"><div class="activity-fixed-weekdays" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div><div class="activity-heat-scroll"><div class="activity-heatmap" id="activityHeatmap" role="group" aria-label="按日期查看训练活动"></div></div></div>
               <div class="activity-legend"><span>少</span><i data-level="0"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><span>多</span></div>
-              <p class="activity-note" id="activityNote" role="status">仅展示已有真实记录。</p>
+              <p class="activity-note" id="activityNote" role="status" hidden></p>
             </div>
           </section>
 
@@ -332,7 +332,7 @@
     <script src="/static/moderation.js?v=review-generation-20261102"></script>
     <script src="profile.js?v=wardrobe-20261102e"></script>
     <script src="extensions.js?v=ui-20261101l"></script>
-  <script src="app.js?v=proof-paste-20261103d"></script>
+  <script src="app.js?v=heatmap-original-scale-20261104"></script>
   <script src="static/glass-drag.js?v=ranking-20261101"></script>
   </body>
 </html>
