@@ -50,6 +50,19 @@
   const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   let fullscreen = false, nativeFullscreen = false, fullscreenMobile = false, fullscreenEpoch = 0;
   let drawerOpen = true, fullscreenScroll = 0, orientationOwned = false;
+  let fullscreenAnchor = null;
+  function mountFullscreenSurface() {
+    if (fullscreenAnchor) return;
+    // iOS fallback fullscreen must escape page perspective/filter containing blocks.
+    fullscreenAnchor = document.createComment('poker fullscreen return position');
+    root.before(fullscreenAnchor);
+    document.body.append(root);
+  }
+  function restoreFullscreenSurface() {
+    if (!fullscreenAnchor) return;
+    fullscreenAnchor.replaceWith(root);
+    fullscreenAnchor = null;
+  }
   function syncMobileRailWidth() {
     const numbers = [...root.querySelectorAll('[data-raise],.poker-action-amount')].map(element =>
       String(element.value ?? element.textContent).trim().length);
@@ -105,6 +118,7 @@
     if (orientationOwned) { try { screen.orientation.unlock(); } catch {} }
     orientationOwned = false;
     syncFullscreen();
+    restoreFullscreenSurface();
     window.scrollTo({top:fullscreenScroll, behavior:'instant'});
     root.querySelector('[data-fullscreen]')?.focus({preventScroll:true});
   }
@@ -120,6 +134,7 @@
     fullscreenMobile = innerWidth <= 700 || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) <= 1024);
     fullscreen = true; drawerOpen = true;
     const token = ++fullscreenEpoch;
+    mountFullscreenSurface();
     syncFullscreen();
     // The persistent root contains both the table and controls; room polls replace only its children.
     try { await root.requestFullscreen({navigationUI:'hide'}); }
