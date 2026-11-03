@@ -551,7 +551,10 @@ class ShopItem(models.Model):
     item_type = models.CharField(max_length=50, default="general", verbose_name="商品类型")
     purchase_limit = models.PositiveIntegerField(default=0, verbose_name="单用户累计限购数量")
     card_source = models.CharField(max_length=16, default='inventory')
+    allow_multiple_purchase = models.BooleanField(default=False, verbose_name='允许单次多购')
     encrypted_card_api = models.TextField(blank=True)
+    pro_app = models.CharField(max_length=40, blank=True)
+    pro_duration_days = models.PositiveIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -608,6 +611,10 @@ class ShopFulfillment(models.Model):
     status = models.CharField(max_length=16, default='ready')
     request_key = models.UUIDField(default=uuid.uuid4, unique=True)
     encrypted_code = models.TextField(blank=True)
+    api_num = models.PositiveIntegerField(null=True, blank=True)
+    # Freeze purchased benefits; later shop edits apply only to new purchases.
+    pro_app = models.CharField(max_length=40, blank=True)
+    pro_duration_days = models.PositiveIntegerField(null=True, blank=True)
     refunded_amount = models.PositiveIntegerField(default=0)
     reclaimed_at = models.DateTimeField(null=True, blank=True)
     redeemed_at = models.DateTimeField(null=True, blank=True)
@@ -627,6 +634,10 @@ class ShopCode(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['item', 'fingerprint'], name='unique_shop_code_fingerprint')]
+
+
+# Import card verification models into Django's model discovery and migration state.
+from .pro_models import AppRateLimit, ProRedeemCode  # noqa: E402,F401
 
 
 class UserProfile(models.Model):

@@ -122,6 +122,47 @@ class MemberManagementTests(TestCase):
         unit.status='redeemed';unit.save()
         self.assertEqual(self.inventory({'action':'revoke','unit_id':unit.pk}).status_code,400)
 
+    def assert_api_bundle_revocation(self, granted):
+        from .currency_services import purchase_item
+        balance, _ = CurrencyBalance.objects.get_or_create(
+            team=self.team, member=self.member, defaults={'balance': 100})
+        for stock in (10, -1):
+            with self.subTest(granted=granted, stock=stock):
+                item = ShopItem.objects.create(team=self.team, name='Multi-use card', price=2,
+                    stock=stock, item_type='redeem_code', card_source='api', allow_multiple_purchase=True)
+                if granted:
+                    result = self.inventory({'action': 'grant', 'item_id': item.pk,
+                        'quantity': 5, 'request_id': str(uuid.uuid4())})
+                    self.assertEqual(result.status_code, 200, result.content)
+                else:
+                    purchase_item(self.member, item.pk, 5)
+                unit = ShopFulfillment.objects.get(purchase__item=item)
+                self.assertEqual(unit.api_num, 5)
+                item.refresh_from_db()
+                self.assertEqual(item.stock, 5 if stock == 10 else -1)
+                balance.refresh_from_db()
+                balance_before_revoke = balance.balance
+                # Later settings changes must not alter the purchased/granted bundle.
+                item.allow_multiple_purchase = False
+                item.save(update_fields=['allow_multiple_purchase'])
+                result = self.inventory({'action': 'revoke', 'unit_id': unit.pk})
+                self.assertEqual(result.status_code, 200, result.content)
+                item.refresh_from_db()
+                unit.refresh_from_db()
+                balance.refresh_from_db()
+                self.assertEqual(item.stock, stock)
+                self.assertEqual(unit.status, 'reclaimed')
+                self.assertEqual(balance.balance, balance_before_revoke)
+                self.assertEqual(self.inventory({'action': 'revoke', 'unit_id': unit.pk}).status_code, 400)
+                item.refresh_from_db()
+                self.assertEqual(item.stock, stock)
+
+    def test_revoking_purchased_api_bundle_restores_all_stock(self):
+        self.assert_api_bundle_revocation(granted=False)
+
+    def test_revoking_granted_api_bundle_restores_all_stock(self):
+        self.assert_api_bundle_revocation(granted=True)
+
     def test_failed_card_grant_rolls_back_all_changes(self):
         item=ShopItem.objects.create(team=self.team,name='Empty',price=5,stock=2,item_type='redeem_code')
         response=self.inventory({'action':'grant','item_id':item.pk,'quantity':1,'request_id':str(uuid.uuid4())})

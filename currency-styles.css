@@ -664,3 +664,22 @@
 .currency-modal .modal-body{min-height:0}.shop-item-card:has(.shop-buy-btn:disabled){opacity:.85}
 @media(max-width:760px){.currency-button{padding:6px;gap:4px}.currency-balance{margin:0}.currency-rule-row{gap:8px}.member-card-head{flex-wrap:wrap}.currency-summary{gap:10px}.currency-rule-actions{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.modal-overlay,.modal-overlay .modal-content{animation:none}.currency-button,.shop-item-card{transition:none}}
+
+/* API cards: quantity stays next to the purchase action at every card width. */
+.shop-quantity, .card-multiple-label {
+  --color-base-100: var(--panel, white);
+  --color-base-content: var(--ink, #162d50);
+  --color-base-300: var(--line, #d1d5db);
+  --radius-field: 8px;
+  --radius-selector: 8px;
+  --size-field: .25rem;
+  --size-selector: .25rem;
+  --border: 1px;
+}
+.shop-item-footer:has(.shop-quantity) { flex-wrap: wrap; gap: 12px; }
+.shop-purchase-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.shop-quantity { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.shop-quantity .shop-input { width: 72px; min-height: 44px; padding-inline: 8px; font: inherit; font-size: 14px; font-variant-numeric: tabular-nums; }
+.shop-quantity .shop-input:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.modal-overlay .form-group .card-multiple-label { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.card-multiple-label .shop-toggle { flex-shrink: 0; }

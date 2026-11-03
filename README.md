@@ -2,6 +2,14 @@
 
 **A-Algorithm-Club-Training-Platform**
 
+## RBC Helper 商品配置与 App 卡密验证
+
+商城核销类商品新增“内部 Pro 卡密”来源，可配置 RBC Helper 和订阅天数（默认 31 天）。购买保存时长快照，背包领取卡密；旧商品、价格、库存和用户数据不自动修改。
+
+App 通过 HTTPS 调用 `POST /api/app/cards/verify`，发送 `{"code":"RBC-..."}`，返回 `{"valid":true,"app":"rbc_helper","duration_days":31}`。首次有效验证返回订阅天数和激活回执凭据，先占用卡密 30 秒；App 激活完成后回执确认，才将卡密作废。占用期间重复验证返回占用错误，超时未确认则释放；不绑定设备、不生成登录凭据、不管理或累计订阅到期时间；App 自行处理激活与计时。
+
+部署执行 `python manage.py migrate`（新增 `0053_app_pro_codes`、`0054_card_consumed`、`0055_card_activation_receipt`），更新 Web 和商城静态资源，保留原加密密钥，正确配置 HTTPS 和 `APP_TRUSTED_PROXY_CIDRS`。商品与库存须由管理员配置。请求字段、响应、错误码及调用示例见 [App 卡密验证 API 说明](docs/app-pro.md)。
+
 This project was born out of the need to make it easier to compile statistics on members’ training records and to encourage club members to train themselves.
 
 这是一个 Django + PostgreSQL + Celery 的团队训练平台，提供团队、学期、周次、即时计分、团队提交、点赞举报、排行榜、成员历史、RBC 商店和 Excel 导出接口。前端支持独立板块主题、深浅色外观和训练进展分析。
@@ -60,6 +68,7 @@ This project was born out of the need to make it easier to compile statistics on
 支持 Codeforces、AtCoder、牛客、洛谷、LeetCode、QOJ，每个平台可添加多个账号。牛客填写数字 UID，洛谷填写 UID 或用户名；LeetCode 中国站填写 `cn:用户名`。
 
 账号卡片提供保存、同步、完整同步和解绑，支持全部账号同步。CF 可选填 API Key／Secret，牛客、力扣可选填 Cookie，QOJ 填写 Cookie；AtCoder 和洛谷只需账号。凭据加密保存，留空保留，勾选清除后移除。
+LeetCode 账号填写 `cn:ID` 时同步中国站，填写普通 `ID` 时同步海外站；Cookie 必须属于对应站点及账号。填写 Cookie 后分页读取本人的提交历史，不填写时仅获取公开的近期 AC 记录；中国站与海外站分别适配题目字段。
 
 首次同步读取历史题目，后续同步增量更新。同平台多账号的过题按题目合并去重，Rating 排行榜使用最高的当前 Rating。过题榜、热力图及补题 Tracker 使用同一份题目记录。
 
@@ -313,3 +322,14 @@ API 配置和卡密在数据库中加密保存，商品公开列表不返回秘�
 - 连接与离桌：牌桌每 1.5 秒同步一次，状态持久化在 PostgreSQL，兼容现有多进程 Gunicorn。每次行动限时 45 秒，超时自动过牌或弃牌。断开页面 5 分钟后申请离桌；进行中的玩家本手结束后结算，全下玩家保留比牌资格。页面重新打开会恢复仍存在的座位。
 
 部署时运行 `python manage.py migrate`，并保持现有 Celery worker / beat 启用。新增的 `sweep_poker_rooms` 每 15 秒处理超时与无人在线房间；在线房间的 API 同时推进超时和机器人动作。多人局底牌只返回给本人，摊牌时公开未弃牌玩家底牌。
+
+
+API 类核销商品可开启“允许单次多购”（默认关闭）。开启后，商店卡片显示 1–100 件数量输入，受库存限制；按单价 × 数量扣款、扣库存，背包仅生成一份物品，显示卡密可用次数。核销时 POST JSON 请求体增加 `num` 整数（覆盖配置中同名值）；GET 则增加 `num` 查询参数（替换原同名参数）。数量在购买时保存，关闭开关不改变已购权益，重试沿用同一 Idempotency-Key。旧订单、未开启多购的卡密仍按原方式履约。回收未核销的多次数卡密时整份回收，退回原订单总价并恢复对应数量库存。升级需执行迁移 `0057_api_card_multiple_purchase`，重建 Web、Worker、Beat。
+
+### 绑定账号自动同步
+
+Celery Beat 每天北京时间 04:00 启动账号同步队列，每 30 秒检查一次，一次只启动一个账号；已有同步任务运行时等待。只同步仍有有效团队身份的活跃用户，跳过最近 12 小时同步成功的账号。同一天不会重复自动启动同一账号；队列跨日期后停止。需同时运行 Beat 和 Worker。
+
+复用现有账号同步流程，已有完整历史的账号优先增量同步；尚未完成历史同步的账号可能需要补齐历史。过题明细内容没有变化时不重复写入。失败账号保留原数据并暂停自动同步，需要用户检查凭据后手动重试；超过 30 分钟无进展的任务标记为失败。手动同步入口及原有错误、进度、更新时间展示保持可用。
+
+LeetCode 过题证明、归档和平台明细按当前绑定分区统一去重；双服同时绑定时同题只计一次，累计总数保底取较大值。历史记录在查询时归并，保留原始证据，不调用 AI API；详见 [LeetCode 历史数据处理方案](docs/leetcode-solved-history-reconciliation.md)。

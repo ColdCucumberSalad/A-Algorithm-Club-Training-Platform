@@ -739,7 +739,59 @@ function playFeedback(type,modified=false) {
   }, 1700);
 }
 
+// Store only text fields. File inputs and object URLs never enter localStorage.
+let submissionDraftOwner = null;
+let activeSubmissionDraftKey = null;
+let submissionDraftStorageWarned = false;
+const submissionDraftFields = {
+  problemUrl: '#problemUrl', logic: '#logicText', code: '#submissionCodeInput',
+  language: '#submissionCodeLanguage', markdown: '#blogMarkdownInput',
+};
+function saveSubmissionDraft() {
+  if (!activeSubmissionDraftKey) return;
+  try {
+    const fields = Object.fromEntries(Object.entries(submissionDraftFields).map(([name, selector]) => [name, $(selector).value]));
+    if (Object.entries(fields).some(([name, value]) => name !== 'language' && value.length)) {
+      localStorage.setItem(activeSubmissionDraftKey, JSON.stringify({version: 1, fields}));
+    } else localStorage.removeItem(activeSubmissionDraftKey);
+  } catch (_) {
+    if (!submissionDraftStorageWarned) {
+      showToast('本地草稿保存失败，请保留当前页面或自行备份文字内容');
+      submissionDraftStorageWarned = true;
+    }
+  }
+}
+function startSubmissionDraft(record = null, {edit = false} = {}) {
+  activeSubmissionDraftKey = null;
+  if (!submissionDraftOwner) return;
+  const form = $('#submissionForm');
+  const target = record ? [edit ? 'edit' : 'resubmit', record.id] : ['new', form.dataset.weekId, form.dataset.recordDate];
+  activeSubmissionDraftKey = 'club-submission-draft-v1:' + JSON.stringify([...submissionDraftOwner, ...target]);
+  try {
+    const draft = JSON.parse(localStorage.getItem(activeSubmissionDraftKey) || 'null');
+    if (draft?.version !== 1 || !draft.fields || !Object.keys(submissionDraftFields).every(name => typeof draft.fields[name] === 'string')) return;
+    for (const [name, selector] of Object.entries(submissionDraftFields)) $(selector).value = draft.fields[name];
+    if (!$('#submissionCodeLanguage').value) $('#submissionCodeLanguage').value = 'text';
+    renderCodeDraft();
+    renderSubmissionDraftBlog();
+    showToast('已恢复本地草稿，图片如需上传请重新选择');
+  } catch (_) { /* Unavailable storage or an invalid draft must not block editing. */ }
+}
+function clearSubmissionDraft() {
+  const key = activeSubmissionDraftKey;
+  activeSubmissionDraftKey = null;
+  if (key) { try { localStorage.removeItem(key); } catch (_) {} }
+}
+for (const selector of Object.values(submissionDraftFields)) {
+  $(selector)?.addEventListener('input', saveSubmissionDraft);
+  $(selector)?.addEventListener('change', saveSubmissionDraft);
+}
+window.addEventListener('pagehide', saveSubmissionDraft);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveSubmissionDraft(); });
+
 function resetSubmissionForm() {
+  saveSubmissionDraft();
+  activeSubmissionDraftKey = null;
   $('#proofImage').required = !adminTestMode;
   $('#submissionCodeInput').setAttribute('aria-required',String(!adminTestMode));
   const problemInput = $('#problemUrl');
@@ -759,7 +811,7 @@ function resetSubmissionForm() {
   form.reset();
   const title = $('.upload-box strong');
   const hint = $('#proofHint');
-  if (title) title.textContent = '点击上传截图';
+  if (title) { title.textContent = '点击上传或粘贴截图'; title.removeAttribute('title'); }
   if (hint) hint.textContent = adminTestMode ? '可留空；上传时支持 PNG、JPG、WebP，不超过 5MB' : '支持 PNG、JPG、WebP，单张不超过 5MB';
   if (typeof clearBlogEditor === 'function') clearBlogEditor();
   setSubmissionCodeDraft('');
@@ -797,7 +849,7 @@ $('#submissionCodeInput').addEventListener('scroll',syncCodeEditorScroll);
 $('#submissionCodeInput').addEventListener('keydown',event=>{
   if(event.key!=='Tab'||event.shiftKey)return;
   event.preventDefault();const input=event.target;
-  input.setRangeText('    ',input.selectionStart,input.selectionEnd,'end');renderCodeDraft();
+  input.setRangeText('    ',input.selectionStart,input.selectionEnd,'end');renderCodeDraft();saveSubmissionDraft();
 });
 function selectReviewMaterial(kind){
   for(const value of ['code','blog']){
@@ -851,6 +903,7 @@ async function openModal(forceToday = false, correction = null) {
   if(adminTestMode) $('.form-note span:last-child').textContent='无需补签券';
   else if (correction) $('.form-note span:last-child').textContent = '修改被驳回记录 · 保留首次提交时间 · 无需补签券';
   else if (historical) $('.form-note span:last-child').textContent = '已开放补交 · 学期结束前有效';
+  if (!correction) startSubmissionDraft();
   showSubmissionEditor();
   return true;
 }
@@ -871,6 +924,8 @@ function showSubmissionEditor(){
   $('#modalTitle').focus({preventScroll:true});
 }
 function closeModal(){
+  saveSubmissionDraft();
+  activeSubmissionDraftKey = null;
   $('#submissionModal').classList.remove('open');
   $('#submissionModal').setAttribute('aria-hidden','true');
   const state=submissionScrollState;if(!state)return;
@@ -974,7 +1029,7 @@ async function loadMySubmissions({force = false} = {}) {
       const logic = item.parts.find((part) => part.kind === 'logic');
       const blog = item.parts.find((part) => part.kind === 'blog');
       const reviewStatus = item.parts.some((part) => part.status === 'pending') ? 'pending' : item.parts.some((part) => part.status === 'approved') ? 'approved' : 'rejected';
-      reviewData[key] = {name:item.member_name, initial:item.member_name.slice(0,1), time:new Date(item.submitted_at).toLocaleString('zh-CN'), logic:logic?.text || '', visibility:item.visibility || 'team', status:reviewStatus, submissionId:item.id, memberId:item.member_id, problemTitle:item.problem_title || '', problemUrl:item.problem_url || '', upload:proof?.upload, fileName:'通过截图', blog:blog?.text || '', code:item.parts.find(part=>part.kind==='code')?.text || ''};
+      reviewData[key] = {name:item.member_name, initial:item.member_name.slice(0,1), time:new Date(item.submitted_at).toLocaleString('zh-CN'), logic:logic?.text || '', logicPart:logic || null, visibility:item.visibility || 'team', status:reviewStatus, submissionId:item.id, memberId:item.member_id, problemTitle:item.problem_title || '', problemUrl:item.problem_url || '', upload:proof?.upload, fileName:'通过截图', blog:blog?.text || '', code:item.parts.find(part=>part.kind==='code')?.text || ''};
       const approved = item.parts.filter((part) => part.status === 'approved').reduce((sum, part) => sum + (part.points || 0), 0);
       return `<div class="live-submission-row">${problemPlatformMarkup(item.problem_url)}<div class="live-submission-info"><strong>${escapeHtml(uiProblemTitle(item.problem_title))}</strong><small>提交于 ${new Date(item.submitted_at).toLocaleString('zh-CN')}${item.rejection_note ? (item.is_duplicate ? ' · ' : ' · 退回原因：') + escapeHtml(item.rejection_note) : ''}</small></div><span class="score">+${approved} 分</span><button class="review-view secondary-button" type="button" data-review="${key}">查看内容</button>${item.can_resubmit ? `<button class="secondary-button" data-resubmit="${item.id}">修改重交</button>` : ""}</div>`;
       }).join('') + '</section>';
@@ -1024,6 +1079,11 @@ function openReview(key, returnToHistory = false) {
     reviewStatus.textContent = approved ? '已通过' : data.status === 'rejected' ? '已退回' : '待审核';
     reviewStatus.className = `status-tag ${approved ? 'approved' : data.status === 'rejected' ? 'rejected' : 'pending'}`;
   }
+  const logicPart = data.logicPart;
+  const hasLogic = Boolean(data.logic?.trim() || logicPart?.link || logicPart?.upload);
+  const logicPoints = hasLogic && logicPart?.status === 'approved' ? Number(logicPart.points) || 0 : 0;
+  $('#reviewLogicStatus').textContent = !hasLogic ? '未提交' : logicPart?.status === 'pending' ? '待审核' : logicPart?.status === 'rejected' ? '已退回' : `+${logicPoints} 分`;
+  $('#reviewLogicStatus').className = logicPoints > 0 ? 'score-chip' : 'empty-chip';
   $('#reviewLogic').textContent = data.logic || '未提交题解思路。';
   const blog = typeof data.blog === 'string' ? data.blog.trim() : '';
   const hasBlog = Boolean(blog);
@@ -1136,6 +1196,7 @@ $('#submissionForm').addEventListener('submit', async (event) => {
   if (submitButton?.disabled) return;
   if (submitButton) { submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); submitButton.dataset.label = submitButton.textContent; submitButton.textContent = '正在提交…'; }
   if (demoMode) {
+    clearSubmissionDraft();
     closeModal();
     resetSubmissionForm();
     playFeedback('submission-success');
@@ -1143,6 +1204,7 @@ $('#submissionForm').addEventListener('submit', async (event) => {
     if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); submitButton.textContent = submitButton.dataset.label || '提交记录'; }
     return;
   }
+  saveSubmissionDraft();
   const wasEditing=Boolean(editingSubmission);
   const formData = new FormData(form);
   formData.set('week_id', form.dataset.weekId || '');
@@ -1161,6 +1223,7 @@ $('#submissionForm').addEventListener('submit', async (event) => {
       throw new Error(payload.error || '提交失败，请稍后重试');
     }
   } catch (error) { showToast(error.message || '提交失败，请稍后重试'); if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); submitButton.textContent = submitButton.dataset.label || '提交记录'; } return; }
+  clearSubmissionDraft();
   closeModal();
   resetSubmissionForm();
   playFeedback('submission-success',wasEditing);
@@ -1169,17 +1232,41 @@ $('#submissionForm').addEventListener('submit', async (event) => {
   refreshAfterMutation({refreshAdmin: canManage});
   if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); submitButton.textContent = '提交记录'; }
 });
+document.addEventListener('paste', (event) => {
+  if (!$('#submissionModal').classList.contains('open') || event.defaultPrevented) return;
+  if ($('#blogEditorOverlay')?.getAttribute('aria-hidden') === 'false') return;
+  const clipboard = event.clipboardData;
+  const file = Array.from(clipboard?.files || []).find(file => file.type.startsWith('image/'))
+    || Array.from(clipboard?.items || []).find(item => item.kind === 'file' && item.type.startsWith('image/'))?.getAsFile();
+  if (!file) return;
+  event.preventDefault();
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    showToast('截图仅支持 PNG、JPG、WebP 格式');
+    return;
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    showToast('截图不能超过 5MB');
+    return;
+  }
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  const input = $('#proofImage');
+  input.files = transfer.files;
+  input.dispatchEvent(new Event('change', {bubbles: true}));
+});
 $('#proofImage').addEventListener('change', (event) => {
   const file = event.target.files?.[0];
   const box = $('.upload-box');
   if (!file || !box) return;
   let preview = box.querySelector('.upload-preview');
   if (!preview) { preview = document.createElement('img'); preview.className = 'upload-preview'; box.prepend(preview); }
+  if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+  preview.alt = '已选择的通过截图预览';
   const objectUrl = URL.createObjectURL(file);
   preview.src = objectUrl;
   preview.dataset.objectUrl = objectUrl;
-  const title = box.querySelector('strong'); if (title) title.textContent = file.name;
-  const hint = box.querySelector('small'); if (hint) hint.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB · 已选择，可提交`;
+  const title = box.querySelector('strong'); if (title) { title.textContent = file.name; title.title = file.name; }
+  const hint = box.querySelector('small'); if (hint) hint.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
 });
 
 function clearStaticPreview() {
@@ -1349,6 +1436,8 @@ async function loadLiveData() {
       return;
     }
     const me = await meResponse.json();
+    submissionDraftOwner = me.account && (me.test_target_team?.id || me.team?.id)
+      ? [me.account, me.test_target_team?.id || me.team.id, !!me.test_mode] : null;
     adminTestMode=!!me.test_mode;
     if(adminTestMode)me.name=uiMemberName(me.name);
     if(me.site_admin||adminTestMode){
@@ -1480,7 +1569,7 @@ function renderMemberRecent(items, append = false) {
     const proof = item.parts.find(part=>part.kind==='proof');
     const logic = item.parts.find(part=>part.kind==='logic');
     const blog = item.parts.find(part=>part.kind==='blog');
-    reviewData[key] = {name:item.member_name,initial:item.member_name.slice(0,1),time:new Date(item.submitted_at).toLocaleString('zh-CN'),logic:logic?.text || '',status:'approved',submissionId:item.id,memberId:item.member_id,problemTitle:item.problem_title || '',problemUrl:item.problem_url || '',upload:proof?.upload,fileName:'通过截图',blog:blog?.text || '',code:item.parts.find(part=>part.kind==='code')?.text || ''};
+    reviewData[key] = {name:item.member_name,initial:item.member_name.slice(0,1),time:new Date(item.submitted_at).toLocaleString('zh-CN'),logic:logic?.text || '', logicPart:logic || null,status:'approved',submissionId:item.id,memberId:item.member_id,problemTitle:item.problem_title || '',problemUrl:item.problem_url || '',upload:proof?.upload,fileName:'通过截图',blog:blog?.text || '',code:item.parts.find(part=>part.kind==='code')?.text || ''};
     const points = item.parts.reduce((sum,part)=>sum+(part.points || 0),0);
     list.insertAdjacentHTML('beforeend',`<article class="history-item" data-member-submission="${item.id}"><div class="history-item-icon approved">✓</div><div class="member-recent-copy"><strong>${escapeHtml(uiProblemTitle(item.problem_title || '题目记录'))}</strong><small>${escapeHtml(item.semester_name)} · 第 ${item.week} 周 · 提交于 ${escapeHtml(new Date(item.submitted_at).toLocaleString('zh-CN'))}</small></div><span>${points} 分</span><button class="history-view secondary-button" type="button" data-review="${key}">查看内容</button></article>`);
   }

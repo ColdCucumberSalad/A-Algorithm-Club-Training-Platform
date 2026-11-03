@@ -1,7 +1,15 @@
+import re
+import uuid
+from urllib.parse import urlsplit
+from django.core import signing
+from django.core.cache import caches
+from redis.exceptions import RedisError
+from django.db.models.functions import Coalesce, NullIf
+
 from django.core.paginator import Paginator
 from django.contrib.auth.models import User
 from django.db import transaction
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, F, Max, Q, Case, When, Value, CharField
 from django.http import JsonResponse
 from django.utils import timezone
 
@@ -63,45 +71,126 @@ def showcase(request):
         'next': page.next_page_number() if page.has_next() else None})
 
 
+PLATFORM_DOMAINS = (
+    ('leetcode', '力扣', ('leetcode.cn', 'leetcode.com')),
+    ('nowcoder', '牛客', ('nowcoder.com',)),
+    ('codeforces', 'Codeforces', ('codeforces.com',)),
+    ('luogu', '洛谷', ('luogu.com.cn',)),
+    ('atcoder', 'AtCoder', ('atcoder.jp',)),
+    ('acwing', 'AcWing', ('acwing.com',)),
+    ('qoj', 'QOJ', ('qoj.ac',)),
+)
+
+
+def problem_platform(url):
+    try:
+        host = (urlsplit(url).hostname or '').lower()
+    except ValueError:
+        host = ''
+    for key, label, domains in PLATFORM_DOMAINS:
+        if any(host == domain or host.endswith('.' + domain) for domain in domains):
+            return key, label
+    return 'other', '其他'
+
+
+def visible_solutions(request, member):
+    scope = Q(team=member.team)
+    if getattr(request, 'admin_test_mode', False):
+        team = request.test_target_team
+        dates = Q(pk__in=[])
+        for start, end in Week.objects.filter(semester__team=team, semester__archived_at__isnull=True).values_list('starts_at', 'ends_at'):
+            dates |= Q(record_date__gte=timezone.localdate(start), record_date__lt=timezone.localdate(end))
+        scope = Q(team=team) | (Q(member=member) & dates)
+    return Submission.objects.filter(scope, is_valid=True, semester__archived_at__isnull=True, problem__isnull=False)
+
+
+def platform_solutions(items):
+    return items.annotate(source_url=Coalesce(NullIf('original_problem_url', Value('')), F('problem__url'))).annotate(
+        platform=Case(*[When(source_url__iregex=r'^https?://([^/]+\.)?(' + '|'.join(re.escape(d) for d in domains) + r')([/:]|$)', then=Value(key))
+                       for key, label, domains in PLATFORM_DOMAINS], default=Value('other'), output_field=CharField()))
+
+
+GALLERY_SNAPSHOT_TTL = 900
+
+
+def snapshot_page(request, items, context, id_field, time_field):
+    """Freeze ordered IDs and display times; re-query live visibility on every page."""
+    cache = caches['gallery']
+    token = request.GET.get('cursor', '')
+    if token:
+        state = signing.loads(token, salt='gallery-snapshot-v2', max_age=GALLERY_SNAPSHOT_TTL)
+        snapshot = cache.get('snapshot:' + state['id'])
+        if snapshot is None or snapshot['context'] != context:
+            raise ValueError('snapshot expired or scope changed')
+        offset = state['offset']
+    else:
+        ordered = list(items.values_list(id_field, time_field))
+        snapshot = {'context': context, 'ids': [pk for pk, at in ordered],
+                    'times': {pk: at.isoformat() for pk, at in ordered}}
+        state = {'id': uuid.uuid4().hex}
+        offset = 0
+    ids = snapshot['ids']
+    rows, positions = [], []
+    while offset < len(ids) and len(rows) <= 20:
+        batch = ids[offset:offset + 100]
+        live = {row[id_field] if isinstance(row, dict) else getattr(row, id_field): row
+                for row in items.filter(**{id_field + '__in': batch})}
+        for index, pk in enumerate(batch, offset):
+            if pk in live:
+                row = live[pk]
+                if isinstance(row, dict):
+                    row['group_uploaded_at'] = snapshot['times'][pk]
+                else:
+                    row.group_uploaded_at = snapshot['times'][pk]
+                rows.append(row)
+                positions.append(index + 1)
+                if len(rows) == 21:
+                    break
+        offset += len(batch)
+    next_token = None
+    if len(rows) > 20:
+        if not token:
+            cache.set('snapshot:' + state['id'], snapshot, timeout=GALLERY_SNAPSHOT_TTL)
+        next_token = signing.dumps(dict(state, offset=positions[19]), salt='gallery-snapshot-v2')
+    return rows[:20], next_token
+
+
 def showcase_all(request, member):
-    """All visible weeks; the sandbox adds only this administrator's records."""
-    sandbox = bool(getattr(request, 'admin_test_mode', False))
-    team = request.test_target_team if sandbox else member.team
-    scope = Q(team=team)
-    if sandbox:
-        scope |= Q(member=member)
-    items = Submission.objects.filter(scope, is_valid=True,
-        semester__archived_at__isnull=True, problem__isnull=False).select_related('week', 'semester', 'problem', 'member').order_by('-record_date', '-submitted_at', '-id')
-    real_weeks = list(Week.objects.filter(semester__team=team,
-        semester__archived_at__isnull=True).select_related('semester').order_by('-starts_at'))
-    query = request.GET.get('q', '').strip()[:200].casefold()
-    groups = {}
-    for item in items:
-        week = item.week
-        private = sandbox and item.team_id != team.pk
-        if private:
-            week = next((w for w in real_weeks if timezone.localdate(w.starts_at) <= item.record_date < timezone.localdate(w.ends_at)), None)
-            if week is None:
-                continue
-        name = '管理员' if private else item.member.display_name
-        key = (week.pk, item.problem_id)
-        row = groups.setdefault(key, {'id': item.problem_id,
-            'title': item.problem.title or item.problem.url,
-            'url': item.problem.url, 'count': 0, 'members': set(),
-            'week_id': week.pk, 'week_label': f'{week.semester.name} · 第{week.number}周',
-            '_starts': week.starts_at, '_latest': item.submitted_at})
-        row['count'] += 1
-        row['members'].add(name)
-    rows = sorted(groups.values(), key=lambda row: (row['_starts'], row['_latest'], row['id']), reverse=True)
+    items = platform_solutions(visible_solutions(request, member))
+    query = request.GET.get('q', '').strip()[:200]
+    selected = request.GET.get('platform', '')
+    context = [request.user.pk, member.pk, request.test_target_team.pk if getattr(request, 'admin_test_mode', False) else member.team_id, 'gallery', query, selected]
+    labels = dict((key, label) for key, label, domains in PLATFORM_DOMAINS)
+    labels['other'] = '其他'
+    if selected and selected not in labels:
+        return api_error('平台无效')
+    platforms = [{'id': key, 'label': labels[key]} for key in items.order_by().values_list('platform', flat=True).distinct().order_by('platform')]
+    if selected:
+        items = items.filter(platform=selected)
     if query:
-        rows = [row for row in rows if query in ' '.join([row['title'], row['url'], row['week_label'], *row['members']]).casefold()]
-    page = page_items(request, rows)
-    if page is None:
-        return api_error('页码无效')
-    result = []
-    for row in page:
-        result.append({key: sorted(value) if key == 'members' else value for key, value in row.items() if not key.startswith('_')})
-    return JsonResponse({'problems': result, 'next': page.next_page_number() if page.has_next() else None})
+        matches = Q(problem__title__icontains=query) | Q(source_url__icontains=query) | Q(member__display_name__icontains=query)
+        matches |= Q(platform__in=[key for key, label in labels.items() if query.casefold() in label.casefold()])
+        if getattr(request, 'admin_test_mode', False) and query in '管理员':
+            matches |= Q(member=member)
+        matching_ids = items.filter(matches).order_by().values('problem_id')
+        items = items.filter(problem_id__in=matching_ids)
+    grouped = items.order_by().values('problem_id', 'problem__url', 'problem__title').annotate(count=Count('id'), member_count=Count('member_id', distinct=True), latest=Max('submitted_at')).order_by('-latest', '-problem_id')
+    try:
+        rows, next_token = snapshot_page(request, grouped, context, 'problem_id', 'latest')
+    except (signing.BadSignature, ValueError, KeyError, TypeError):
+        return api_error('浏览记录已过期或筛选已变化，请刷新题目列表')
+    except (RedisError, OSError):
+        return api_error('分页服务暂时不可用，请稍后重试', 503)
+    names, urls = {}, {}
+    for pid, mid, name, url in items.filter(problem_id__in=[r['problem_id'] for r in rows]).order_by().values_list('problem_id', 'member_id', 'member__display_name', 'source_url').distinct():
+        if getattr(request, 'admin_test_mode', False) and mid == member.pk:
+            name = '管理员'
+        names.setdefault(pid, set()).add(name)
+        urls.setdefault(pid, url)
+    # A concurrent deletion/rejection can remove a group after pagination.
+    rows = [row for row in rows if row['problem_id'] in urls]
+    result = [dict(group_uploaded_at=r['group_uploaded_at'], id=r['problem_id'], url=urls[r['problem_id']] if selected else r['problem__url'], title=r['problem__title'] or r['problem__url'], platform=selected or problem_platform(r['problem__url'])[0], platform_label=labels[selected or problem_platform(r['problem__url'])[0]], count=r['count'], member_count=r['member_count'], members=sorted(names.get(r['problem_id'], []))) for r in rows]
+    return JsonResponse({'problems': result, 'platforms': platforms, 'next': next_token})
 
 
 def community_submission(item, viewer):
@@ -121,19 +210,47 @@ def problem_submissions(request, problem_id):
     member = membership_for(request)
     if not member:
         return api_error('未加入当前团队', 403)
-    items = Submission.objects.filter(team=member.team, problem_id=problem_id, is_valid=True, semester__archived_at__isnull=True).select_related('problem', 'member', 'week', 'semester').prefetch_related('parts', 'likes', 'reports').order_by('-record_date', '-submitted_at', '-id')
-    if not items.exists():
+    items = platform_solutions(visible_solutions(request, member)).filter(problem_id=problem_id).select_related('problem', 'member', 'week', 'semester').prefetch_related('parts', 'likes', 'reports').order_by('-submitted_at', '-id')
+    selected = request.GET.get('platform', '')
+    if selected:
+        items = items.filter(platform=selected)
+    first = items.first()
+    if first is None:
         return api_error('该题目不存在或没有可见提交', 404)
-    problem = items.first().problem
+    problem = first.problem
+    problem_url = first.source_url if selected else problem.url
     query = request.GET.get('q', '').strip()[:200]
     if query:
         items = items.filter(Q(problem__title__icontains=query) | Q(problem__url__icontains=query) | Q(member__display_name__icontains=query))
-    page = page_items(request, items)
-    if page is None:
-        return api_error('页码无效')
-    return JsonResponse({'problem': {'id': problem.pk, 'title': problem.title or problem.url, 'url': problem.url},
-                         'submissions': [community_submission(s, member) for s in page],
-                         'next': page.next_page_number() if page.has_next() else None})
+    if 'cursor' in request.GET:
+        context = [request.user.pk, member.pk, request.test_target_team.pk if getattr(request, 'admin_test_mode', False) else member.team_id, 'problem', problem_id, query, selected]
+        try:
+            rows, next_page = snapshot_page(request, items, context, 'id', 'submitted_at')
+        except (signing.BadSignature, ValueError, KeyError, TypeError):
+            return api_error('浏览记录已过期或筛选已变化，请重新打开题目')
+        except (RedisError, OSError):
+            return api_error('分页服务暂时不可用，请稍后重试', 503)
+    else:
+        page = page_items(request, items)
+        if page is None:
+            return api_error('页码无效')
+        rows = page
+        next_page = page.next_page_number() if page.has_next() else None
+    result = []
+    for item in rows:
+        row = community_submission(item, member)
+        row['group_uploaded_at'] = getattr(item, 'group_uploaded_at', item.submitted_at.isoformat())
+        if getattr(request, 'admin_test_mode', False):
+            if item.member_id == member.pk:
+                row['member_name'] = '管理员'
+                row['is_test'] = True
+            else:
+                from .admin_test_overlay import protect_real
+                row = protect_real(row)
+        result.append(row)
+    return JsonResponse({'problem': {'id': problem.pk, 'title': problem.title or problem_url, 'url': problem_url},
+                         'submissions': result, 'next': next_page})
+
 
 
 @api_login_required

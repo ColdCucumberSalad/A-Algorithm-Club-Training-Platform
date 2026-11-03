@@ -60,6 +60,8 @@ def overlay(request,get_response):
     path=request.path
     if path == '/api/showcase' and request.GET.get('all') == '1':
         return None
+    if re.fullmatch(r'/api/problems/\d+/submissions', path):
+        return None
     combined=path in ('/api/members','/api/leaderboard','/api/dashboard','/api/showcase') or (path=='/api/submissions' and request.GET.get('mine')!='1')
     detail=bool(re.fullmatch(r'/api/(members/\d+/(history|avatar|profile)|problems/\d+/submissions|attachments/\d+)',path))
     if not combined and not detail and path!='/api/semesters':return None

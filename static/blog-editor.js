@@ -150,6 +150,7 @@
       }
 
       textarea.value = textarea.value.substring(0, start) + replacement + textarea.value.substring(end);
+      textarea.dispatchEvent(new Event('input', {bubbles: true}));
       textarea.focus();
       textarea.setSelectionRange(start + cursorOffset, start + cursorOffset);
     }

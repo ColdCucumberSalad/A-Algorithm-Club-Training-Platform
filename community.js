@@ -3,13 +3,14 @@ function uiMemberName(name){if((name||'').startsWith('已注销用户·'))return
 function problemPlatformMarkup(url){
   let host='';try{host=new URL(url).hostname.toLowerCase();}catch{}
   const matches=domain=>host===domain||host.endsWith('.'+domain);
-  let label='本站',short='题',icon='';
+  let label='其他',short='题',icon='';
   if(matches('leetcode.cn')||matches('leetcode.com')){label='力扣';icon='leetcode.ico';}
   else if(matches('nowcoder.com')){label='牛客';icon='nowcoder.ico';}
   else if(matches('codeforces.com')){label='Codeforces';short='CF';}
   else if(matches('luogu.com.cn')){label='洛谷';short='洛';}
   else if(matches('atcoder.jp')){label='AtCoder';short='At';}
   else if(matches('acwing.com')){label='AcWing';short='Ac';}
+  else if(matches('qoj.ac')){label='QOJ';short='Q';}
   return `<span class="problem-platform-badge" title="${label}" aria-label="题目平台：${label}">${icon?`<img src="/static/platforms/${icon}" alt="${label}" width="26" height="26">`:`<span>${short}</span>`}</span>`;
 }
 function parseSubmissionCode(markdown){
@@ -21,6 +22,7 @@ let gallerySearchTimer;
 function galleryQuery(){return encodeURIComponent($('#gallerySearch')?.value.trim()||'');}
 
 let galleryProblem = null;
+let galleryDetailPlatform = '';
 let galleryRequest = 0;
 let reportRequest = 0;
 let resubmitting = null;
@@ -99,7 +101,7 @@ function openShowcaseDetails(id){
   const part=kind=>item.parts.find(p=>p.kind===kind);
   const key=(item.own?'mine-':'showcase-')+item.id;
   if(item.own)ownRecords.set(Number(item.id),item);
-  reviewData[key]={name:uiMemberName(item.member_name),initial:uiMemberName(item.member_name).slice(0,1),time:new Date(item.submitted_at).toLocaleString('zh-CN'),logic:part('logic')?.text||'',status:'approved',submissionId:item.id,memberId:item.member_id,problemTitle:item.problem_title||$('#problemHeading').textContent,problemUrl:item.problem_url||$('#problemOriginal').href,upload:part('proof')?.upload,fileName:'通过截图',blog:part('blog')?.text||'',code:part('code')?.text||''};
+  reviewData[key]={name:uiMemberName(item.member_name),initial:uiMemberName(item.member_name).slice(0,1),time:new Date(item.submitted_at).toLocaleString('zh-CN'),logic:part('logic')?.text||'',logicPart:part('logic')||null,status:'approved',submissionId:item.id,memberId:item.member_id,problemTitle:item.problem_title||$('#problemHeading').textContent,problemUrl:item.problem_url||$('#problemOriginal').href,upload:part('proof')?.upload,fileName:'通过截图',blog:part('blog')?.text||'',code:part('code')?.text||''};
   openReview(key);
 }
 function submissionCard(item, moderation = false) {
@@ -129,79 +131,103 @@ function submissionCard(item, moderation = false) {
   </article>`;
 }
 
+function galleryUploadDay(timestamp) {
+  const parts = new Intl.DateTimeFormat('en-US', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(timestamp));
+  const value = type => parts.find(part => part.type === type).value;
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
+
+function appendGalleryDay(host, timestamp, html) {
+  const day = galleryUploadDay(timestamp);
+  let group = [...host.children].find(node => node.dataset.uploadDay === day);
+  if (!group) {
+    group = document.createElement('section');
+    group.className = 'gallery-day';
+    group.dataset.uploadDay = day;
+    const heading = document.createElement('h3');
+    heading.className = 'gallery-day-heading';
+    heading.textContent = day.replace(/^(\d+)-(\d+)-(\d+)$/, '$1 年 $2 月 $3 日');
+    const list = document.createElement('div');
+    list.className = 'gallery-day-problems';
+    group.append(heading, list);
+    host.append(group);
+  }
+  group.lastElementChild.insertAdjacentHTML('beforeend', html);
+}
+
 async function loadShowcase(page = 1) {
   galleryProblem = null;
+  $('#galleryLoadError').hidden = true;
+  $('#problemAllPlatforms').hidden = true;
   $('#gallerySearch').closest('.gallery-search').hidden = false;
+  $('#galleryPlatformFilter').hidden = false;
   const version = ++galleryRequest;
   const host = $('#showcaseGrid');
   const more = $('#galleryMore');
   $('#problemBack').hidden = true;
-  $('#problemHeading').textContent = '全部周次';
+  $('#problemHeading').textContent = '全部题目';
   $('#problemOriginal').hidden = true;
   if (page === 1) host.innerHTML = '<div class="queue-empty">正在加载题目…</div>';
   more.hidden = true;
+  more.textContent = '加载更多';
   host.className = 'problem-list';
   try {
-    const data = await communityRequest(`/api/showcase?all=1&page=${page}&q=${galleryQuery()}`);
+    const data = await communityRequest(`/api/showcase?all=1&cursor=${encodeURIComponent(page === 1 ? '' : page)}&q=${galleryQuery()}&platform=${encodeURIComponent($('#galleryPlatform').value)}`);
     if (version !== galleryRequest) return;
-    $('#problemHeading').textContent = '全部周次';
+    $('#problemHeading').textContent = '全部题目';
     if(page===1)host.replaceChildren();
+    const platformSelect = $('#galleryPlatform');
+    const selectedPlatform = platformSelect.value;
+    platformSelect.innerHTML = '<option value="">全部平台</option>' + data.platforms.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)}</option>`).join('');
+    if (selectedPlatform && !data.platforms.some(p => p.id === selectedPlatform)) {
+      const option = new Option('当前平台（暂无题解）', selectedPlatform);
+      platformSelect.add(option);
+    }
+    platformSelect.value = selectedPlatform;
+    $('#problemHeading').textContent = selectedPlatform ? platformSelect.selectedOptions[0].textContent + '题目' : '全部题目';
     for(const p of data.problems){
-      let group=[...host.children].find(el=>el.dataset.week===String(p.week_id));
-      if(!group){group=document.createElement('section');group.className='showcase-week';group.dataset.week=String(p.week_id);const title=document.createElement('h2');title.textContent=p.week_label;const list=document.createElement('div');list.className='showcase-week-problems';group.append(title,list);host.append(group);}
-      const html = `<button class="problem-row panel" data-problem="${p.id}">${problemPlatformMarkup(p.url)}<span class="problem-row-content"><strong>${escapeHtml(uiProblemTitle(p.title))}</strong><small title="${escapeHtml(p.members.map(uiMemberName).join('、'))}">${p.count} 个题解 · ${p.members.slice(0,3).map(uiMemberName).map(escapeHtml).join('、')}${p.members.length>3?' 等':''}</small></span><span class="problem-arrow" aria-label="查看题目详情">›</span></button>`;
-      group.querySelector('.showcase-week-problems').insertAdjacentHTML('beforeend',html);
+      const html = `<button class="problem-row panel" data-problem="${p.id}">${problemPlatformMarkup(p.url)}<span class="problem-row-content"><strong>${escapeHtml(uiProblemTitle(p.title))}</strong><small title="${escapeHtml(p.members.map(uiMemberName).join('、'))}">${p.count} 条题解 · ${p.member_count} 人参与 · ${p.members.slice(0,3).map(uiMemberName).map(escapeHtml).join('、')}${p.members.length>3?' 等':''}</small></span><span class="problem-arrow" aria-label="查看题目详情">›</span></button>`;
+      appendGalleryDay(host, p.group_uploaded_at, html);
     }
     if(page===1&&!data.problems.length)host.innerHTML='<div class="queue-empty">暂无匹配的题目。</div>';
     more.hidden = !data.next;
     more.onclick = () => loadShowcase(data.next);
-  } catch (error) { if (version === galleryRequest) host.innerHTML = `<div class="queue-empty">${escapeHtml(error.message)}</div>`; }
-}
-
-function appendSubmissionDays(host, submissions) {
-  const groups = new Map([...host.querySelectorAll('.submission-day')].map(group => [group.dataset.date, group]));
-  const today = new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date());
-  const dateFormat = new Intl.DateTimeFormat('zh-CN', {timeZone: 'Asia/Shanghai', year: 'numeric', month: 'long', day: 'numeric', weekday: 'short'});
-  for (const item of submissions) {
-    const day = `${item.semester_name} · 第${item.week}周`;
-    let group = groups.get(day);
-    if (!group) {
-      group = document.createElement('section');
-      group.className = 'submission-day';
-      group.dataset.date = day;
-      const heading = document.createElement('h2');
-      heading.className = 'submission-day-heading';
-      heading.textContent = day;
-      const cards = document.createElement('div');
-      cards.className = 'solution-waterfall';
-      group.append(heading, cards);
-      host.append(group);
-      groups.set(day, group);
-    }
-    group.querySelector('.solution-waterfall').insertAdjacentHTML('beforeend', submissionCard(item));
+  } catch (error) {
+    if (version !== galleryRequest) return;
+    if (page === 1) host.replaceChildren();
+    const notice = $('#galleryLoadError');
+    notice.textContent = error.message; notice.hidden = false;
+    const restart = page === 1 || error.status === 400 || error.status === 403 || error.status === 404;
+    more.hidden = false; more.textContent = restart ? '刷新列表' : '重试加载更多';
+    more.onclick = () => loadShowcase(restart ? 1 : page);
   }
 }
 
-async function openProblem(id, page = 1) {
+async function openProblem(id, page = 1, platform = galleryDetailPlatform) {
+  $('#galleryLoadError').hidden = true;
+  galleryDetailPlatform = platform;
+  $('#problemAllPlatforms').hidden = !platform;
   galleryProblem = id;
+  $('#galleryMore').textContent = '加载更多';
   $('#gallerySearch').closest('.gallery-search').hidden = true;
+  $('#galleryPlatformFilter').hidden = true;
   const version = ++galleryRequest;
   const host = $('#showcaseGrid');
   const more = $('#galleryMore');
   $('#problemBack').hidden = false;
   $('#problemOriginal').hidden = true;
   $('#problemOriginal').removeAttribute('href');
-  host.className = 'submission-days';
+  host.className = 'submission-days problem-solutions';
   if (page === 1) host.innerHTML = '<div class="queue-empty">正在加载全部历史题解…</div>';
   more.hidden = true;
   try {
-    const data = await communityRequest(`/api/problems/${id}/submissions?page=${page}`);
+    const data = await communityRequest(`/api/problems/${id}/submissions?cursor=${encodeURIComponent(page === 1 ? '' : page)}&platform=${encodeURIComponent(platform)}`);
     if (version !== galleryRequest) return;
     $('#problemHeading').textContent = uiProblemTitle(data.problem.title);
     const link = $('#problemOriginal');
     link.hidden = false; link.href = data.problem.url;
     if (page === 1) host.replaceChildren();
-    appendSubmissionDays(host, data.submissions);
+    host.insertAdjacentHTML('beforeend', data.submissions.map(item => submissionCard(item)).join(''));
 
     renderSubmissionBlogs(host);
 
@@ -209,8 +235,13 @@ async function openProblem(id, page = 1) {
     more.onclick = () => openProblem(id, data.next);
   } catch (error) {
     if (version !== galleryRequest) return;
-    if (error.status === 404) { await loadShowcase(); return; }
-    host.innerHTML = `<div class="queue-empty">${escapeHtml(error.message)}</div>`;
+    if (page === 1 && error.status === 404) { await loadShowcase(); return; }
+    if (page === 1) host.replaceChildren();
+    const notice = $('#galleryLoadError');
+    notice.textContent = error.message; notice.hidden = false;
+    const restart = page === 1 || error.status === 400 || error.status === 403 || error.status === 404;
+    more.hidden = false; more.textContent = restart ? '重新加载题解' : '重试加载更多';
+    more.onclick = () => openProblem(id, restart ? 1 : page, platform);
   }
 }
 
@@ -255,10 +286,13 @@ async function beginResubmit(id, {edit = false} = {}) {
   $('#modalTitle').textContent = uiProblemTitle(record.problem_title || '修改并重新提交');
   setSubmissionCodeDraft(record.parts.find(p=>p.kind==='code')?.text||'');
   renderSubmissionDraftBlog();
+  startSubmissionDraft(record, {edit});
   return true;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  $('#problemAllPlatforms').addEventListener('click', () => openProblem(galleryProblem, 1, ''));
+  $('#galleryPlatform').addEventListener('change', () => loadShowcase());
   $('#gallerySearch').addEventListener('input',()=>{clearTimeout(gallerySearchTimer);gallerySearchTimer=setTimeout(()=>galleryProblem?openProblem(galleryProblem):loadShowcase(),250);});
   $('#problemBack').addEventListener('click', () => loadShowcase());
   $('#refreshReports').addEventListener('click', () => loadWorkbench());
@@ -279,7 +313,7 @@ document.addEventListener('click', async event => {
   if (!button) return;
   if(button.dataset.solutionDetail){openShowcaseDetails(button.dataset.solutionDetail);return;}
   if(button.dataset.toggleSolution){const card=button.closest('.solution-card');const expanded=card.classList.toggle('is-expanded');button.setAttribute('aria-expanded',String(expanded));button.textContent=expanded?'收起题解':'展开题解';return;}
-  if (button.dataset.problem) { openProblem(button.dataset.problem); return; }
+  if (button.dataset.problem) { openProblem(button.dataset.problem, 1, $('#galleryPlatform').value); return; }
   if (button.dataset.resubmit) { beginResubmit(button.dataset.resubmit); return; }
   if (button.dataset.zoom) {
     $('#lightboxImage').src = button.dataset.zoom;

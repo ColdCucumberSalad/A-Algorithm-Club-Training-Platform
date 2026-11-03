@@ -2,7 +2,7 @@
 import hashlib
 import json
 import uuid
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse
@@ -28,19 +28,38 @@ def available_stock(item):
 
 
 def admin_card_data(item):
-    return {'card_source': item.card_source,
+    return {'card_source': item.card_source, 'allow_multiple_purchase': item.allow_multiple_purchase,
+            'pro_app': item.pro_app, 'pro_duration_days': item.pro_duration_days,
             'available_codes': item.card_codes.filter(reserved_for__isnull=True, consumed_at__isnull=True).count(),
             'has_card_api': bool(item.encrypted_card_api)}
 
 
 def validate_card_settings(item, data, item_type):
-    if item_type != 'redeem_code':
-        return None, []
+    multiple = data.get('allow_multiple_purchase', item.allow_multiple_purchase)
+    if type(multiple) is not bool:
+        raise ValueError('允许单次多购开关格式无效')
     source = data.get('card_source', item.card_source)
-    if source not in ('inventory', 'api'):
-        raise ValueError('请选择库存或 API 卡密来源')
+    if item_type != 'redeem_code' or source != 'api':
+        if data.get('allow_multiple_purchase') is True:
+            raise ValueError('仅 API 类核销商品支持单次多购')
+        multiple = False
+    if item_type != 'redeem_code':
+        return {'allow_multiple_purchase': False}, []
+    if source not in ('inventory', 'api', 'pro'):
+        raise ValueError('请选择库存、API 或内部 Pro 卡密来源')
     if item.pk and source != item.card_source and item.purchases.exists():
         raise ValueError('已有购买记录，不能更改卡密来源，请新增商品')
+    if source == 'pro':
+        from .pro_services import APP_KEY, MAX_DURATION_DAYS
+        app = data.get('pro_app', item.pro_app)
+        days = data.get('pro_duration_days', item.pro_duration_days)
+        if app != APP_KEY:
+            raise ValueError('请选择有效的 Pro 应用')
+        if type(days) is not int or not 1 <= days <= MAX_DURATION_DAYS:
+            raise ValueError('Pro 时长需为 1–36500 天的整数')
+        if data.get('card_codes') or data.get('card_api'):
+            raise ValueError('内部 Pro 来源无需库存卡密或外部 API')
+        return {'card_source': source, 'allow_multiple_purchase': False, 'pro_app': app, 'pro_duration_days': days}, []
     raw = data.get('card_codes', '')
     if not isinstance(raw, str) or len(raw) > 1000000:
         raise ValueError('卡密列表格式无效或超过 1MB')
@@ -75,7 +94,8 @@ def validate_card_settings(item, data, item_type):
         encrypted = key_cipher().encrypt(raw_config.encode()).decode()
     if source == 'api' and not encrypted:
         raise ValueError('请先填写卡密 API 配置')
-    return {'card_source': source, 'encrypted_card_api': encrypted}, codes
+    return {'card_source': source, 'allow_multiple_purchase': multiple, 'encrypted_card_api': encrypted,
+            'pro_app': '', 'pro_duration_days': None}, codes
 
 
 def append_codes(item, codes):
@@ -85,6 +105,8 @@ def append_codes(item, codes):
 
 
 def reserve_codes(item, quantity):
+    if item.item_type == 'redeem_code' and item.card_source == 'pro':
+        validate_card_settings(item, {}, item.item_type)
     if item.item_type != 'redeem_code' or item.card_source != 'inventory':
         return []
     codes = list(ShopCode.objects.select_for_update().filter(item=item,
@@ -97,9 +119,13 @@ def reserve_codes(item, quantity):
 def create_fulfillments(purchase, codes):
     if purchase.item.item_type not in ('redeem_code', 'physical'):
         return
-    for index in range(purchase.quantity):
+    bundled_api = (purchase.item.item_type == 'redeem_code' and purchase.item.card_source == 'api'
+                   and purchase.item.allow_multiple_purchase)
+    for index in range(1 if bundled_api else purchase.quantity):
         unit = ShopFulfillment.objects.create(purchase=purchase, sequence=index + 1,
-            item_name=purchase.item.name, status='dispatching' if purchase.item.item_type == 'physical' else 'ready')
+            item_name=purchase.item.name, api_num=purchase.quantity if bundled_api else None, status='dispatching' if purchase.item.item_type == 'physical' else 'ready',
+            pro_app=purchase.item.pro_app if purchase.item.card_source == 'pro' else '',
+            pro_duration_days=purchase.item.pro_duration_days if purchase.item.card_source == 'pro' else None)
         if codes:
             code = codes[index]
             code.reserved_for = unit
@@ -110,7 +136,7 @@ def fulfillment_inventory(member):
     return [{'id': 'fulfillment-' + str(unit.pk), 'fulfillment_id': unit.pk,
         'item_id': unit.purchase.item_id, 'item_name': unit.item_name,
         'description': unit.purchase.item.description, 'item_type': unit.purchase.item.item_type,
-        'quantity': 1, 'status': unit.status, 'icon': '/api/currency/shop/items/' + str(unit.purchase.item_id) + '/icon' if unit.purchase.item.icon else None,
+        'quantity': 1, 'api_num': unit.api_num, 'status': unit.status, 'icon': '/api/currency/shop/items/' + str(unit.purchase.item_id) + '/icon' if unit.purchase.item.icon else None,
         'purchased_at': unit.purchase.purchased_at.isoformat(), 'can_redeem': unit.status == 'ready',
         'code': key_cipher().decrypt(unit.encrypted_code.encode()).decode() if unit.status == 'redeemed' and unit.encrypted_code else None}
         for unit in ShopFulfillment.objects.filter(purchase__member__user_id=member.user_id).select_related('purchase__item').order_by('-pk')]
@@ -167,9 +193,18 @@ def use_consumable(request, inventory_id):
 def fetch_card(item, unit):
     config = json.loads(key_cipher().decrypt(item.encrypted_card_api.encode()).decode())
     headers = {**config.get('headers', {}), 'Idempotency-Key': str(unit.request_key), 'Content-Type': 'application/json'}
-    payload = json.dumps(config.get('body', {})).encode() if config.get('method', 'POST') == 'POST' else None
+    request_body = dict(config.get('body', {}))
+    url = config['url']
+    if unit.api_num is not None:
+        request_body['num'] = unit.api_num
+        if config.get('method', 'POST') == 'GET':
+            parts = urlsplit(url)
+            query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != 'num']
+            query.append(('num', str(unit.api_num)))
+            url = urlunsplit(parts._replace(query=urlencode(query)))
+    payload = json.dumps(request_body).encode() if config.get('method', 'POST') == 'POST' else None
     try:
-        result = json.loads(http_fetch(config['url'], payload=payload, headers=headers, timeout=8, public_only=True, redirects=0))
+        result = json.loads(http_fetch(url, payload=payload, headers=headers, timeout=8, public_only=True, redirects=0))
         for key in config.get('response_path', 'code').split('.'):
             result = result[int(key)] if isinstance(result, list) else result[key]
         if not isinstance(result, str) or not result.strip() or len(result) > 4096:
@@ -184,12 +219,13 @@ def fetch_card(item, unit):
 @transaction.atomic
 def redeem(request, unit_id):
     member = membership_for(request)
-    if not member or not member.pk or request.user.is_superuser:
+    if not member or not member.pk or request.user.is_superuser or getattr(request, 'admin_test_mode', False):
         return api_error('请使用购买商品的成员账号', 403)
     from django.contrib.auth.models import User
-    User.objects.select_for_update().get(pk=member.user_id)
-    TeamMembership.objects.select_for_update().get(pk=member.pk)
-    unit = ShopFulfillment.objects.select_for_update().filter(pk=unit_id,
+    owner = User.objects.select_for_update().get(pk=member.user_id)
+    if not owner.is_active or not TeamMembership.objects.select_for_update().get(pk=member.pk).is_active:
+        return api_error('当前成员权限已失效', 403)
+    unit = ShopFulfillment.objects.select_for_update(of=('self',)).filter(pk=unit_id,
         purchase__member__user_id=member.user_id).select_related('purchase__item').first()
     if not unit or unit.purchase.item.item_type != 'redeem_code':
         return api_error('物品不存在', 404)
@@ -198,18 +234,26 @@ def redeem(request, unit_id):
     if unit.status != 'ready':
         return api_error('该物品当前不能核销', 409)
     item = unit.purchase.item
-    if item.card_source == 'inventory':
+    if unit.pro_app:
+        from .pro_services import issue_code
+        try:
+            code = issue_code(unit, owner)
+        except ValueError as error:
+            return api_error(str(error), 409)
+    elif item.card_source == 'inventory':
         card = ShopCode.objects.select_for_update().filter(reserved_for=unit, consumed_at__isnull=True).first()
         if not card:
             return api_error('卡密暂不可用，请联系管理员', 409)
         code = key_cipher().decrypt(card.encrypted_value.encode()).decode()
         card.consumed_at = timezone.now()
         card.save(update_fields=['consumed_at'])
-    else:
+    elif item.card_source == 'api':
         try:
             code = fetch_card(item, unit)
         except ValueError as error:
             return api_error(str(error), 502)
+    else:
+        return api_error('卡密来源配置无效，请联系管理员', 409)
     unit.status = 'redeemed'
     unit.redeemed_at = timezone.now()
     unit.encrypted_code = key_cipher().encrypt(code.encode()).decode()

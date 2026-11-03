@@ -61,3 +61,12 @@ test('confirmed purchase keeps the idempotency token and reports success in site
   assert.equal(JSON.parse(state.calls[0].options.body).request_id, 'test-request');
   assert.equal(state.dialogs.at(-1).title, '购买成功');
 });
+
+
+test('multi-use card confirms the combined benefit and sends the selected quantity', async () => {
+  const state = setup({confirmed:true});
+  assert.equal(await state.module.purchaseItem(7, 4, {name:'体验券', price:3, allow_multiple_purchase:true}), true);
+  assert.equal(JSON.parse(state.calls[0].options.body).quantity, 4);
+  assert.match(state.dialogs[0].text, /一张可用 4 次/);
+  assert.match(state.dialogs[0].text, /需支付 12 RBC/);
+});

@@ -3,7 +3,7 @@ import hashlib
 import json
 import re
 from datetime import date, datetime
-from urllib.parse import quote, unquote, urljoin
+from urllib.parse import quote, unquote, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
 from bs4 import BeautifulSoup
@@ -140,7 +140,9 @@ def history_page(remote, binding, state):
     elif platform == 'leetcode':
         china = account.startswith('cn:'); user = account[3:] if china else account
         host = 'https://leetcode.cn' if china else 'https://leetcode.com'
-        endpoint = host + ('/graphql/noj-go/' if china else '/graphql/')
+        # CN exposes private submissionList on the main GraphQL service; its
+        # public recent-AC query belongs to noj-go instead.
+        endpoint = host + ('/graphql/noj-go/' if china and not remote.credentials.get('cookie') else '/graphql/')
         def graphql(query, variables):
             data = remote.json(endpoint, payload={'query':query,'variables':variables}, headers={'Referer':host+'/'})
             if data.get('errors') or not data.get('data'):
@@ -150,15 +152,22 @@ def history_page(remote, binding, state):
             identity = graphql('query { userStatus { isSignedIn username userSlug } }',{})['userStatus']
             if not identity.get('isSignedIn') or user.casefold() not in {str(identity.get('username','')).casefold(),str(identity.get('userSlug','')).casefold()}:
                 raise SyncError('Cookie 与账号不匹配')
-            query = 'query($offset:Int!,$limit:Int!){submissionList(offset:$offset,limit:$limit){hasNext submissions{statusDisplay title titleSlug timestamp}}}'
+            fields = 'statusDisplay title url timestamp' if china else 'statusDisplay title titleSlug timestamp'
+            query = 'query($offset:Int!,$limit:Int!){submissionList(offset:$offset,limit:$limit){hasNext submissions{' + fields + '}}}'
             data = graphql(query,{'offset':(page-1)*20,'limit':20})['submissionList']
             submissions = data.get('submissions')
             if not isinstance(submissions,list):
                 raise SyncError('同步失败，请重试')
             for item in submissions:
                 stamp = int(item.get('timestamp',0)); stamps.append(stamp); ids.append(item)
-                if item.get('statusDisplay','').casefold() in {'accepted','通过','已通过'} and item.get('titleSlug'):
-                    key=item['titleSlug'].lower()
+                if item.get('statusDisplay','').casefold() in {'accepted','通过','已通过'}:
+                    if china:
+                        match = re.match(r'^/problems/([a-zA-Z0-9-]+)(?:/|$)', urlsplit(item.get('url') or '').path)
+                        key = match.group(1).lower() if match else None
+                    else:
+                        key = item.get('titleSlug', '').lower()
+                    if not key:
+                        raise SyncError('LeetCode 提交记录缺少题目标识，请稍后重试')
                     rows.append(record(key,stamp,item.get('title',''),host+'/problems/'+key+'/'))
             done = not data.get('hasNext') or bool(cutoff and stamps and min(stamps)<cutoff)
         else:
@@ -224,6 +233,8 @@ def store(binding,rows):
             for field in ('title','url'):
                 if not item.get(field):
                     item[field]=getattr(old,field)
+        if old and all(getattr(old, field) == item.get(field) for field in ('solved_on', 'title', 'url')):
+            continue
         records.append(PlatformSolvedRecord(binding=binding,problem_key=key,**item))
     PlatformSolvedRecord.objects.bulk_create(records,batch_size=300,update_conflicts=True,
         unique_fields=['binding','problem_key'],update_fields=['solved_on','title','url'])
