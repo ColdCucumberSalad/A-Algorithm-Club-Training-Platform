@@ -113,7 +113,7 @@ from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
     'sync-bound-accounts-nightly': {'task': 'club.tasks.sync_bound_accounts_nightly',
-                                  'schedule': crontab(hour=2, minute=30)},
+                                  'schedule': crontab(hour=4, minute=0)},
     'refresh-tracker-catalogs': {'task': 'club.tasks.refresh_tracker_catalogs',
                                'schedule': crontab(hour='6,18', minute=0)},
     "astrbot-notifications": {
