@@ -751,7 +751,7 @@ function resetSubmissionForm() {
   form.reset();
   const title = $('.upload-box strong');
   const hint = $('#proofHint');
-  if (title) title.textContent = '点击上传截图';
+  if (title) { title.textContent = '点击上传截图'; title.removeAttribute('title'); }
   if (hint) hint.textContent = adminTestMode ? '可留空；上传时支持 PNG、JPG、WebP，不超过 5MB' : '支持 PNG、JPG、WebP，单张不超过 5MB';
   if (typeof clearBlogEditor === 'function') clearBlogEditor();
   setSubmissionCodeDraft('');
@@ -1172,11 +1172,13 @@ $('#proofImage').addEventListener('change', (event) => {
   if (!file || !box) return;
   let preview = box.querySelector('.upload-preview');
   if (!preview) { preview = document.createElement('img'); preview.className = 'upload-preview'; box.prepend(preview); }
+  if (preview.dataset.objectUrl) URL.revokeObjectURL(preview.dataset.objectUrl);
+  preview.alt = '已选择的通过截图预览';
   const objectUrl = URL.createObjectURL(file);
   preview.src = objectUrl;
   preview.dataset.objectUrl = objectUrl;
-  const title = box.querySelector('strong'); if (title) title.textContent = file.name;
-  const hint = box.querySelector('small'); if (hint) hint.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB · 已选择，可提交`;
+  const title = box.querySelector('strong'); if (title) { title.textContent = file.name; title.title = file.name; }
+  const hint = box.querySelector('small'); if (hint) hint.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
 });
 
 function clearStaticPreview() {
