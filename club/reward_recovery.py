@@ -53,8 +53,9 @@ def build_plan(target):
             price = purchase.total_price//purchase.quantity
             for sequence in range(1,purchase.quantity+1):
                 unit = units[purchase.pk].get(sequence)
-                entry = {'purchase_id':purchase.pk,'sequence':sequence,'item_id':purchase.item_id,
-                    'name':unit.item_name if unit else purchase.item.name,'refund':price,'unit_id':unit.pk if unit else None,'inventory_id':None}
+                quantity = (unit.api_num or 1) if unit else 1
+                entry = {'quantity': quantity, 'purchase_id':purchase.pk,'sequence':sequence,'item_id':purchase.item_id,
+                    'name':unit.item_name if unit else purchase.item.name,'refund':price*quantity,'unit_id':unit.pk if unit else None,'inventory_id':None}
                 if unit and ((purchase.item.item_type=='redeem_code' and unit.status=='ready') or
                         (purchase.item.item_type in ('physical','consumable') and unit.status=='dispatching')):
                     pending.append(entry)
@@ -83,7 +84,7 @@ def public_plan(plan):
     items = {}
     for entry in plan['recoveries']:
         item = items.setdefault(entry['item_id'],{'name':entry['name'],'quantity':0,'refund':0})
-        item['quantity'] += 1
+        item['quantity'] += entry.get('quantity', 1)
         item['refund'] += entry['refund']
     refund = sum(entry['refund'] for entry in plan['recoveries'])
     return {'items':list(items.values()),'refund':refund,'reward_reversal':plan['reward_reversal'],
@@ -163,5 +164,5 @@ def reclaim(member, entries):
         unit.reclaimed_at = timezone.now()
         unit.save()
         ShopCode.objects.filter(reserved_for=unit,consumed_at__isnull=True).update(reserved_for=None)
-        ShopItem.objects.filter(pk=entry['item_id'],stock__gte=0).update(stock=F('stock')+1)
-        add_currency(member,entry['refund'],CurrencyTransaction.ITEM_RECOVERY,f'回收 {entry["name"]} ×1，按原购买价格返还')
+        ShopItem.objects.filter(pk=entry['item_id'],stock__gte=0).update(stock=F('stock')+entry.get('quantity', 1))
+        add_currency(member,entry['refund'],CurrencyTransaction.ITEM_RECOVERY,f'回收 {entry["name"]} ×{entry.get("quantity", 1)}，按原购买价格返还')
