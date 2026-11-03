@@ -20,6 +20,7 @@ def context(request):
 
 def response_data(room, member):
     return {'room': poker.room_data(room, member.user_id), 'user_id': member.user_id,
+            'chips': poker.chip_balance(member.user_id),
             'balance': CurrencyBalance.objects.filter(user_id=member.user_id).values_list('balance', flat=True).first() or 0,
             'server_time': timezone.now().timestamp()}
 
@@ -38,6 +39,8 @@ def rooms(request):
             return JsonResponse(payload)
         own = PokerSeat.objects.select_related('room').filter(user_id=request.user.pk).first()
         return JsonResponse({'enabled': member.team.currency_enabled, 'user_id': request.user.pk,
+            'chips': poker.chip_balance(request.user.pk),
+            'capacity': poker.capacity(),
             'balance': CurrencyBalance.objects.filter(user_id=request.user.pk).values_list('balance', flat=True).first() or 0,
             'current_room': str(own.room_id) if own and own.room.team_id == member.team_id else None,
             'seated_elsewhere': bool(own and own.room.team_id != member.team_id),
@@ -46,6 +49,23 @@ def rooms(request):
                        'playing': poker.active(r)} for r in PokerRoom.objects.filter(
                            Q(mode__in=['coins', 'friendly']) | Q(created_by_id=request.user.pk),
                            team=member.team, closed=False).distinct().prefetch_related('seats').order_by('created_at')]})
+    except (ValueError, TeamMembership.DoesNotExist) as exc:
+        return api_error(str(exc) or '成员信息已失效', 400)
+
+
+@api_login_required
+@require_http_methods(['POST'])
+def chips(request):
+    try:
+        member = context(request)
+        with transaction.atomic():
+            User.objects.select_for_update().get(pk=request.user.pk)
+            member = TeamMembership.objects.select_for_update(of=('self',)).select_related('team').get(pk=member.pk, is_active=True)
+            data = body(request)
+            poker.exchange_chips(member, data.get('action'), data.get('coins'))
+            payload = {'chips': poker.chip_balance(member.user_id),
+                'balance': CurrencyBalance.objects.filter(user_id=member.user_id).values_list('balance', flat=True).first() or 0}
+        return JsonResponse(payload)
     except (ValueError, TeamMembership.DoesNotExist) as exc:
         return api_error(str(exc) or '成员信息已失效', 400)
 
@@ -65,12 +85,14 @@ def room(request, room_id):
             if current.mode == 'practice' and current.created_by_id != request.user.pk:
                 return api_error('这是个人练习房间', 404)
             PokerSeat.objects.filter(room=current, user_id=request.user.pk, leaving=False).update(last_seen=timezone.now())
-            poker.tick(current)
+            data = body(request) if request.method == 'POST' else None
+            if not (data and data.get('action') == 'leave' and current.mode == 'practice'):
+                poker.tick(current)
             if request.method == 'POST':
                 # A rejected stale action must not roll back an already due timeout.
                 try:
                     with transaction.atomic():
-                        poker.operate(current, member, body(request))
+                        poker.operate(current, member, data)
                 except ValueError as exc:
                     return api_error(str(exc), 409)
             payload = response_data(current, member)

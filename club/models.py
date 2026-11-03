@@ -835,6 +835,11 @@ class SubmissionTip(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class PokerChipBalance(models.Model):
+    user = models.OneToOneField(User, on_delete=models.PROTECT, related_name='poker_chips')
+    balance = models.PositiveBigIntegerField(default=0)
+
+
 class PokerRoom(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='poker_rooms')
@@ -844,7 +849,7 @@ class PokerRoom(models.Model):
         ('friendly', '赠币多人练习'), ('practice', '赠币人机练习')], default='coins')
     max_players = models.PositiveSmallIntegerField(default=6)
     big_blind = models.PositiveIntegerField(default=2)
-    buy_in = models.PositiveIntegerField(default=10)
+    buy_in = models.PositiveIntegerField(default=1000)
     hand = models.JSONField(default=dict)
     hand_number = models.PositiveIntegerField(default=0)
     dealer = models.SmallIntegerField(default=-1)

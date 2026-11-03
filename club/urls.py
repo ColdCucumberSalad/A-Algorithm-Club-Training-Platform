@@ -21,6 +21,7 @@ from . import app_views
 
 urlpatterns = [
     path('poker/rooms', poker_views.rooms),
+    path('poker/rooms/chips', poker_views.chips),
     path('poker/rooms/<uuid:room_id>', poker_views.room),
 
     path('app/cards/verify', app_views.card_verify),

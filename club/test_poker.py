@@ -12,7 +12,7 @@ from django.test import Client, SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import timezone
 
 from . import poker_engine as engine, poker_services as poker
-from .models import CurrencyBalance, CurrencyTransaction, PokerRoom, PokerSeat, Team, TeamMembership
+from .models import CurrencyBalance, CurrencyTransaction, PokerChipBalance, PokerRoom, PokerSeat, Team, TeamMembership
 
 
 def fake_seats(stacks):
@@ -114,6 +114,7 @@ class PokerFixtures:
             user = User.objects.create_user(f'poker-user-{index}')
             member = TeamMembership.objects.create(team=self.team, user=user, display_name=f'玩家{index}')
             CurrencyBalance.objects.create(user=user, team=self.team, member=member, balance=1000)
+            PokerChipBalance.objects.create(user=user, balance=1000)
             client = Client(); client.force_login(user)
             session = client.session; session['team_id'] = self.team.pk; session.save()
             self.users.append(user); self.members.append(member); self.clients.append(client)
@@ -161,13 +162,15 @@ class PokerAPITests(PokerFixtures, TestCase):
 
     def test_buyin_leave_and_retries_are_not_duplicated(self):
         room = self.create()
-        self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 900)
+        self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 1000)
+        self.assertEqual(PokerChipBalance.objects.get(user=self.users[0]).balance, 900)
         self.assertEqual(self.action(0, room, 'join').status_code, 200)
-        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='poker_buyin').count(), 1)
+        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='poker_buyin').count(), 0)
         self.assertEqual(self.action(0, room, 'leave').status_code, 200)
         self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 1000)
+        self.assertEqual(PokerChipBalance.objects.get(user=self.users[0]).balance, 1000)
         self.assertEqual(self.action(0, room, 'leave').status_code, 409)
-        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='poker_cashout').count(), 1)
+        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='poker_cashout').count(), 0)
         self.assertFalse(PokerSeat.objects.exists())
         self.assertTrue(PokerRoom.objects.get(pk=room['id']).closed)
 
@@ -175,7 +178,7 @@ class PokerAPITests(PokerFixtures, TestCase):
         for data in [{'buy_in':True}, {'buy_in':-10}, {'max_players':20}, {'big_blind':3}, {'mode':'bad'}, {'name':'x'*41}]:
             response = self.post(self.client, '/api/poker/rooms', {'name':'Bad', **data})
             self.assertEqual(response.status_code, 400)
-        wallet = CurrencyBalance.objects.get(user=self.users[0]); wallet.balance = 1; wallet.save()
+        wallet = PokerChipBalance.objects.get(user=self.users[0]); wallet.balance = 1; wallet.save()
         response = self.post(self.client, '/api/poker/rooms', {'name':'No money'})
         self.assertEqual(response.status_code, 400)
         self.assertFalse(PokerRoom.objects.exists())
@@ -211,7 +214,8 @@ class PokerAPITests(PokerFixtures, TestCase):
         for index in range(2):
             self.assertEqual(self.action(index, room, 'leave').status_code, 200)
         self.assertEqual(sum(CurrencyBalance.objects.filter(user__in=self.users).values_list('balance',flat=True)), 4000)
-        self.assertEqual(sum(CurrencyTransaction.objects.values_list('amount',flat=True)), 0)
+        self.assertFalse(CurrencyTransaction.objects.exists())
+        self.assertEqual(sum(PokerChipBalance.objects.values_list('balance',flat=True)), 4000)
 
     def test_leave_during_hand_finishes_and_refunds(self):
         room = self.start(self.create())
@@ -270,6 +274,46 @@ class PokerAPITests(PokerFixtures, TestCase):
         self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 1000)
         self.assertFalse(CurrencyTransaction.objects.exists())
         self.assertFalse(PokerSeat.objects.exists())
+
+    def test_practice_leave_immediately_discards_active_hand_and_all_seats(self):
+        for all_in in (False, True):
+            with self.subTest(all_in=all_in):
+                chips_before = poker.chip_balance(self.users[0].pk)
+                room = self.create(mode='practice', bot_count=4)
+                room = self.action(0, room, 'ready').json()['room']
+                row = PokerRoom.objects.get(pk=room['id'])
+                self.assertTrue(poker.active(row))
+                if all_in:
+                    row.hand['players'][str(self.users[0].pk)]['stack'] = 0
+                    PokerSeat.objects.filter(room=row, user=self.users[0]).update(stack=0)
+                row.hand['actor'] = next(uid for uid in row.hand['players'] if uid.startswith('bot:'))
+                row.hand['deadline'] = time.time() + 43
+                row.save()
+                from unittest.mock import patch
+                with patch.object(poker, 'bot_action', side_effect=AssertionError('Bot must not run on leave')):
+                    response = self.post(self.client, '/api/poker/rooms/' + room['id'], {'action':'leave'})
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertTrue(response.json()['room']['closed'])
+                self.assertEqual(response.json()['room']['seats'], [])
+                row.refresh_from_db()
+                self.assertEqual(row.hand, {})
+                self.assertFalse(row.seats.exists())
+                self.assertEqual(poker.capacity()['players'], 0)
+                self.assertEqual(poker.chip_balance(self.users[0].pk), chips_before)
+                self.assertFalse(CurrencyTransaction.objects.exists())
+                self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 1000)
+                poker.sweep_room(row.pk)
+                self.assertEqual(self.client.get('/api/poker/rooms').json()['rooms'], [])
+
+    def test_practice_disconnect_discards_active_hand(self):
+        room = self.create(mode='practice', bot_count=4)
+        self.action(0, room, 'ready')
+        PokerSeat.objects.filter(user=self.users[0]).update(last_seen=timezone.now()-timedelta(minutes=6))
+        poker.sweep_room(room['id'])
+        row = PokerRoom.objects.get(pk=room['id'])
+        self.assertTrue(row.closed)
+        self.assertEqual(row.hand, {})
+        self.assertFalse(row.seats.exists())
 
     def test_practice_bots_complete_a_hand_and_are_private(self):
         room = self.create(mode='practice', bot_count=2)
@@ -343,13 +387,12 @@ class PokerAPITests(PokerFixtures, TestCase):
 
     def test_cashout_overflow_keeps_escrow_until_wallet_has_capacity(self):
         room = self.create()
-        CurrencyBalance.objects.filter(user=self.users[0]).update(balance=2147483647)
+        PokerChipBalance.objects.filter(user=self.users[0]).update(balance=poker.MAX_CHIPS)
         self.assertEqual(self.action(0, room, 'leave').status_code, 409)
         self.assertEqual(PokerSeat.objects.get(user=self.users[0]).stack, 100)
-        self.assertFalse(CurrencyTransaction.objects.filter(transaction_type='poker_cashout').exists())
-        CurrencyBalance.objects.filter(user=self.users[0]).update(balance=2147483547)
+        PokerChipBalance.objects.filter(user=self.users[0]).update(balance=poker.MAX_CHIPS-100)
         self.assertEqual(self.action(0, room, 'leave').status_code, 200)
-        self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 2147483647)
+        self.assertEqual(PokerChipBalance.objects.get(user=self.users[0]).balance, poker.MAX_CHIPS)
 
     def test_practice_does_not_even_create_a_real_wallet(self):
         CurrencyBalance.objects.filter(user=self.users[0]).delete()
@@ -409,19 +452,18 @@ class PokerAPITests(PokerFixtures, TestCase):
         self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 1000)
         self.assertFalse(CurrencyTransaction.objects.exists())
 
-    def test_coin_room_defaults_to_ten_and_accepts_two_coin_buyin(self):
-        CurrencyBalance.objects.filter(user=self.users[0]).update(balance=10)
+    def test_coin_room_defaults_to_thousand_chips_and_accepts_two_chip_stake(self):
         response = self.post(self.client, '/api/poker/rooms', {'name':'低门槛'})
         self.assertEqual(response.status_code, 200, response.content)
         room = response.json()['room']
-        self.assertEqual(room['buy_in'], 10)
-        self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 0)
+        self.assertEqual(room['buy_in'], 1000)
+        self.assertEqual(response.json()['chips'], 0)
+        self.assertEqual(response.json()['balance'], 1000)
         self.action(0, room, 'leave')
-        CurrencyBalance.objects.filter(user=self.users[0]).update(balance=2)
         room = self.create(buy_in=2)
-        self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 0)
+        self.assertEqual(PokerChipBalance.objects.get(user=self.users[0]).balance, 998)
         self.action(0, room, 'leave')
-        self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 2)
+        self.assertEqual(PokerChipBalance.objects.get(user=self.users[0]).balance, 1000)
 
 
 class PokerConcurrencyTests(PokerFixtures, TransactionTestCase):
@@ -442,15 +484,16 @@ class PokerConcurrencyTests(PokerFixtures, TransactionTestCase):
         statuses = self.concurrent([0,1], lambda i: self.post(clients[i], '/api/poker/rooms', {'name':'Concurrent'}).status_code)
         self.assertEqual(sorted(statuses), [200,400])
         self.assertEqual(PokerSeat.objects.filter(user=self.users[0]).count(), 1)
-        self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 990)
-        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='poker_buyin').count(), 1)
+        self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 1000)
+        self.assertEqual(PokerChipBalance.objects.get(user=self.users[0]).balance, 0)
+        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='poker_buyin').count(), 0)
 
     def test_last_seat_is_not_overbooked(self):
         room = self.create(max_players=2)
         statuses = self.concurrent([1,2], lambda i: self.post(self.clients[i], '/api/poker/rooms/' + room['id'], {'action':'join'}).status_code)
         self.assertEqual(sorted(statuses), [200,409])
         self.assertEqual(PokerSeat.objects.filter(room_id=room['id']).count(), 2)
-        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='poker_buyin').count(), 2)
+        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='poker_buyin').count(), 0)
 
     def test_concurrent_cashouts_only_credit_once(self):
         room = self.create()
@@ -459,4 +502,5 @@ class PokerConcurrencyTests(PokerFixtures, TransactionTestCase):
         statuses = self.concurrent([0,1], lambda i: self.post(clients[i], '/api/poker/rooms/' + room['id'], {'action':'leave'}).status_code)
         self.assertEqual(sorted(statuses), [200,409])
         self.assertEqual(CurrencyBalance.objects.get(user=self.users[0]).balance, 1000)
-        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='poker_cashout').count(), 1)
+        self.assertEqual(PokerChipBalance.objects.get(user=self.users[0]).balance, 1000)
+        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='poker_cashout').count(), 0)
