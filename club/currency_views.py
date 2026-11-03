@@ -277,6 +277,7 @@ def api_shop_items(request):
         "icon": shop_item_icon_url(item),
         "price": item.price,
         "stock": available_stock(item),
+        "allow_multiple_purchase": bool(item.item_type == 'redeem_code' and item.card_source == 'api' and item.allow_multiple_purchase),
         "item_type": item.item_type,
         "purchase_limit": item.purchase_limit if item.item_type == 'physical' else 0,
         "purchased_quantity": purchased.get(item.pk, 0),

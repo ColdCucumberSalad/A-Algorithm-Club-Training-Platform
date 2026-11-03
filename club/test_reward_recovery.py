@@ -30,6 +30,23 @@ class InventoryRewardRecoveryTests(TestCase):
         self.assertEqual(response.status_code,200,response.content)
         return response.json()
 
+    def test_bundled_api_card_is_reclaimed_as_a_whole_at_original_total(self):
+        from .currency_services import adjust_currency
+        submission = self.submit_day()
+        add_currency(self.author_member, 10, 'admin_adjust')
+        item = self.buy(kind='redeem_code', price=2, quantity=3, card_source='api', allow_multiple_purchase=True)
+        adjust_currency(self.author_member, -self.balance(), 'admin_adjust')
+        item.price = 99
+        item.allow_multiple_purchase = False
+        item.save(update_fields=['price', 'allow_multiple_purchase'])
+        plan = self.preview(submission)
+        self.assertEqual(plan['items'], [{'name': '测试物品', 'quantity': 3, 'refund': 6}])
+        self.assertEqual(self.delete(submission, plan['token']).status_code, 200)
+        unit = ShopFulfillment.objects.get(purchase__item=item)
+        item.refresh_from_db()
+        self.assertEqual((unit.status, unit.refunded_amount, item.stock), ('reclaimed', 6, 5))
+        self.assertEqual(self.balance(), 3)
+
     def test_existing_debt_recovers_unused_items_then_records_remaining_debt(self):
         from .currency_services import adjust_currency
         submission=self.submit_day()
