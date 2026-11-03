@@ -11,7 +11,7 @@ test('monthly swipe advances one month across year boundaries',()=>{
  assert.deepEqual(Array.from(c.activityMonthBounds('2028-02')),['2027-11-01','2028-02-29']);
 });
 test('neighbor months map to four-month window endings',()=>{
- const c={renderActivityMonths:()=>'',};vm.createContext(c);
+ const c={renderActivityMonths:()=>'',document:{documentElement:{dataset:{}}}};vm.createContext(c);
  vm.runInContext(source.slice(source.indexOf('function shiftActivityMonth('),source.indexOf('function activityMonthBounds(')),c);
  const days=['07','08','09','10','11','12'].map(m=>({date:'2026-'+m+'-01'}));
  const html=c.renderActivitySlidingMonths({neighborDays:days,today:'2026-11-03'});

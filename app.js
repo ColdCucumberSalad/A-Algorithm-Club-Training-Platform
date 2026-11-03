@@ -78,6 +78,12 @@ function shiftActivityMonth(month, offset) {
 function renderActivitySlidingMonths(data){
   const months=new Map();
   for(const day of data.neighborDays||data.days){if(data.semester?.end&&day.date>data.semester.end)continue;const key=day.date.slice(0,7);if(!months.has(key))months.set(key,[]);months.get(key).push(day);}
+  if(document.documentElement.dataset.heatmapMonthGap==='false'){
+    const days=[...months.values()].flat();
+    const endings=new Map([...months].map(([month,items])=>[items.at(-1).date,month]));
+    return renderActivityMonths(days,'ac','题',data.today).replace(/data-activity-date="([^"]+)"/g,(attribute,date)=>
+      endings.has(date)?`${attribute} data-window-end="${endings.get(date)}"`:attribute);
+  }
   return `<div class="activity-sliding-months">${[...months].map(([month,days])=>`<div class="activity-slide-month" data-window-end="${month}">${renderActivityMonths(days,'ac','题',data.today)}</div>`).join('')}</div>`;
 }
 function activityVisibleMonthCount() {
@@ -486,8 +492,10 @@ function wireActivityHeatScroll() {
   const alignMonth=(items,month)=>{
     const item=items.find(item=>item.dataset.windowEnd===month);
     if(!item||!items.length)return 0;
-    const origin=items[0].getBoundingClientRect().left;
-    return item.querySelector('.activity-heat-grid').getBoundingClientRect().right-origin-track.clientWidth;
+    const continuous=Boolean(item.dataset.activityDate);
+    const origin=(continuous?items[0].parentElement:items[0]).getBoundingClientRect().left;
+    const edge=continuous?item:item.querySelector('.activity-heat-grid');
+    return edge.getBoundingClientRect().right-origin-track.clientWidth;
   };
   const snapMonthly=()=>{
     if($('#activityRange').value!=='month'||!activityPayload?.neighborDays)return false;
@@ -499,7 +507,7 @@ function wireActivityHeatScroll() {
       }
       return true;
     }
-    const items=[...track.querySelectorAll('.activity-slide-month')];
+    const items=[...track.querySelectorAll('[data-window-end]')];
     const selected=$('#activityMonth').value;
     const firstMonth=shiftActivityMonth(selected,-1),lastMonth=shiftActivityMonth(selected,1);
     const semesterMonth=activityPayload.semester?.end?.slice(0,7);
@@ -513,10 +521,10 @@ function wireActivityHeatScroll() {
     if(selected!==month){$('#activityMonth').value=month;loadTrainingActivity();}
     return true;
   };
-  if(!refreshActivityHeatScroll)refreshActivityHeatScroll=wireHorizontalDateScroll(track,'.activity-slide-month',{snap:snapMonthly});
+  if(!refreshActivityHeatScroll)refreshActivityHeatScroll=wireHorizontalDateScroll(track,'[data-window-end]',{snap:snapMonthly});
   track.dataset.positioning='true';
   requestAnimationFrame(()=>{
-    const items=[...track.querySelectorAll('.activity-slide-month')];
+    const items=[...track.querySelectorAll('[data-window-end]')];
     track.dataset.viewportWidth=String(track.clientWidth);
     delete track.dataset.pendingWidth;
     track.scrollLeft=Math.max(0,alignMonth(items,$('#activityMonth').value));
@@ -1353,17 +1361,28 @@ function clearStaticPreview() {
 
 let dashboardPlatformRequest=0;
 function renderDashboardPlatforms(payload){
-  const bindings=new Map((payload.bindings||[]).map(row=>[row.platform,row]));
+  const bindings=new Map();
+  for(const row of payload.bindings||[]){
+    if(!bindings.has(row.platform))bindings.set(row.platform,[]);
+    bindings.get(row.platform).push(row);
+  }
+  const rating=row=>{
+    const raw=row?.snapshot?.rating;
+    const value=typeof raw==='number'||typeof raw==='string'&&raw.trim()!==''?Number(raw):NaN;
+    return Number.isFinite(value)&&value>=0?value:-1;
+  };
+  const representative=rows=>[...rows].sort((a,b)=>(a.id??0)-(b.id??0)).reduce((best,row)=>
+    !best||rating(row)>rating(best)||rating(row)===-1&&rating(best)===-1&&!best.synced_at&&row.synced_at?row:best,null);
   const order=['nowcoder','codeforces','leetcode','atcoder','luogu','qoj'];
   const number=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocaleString():'—';
   $('#dashboardPlatformGrid').innerHTML=order.filter(key=>payload.platforms?.[key]).map(key=>{
-    const meta=payload.platforms[key],binding=bindings.get(key),stats=binding?.snapshot||{};
+    const rows=bindings.get(key)||[],meta=payload.platforms[key],binding=representative(rows),stats=binding?.snapshot||{};
     const baseline=binding?.solved_baseline;
     const hasBaseline=Boolean(baseline?.captured_at);
     const solved=hasBaseline?baseline.total:stats.solved;
     const status=!binding?'未绑定':binding.status==='pending'?'同步中':binding.status==='failed'?'同步失败':!binding.synced_at?'待同步':'';
     const scope=hasBaseline?'已解题数':stats.solved_label||'已解题数';
-    return `<article class="dashboard-platform-card" data-platform="${key}"><div class="dashboard-platform-title"><span class="platform-color-dot" aria-hidden="true"></span><h3>${escapeHtml(meta.name)}</h3>${status?`<small>${status}</small>`:''}</div><div class="dashboard-platform-values"><span title="${escapeHtml(scope)}"><strong>${number(solved)}</strong> 已解</span><span><strong>${number(stats.rating)}</strong> Rating</span></div><small class="dashboard-platform-account">${escapeHtml(binding?.account||'尚未绑定账号')}</small></article>`;
+    return `<article class="dashboard-platform-card" data-platform="${key}"><div class="dashboard-platform-title"><span class="platform-color-dot" aria-hidden="true"></span><h3>${escapeHtml(meta.name)}</h3>${status?`<small>${status}</small>`:''}</div><div class="dashboard-platform-values"><span title="${escapeHtml(scope)}"><strong>${number(solved)}</strong> 已解</span><span><strong>${number(rating(binding)>=0?rating(binding):null)}</strong> Rating</span></div><small class="dashboard-platform-account">${escapeHtml(binding?.account||'尚未绑定账号')}${rows.length>1?` · 共 ${rows.length} 个账号，${rating(binding)>=0?'展示最高 Rating':'展示代表账号'}`:''}</small></article>`;
   }).join('');
 }
 async function loadDashboardPlatforms(){
