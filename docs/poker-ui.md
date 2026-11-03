@@ -82,3 +82,9 @@ npm install --prefix .local/poker-ui --no-audit --no-fund tailwindcss@4.3.4 @tai
 浏览器检查覆盖 1280px/390px、原始/浅色/深色/自定义弹窗配色，以及创建、兑换、离桌提示、关闭及 Escape；图像见 `output/playwright/poker-chips/dialog-*.png`。
 
 手机全屏操作栏按可见数字位数自适应宽度，两位数时约 30px，位数增加时自动加宽。数字字号为 10px，按钮使用纵向单列、不换行并按文字内容自动调整高度；“申请离桌”底端保持对齐，长标签也完整显示。
+
+## iPhone 全屏容器修复
+
+页面的 `.page-view` 带有 `perspective`，会改变后代固定定位元素的包含块。iPhone 浏览器不支持原生元素全屏时，原来的牌桌仍受页面容器限制，可能被裁成窄带。进入全屏先用占位节点记录原位置，再将整个 `#pokerView` 临时挂到 `body`；退出、返回大厅或关闭游戏时还原，保留原节点、牌局轮询及操作状态。
+
+回归脚本 `tests/poker-fullscreen-shell.browser.mjs` 使用带 perspective、transform、filter 和 overflow 的页面外层容器，拒绝原生全屏，覆盖 402×680、390×844、844×390、667×375。Chromium 和 WebKit 验证视口覆盖、旋转、轮询中金额保留、退出及关闭清理；浏览器仿真不等同于实体 iPhone 测试。
