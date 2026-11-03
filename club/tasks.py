@@ -391,3 +391,64 @@ def refresh_qoj_overlay(binding_id,token,binding_token):
         QojCatalogOverlay.objects.filter(binding_id=binding_id,token=token,queue=expected).update(status='failed',error=str(exc)[:240] if isinstance(exc,SyncError) else '题目同步失败，请重试')
     finally:
         remote.session.close()
+
+
+@shared_task(priority=8)
+def sync_bound_accounts_nightly(day=None):
+    """One account at a time, at least 30 seconds between dispatch checks.
+
+    Failed accounts require manual recovery; never retry bad credentials in a loop.
+    The daily marker survives worker restarts and duplicate scheduler messages.
+    """
+    from django.db import connection
+    from .models import PlatformBinding, TeamMembership
+    from .platform_account_views import start
+    from .profile_views import lock_active_member
+    now = timezone.now()
+    today = timezone.localdate().isoformat()
+    day = day or today
+    if day != today:
+        return {'status': 'expired'}
+    with transaction.atomic():
+        # Serialize duplicate dispatchers across processes without a new model.
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT pg_try_advisory_xact_lock(%s)', [230041])
+            if not cursor.fetchone()[0]:
+                return {'status': 'busy'}
+        pending = PlatformBinding.objects.filter(status='pending')
+        # A page normally finishes in <165 seconds. Stop abandoned chains after
+        # 30 minutes without progress; the next manual request can resume them.
+        pending.filter(requested_at__lt=now-timedelta(minutes=30)).update(
+            status='failed', error='同步超时，请手动重试')
+        if pending.exists():
+            transaction.on_commit(lambda: sync_bound_accounts_nightly.apply_async(
+                kwargs={'day': day}, countdown=30, priority=8))
+            return {'status': 'waiting'}
+        candidates = PlatformBinding.objects.filter(
+            user__is_active=True,
+            user_id__in=TeamMembership.objects.filter(is_active=True).values('user_id'),
+            status='ready').filter(Q(synced_at__isnull=True) | Q(synced_at__lt=now-timedelta(hours=12))).order_by('pk')
+        binding = None
+        for candidate in candidates:
+            if candidate.sync_state.get('auto_sync_day') == day:
+                continue
+            member_id = TeamMembership.objects.filter(user_id=candidate.user_id, is_active=True).values_list('pk', flat=True).first()
+            # Match manual sync/account closure lock order: user, membership,
+            # then binding. Never lock all joined users and bindings at once.
+            if not member_id or not lock_active_member(candidate.user_id, member_id):
+                continue
+            current = PlatformBinding.objects.select_for_update().filter(pk=candidate.pk).first()
+            if (not current or current.status != 'ready'
+                    or current.sync_state.get('auto_sync_day') == day
+                    or current.synced_at and current.synced_at >= now-timedelta(hours=12)):
+                continue
+            binding = current
+            break
+        if binding is None:
+            return {'status': 'complete'}
+        start(binding, False)
+        binding.sync_state['auto_sync_day'] = day
+        binding.save(update_fields=['sync_state'])
+        transaction.on_commit(lambda: sync_bound_accounts_nightly.apply_async(
+            kwargs={'day': day}, countdown=30, priority=8))
+        return {'status': 'started', 'binding_id': binding.pk}
