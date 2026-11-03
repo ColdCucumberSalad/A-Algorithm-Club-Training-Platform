@@ -141,31 +141,51 @@ class AppProConcurrencyTests(ProFixture, TransactionTestCase):
         self.assertEqual(ProRedeemCode.objects.count(), 1)
 
 
-    def test_concurrent_verification_returns_snapshot_without_writing_card(self):
+    def test_concurrent_verification_consumes_card_only_once(self):
         code = self.issue()[0]
-        before = list(ProRedeemCode.objects.values())
         def verify():
             result = self.verify(code)
             return result.status_code, result.json()
         results = self.parallel([verify, verify])
-        self.assertEqual(results, [(200, {'valid': True, 'app': APP_KEY, 'duration_days': 31})] * 2)
-        self.assertEqual(list(ProRedeemCode.objects.values()), before)
+        self.assertTrue(all(status == 200 for status, _ in results), results)
+        self.assertCountEqual([data for _, data in results], [
+            {'valid': True, 'app': APP_KEY, 'duration_days': 31},
+            {'valid': False, 'app': APP_KEY, 'duration_days': None},
+        ])
+        self.assertIsNotNone(ProRedeemCode.objects.get().consumed_at)
+
 
 
 @override_settings(APP_REQUIRE_HTTPS=True)
 class CardVerifyTests(ProFixture, TestCase):
-    def test_card_validation_is_read_only_and_returns_only_duration(self):
+    def test_success_consumes_card_and_retries_are_invalid(self):
         code = self.issue()[0]
-        before_cards = list(ProRedeemCode.objects.values())
         before_units = list(ShopFulfillment.objects.values())
-        for client in (Client(enforce_csrf_checks=True), self.browser, self.admin, Client()):
-            result = self.post(client, '/api/app/cards/verify', {'code': code})
-            self.assertEqual(result.status_code, 200, result.content)
-            self.assertEqual(result.json(), {'valid': True, 'app': APP_KEY, 'duration_days': 31})
-            self.assertEqual(result['Cache-Control'], 'private, no-store')
-            self.assertNotIn('sessionid', result.cookies)
-        self.assertEqual(list(ProRedeemCode.objects.values()), before_cards)
+        client = Client(enforce_csrf_checks=True)
+        result = self.post(client, '/api/app/cards/verify', {'code': code})
+        self.assertEqual(result.status_code, 200, result.content)
+        self.assertEqual(result.json(), {'valid': True, 'app': APP_KEY, 'duration_days': 31})
+        self.assertEqual(result['Cache-Control'], 'private, no-store')
+        self.assertNotIn('sessionid', result.cookies)
+        card = ProRedeemCode.objects.get()
+        self.assertIsNotNone(card.consumed_at)
+        for client in (self.browser, self.admin, Client()):
+            retry = self.post(client, '/api/app/cards/verify', {'code': code})
+            self.assertEqual(retry.json(), {'valid': False, 'app': APP_KEY, 'duration_days': None})
+        self.assertEqual(ProRedeemCode.objects.get().consumed_at, card.consumed_at)
         self.assertEqual(list(ShopFulfillment.objects.values()), before_units)
+        again = self.post(self.browser, f'/api/currency/inventory/{card.fulfillment_id}/redeem')
+        self.assertEqual(again.json()['code'], code)
+        self.assertFalse(self.verify(code).json()['valid'])
+
+    def test_response_or_database_failure_does_not_consume_card(self):
+        code = self.issue()[0]
+        for target in ('club.app_views.response', 'club.pro_models.ProRedeemCode.save'):
+            with self.subTest(target=target), patch(target, side_effect=RuntimeError('test failure')):
+                with self.assertRaises(RuntimeError):
+                    self.verify(code)
+            self.assertIsNone(ProRedeemCode.objects.get().consumed_at)
+        self.assertTrue(self.verify(code).json()['valid'])
 
     def test_unknown_card_returns_invalid_with_no_duration(self):
         result = self.verify('RBC-UNKNOWN')

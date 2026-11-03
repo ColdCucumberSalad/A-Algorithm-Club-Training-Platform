@@ -17,3 +17,4 @@ class ProRedeemCode(models.Model):
     duration_days = models.PositiveIntegerField()
     code_hash = models.CharField(max_length=64, unique=True)
     issued_at = models.DateTimeField(auto_now_add=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)

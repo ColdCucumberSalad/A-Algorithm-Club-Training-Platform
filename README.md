@@ -6,9 +6,9 @@
 
 商城核销类商品新增“内部 Pro 卡密”来源，可配置 RBC Helper 和订阅天数（默认 31 天）。购买保存时长快照，背包领取卡密；旧商品、价格、库存和用户数据不自动修改。
 
-App 通过 HTTPS 调用 `POST /api/app/cards/verify`，发送 `{"code":"RBC-..."}`，返回 `{"valid":true,"app":"rbc_helper","duration_days":31}`。接口仅验证卡密并返回对应订阅天数，不消费卡密、不绑定设备、不生成登录凭据、不管理或累计订阅到期时间；App 自行处理激活与计时。
+App 通过 HTTPS 调用 `POST /api/app/cards/verify`，发送 `{"code":"RBC-..."}`，返回 `{"valid":true,"app":"rbc_helper","duration_days":31}`。首次有效验证返回对应订阅天数并将卡密作废，后续验证返回无效；不绑定设备、不生成登录凭据、不管理或累计订阅到期时间；App 自行处理激活与计时。
 
-部署执行 `python manage.py migrate`（新增 `0053_app_pro_codes`），更新 Web 和商城静态资源，保留原加密密钥，正确配置 HTTPS 和 `APP_TRUSTED_PROXY_CIDRS`。商品与库存须由管理员配置。请求字段、响应、错误码及调用示例见 [App 卡密验证 API 说明](docs/app-pro.md)。
+部署执行 `python manage.py migrate`（新增 `0053_app_pro_codes`、`0054_card_consumed`），更新 Web 和商城静态资源，保留原加密密钥，正确配置 HTTPS 和 `APP_TRUSTED_PROXY_CIDRS`。商品与库存须由管理员配置。请求字段、响应、错误码及调用示例见 [App 卡密验证 API 说明](docs/app-pro.md)。
 
 This project was born out of the need to make it easier to compile statistics on members’ training records and to encourage club members to train themselves.
 

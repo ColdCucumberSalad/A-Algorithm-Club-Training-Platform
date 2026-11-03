@@ -84,9 +84,18 @@ def card_verify(request):
     code = data.get('code')
     if not isinstance(code, str) or not 1 <= len(code.strip()) <= 200:
         return error('请提供有效格式的卡密', 400)
-    card = ProRedeemCode.objects.filter(
-        code_hash=fingerprint(code.strip()), app=APP_KEY,
-        duration_days__gte=1, duration_days__lte=MAX_DURATION_DAYS,
-        fulfillment__status='redeemed').values('duration_days').first()
-    return response({'valid': card is not None, 'app': APP_KEY,
-                     'duration_days': card['duration_days'] if card else None})
+    with transaction.atomic():
+        # Lock both the card and its fulfillment: only one request can consume it,
+        # and a concurrent shop reclaim cannot race a successful verification.
+        card = ProRedeemCode.objects.select_for_update().filter(
+            code_hash=fingerprint(code.strip()), app=APP_KEY, consumed_at__isnull=True,
+            duration_days__gte=1, duration_days__lte=MAX_DURATION_DAYS,
+            fulfillment__status='redeemed').first()
+        result = response({'valid': card is not None, 'app': APP_KEY,
+                           'duration_days': card.duration_days if card else None})
+        if card:
+            card.consumed_at = timezone.now()
+            card.save(update_fields=['consumed_at'])
+        # Commit before returning the prepared response. HTTP delivery cannot be
+        # made atomic with a database commit; a lost response does not undo use.
+        return result
