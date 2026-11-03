@@ -195,9 +195,10 @@ def showcase_all(request, member):
 
 def community_submission(item, viewer):
     data = serialize_submission(item)
+    report=item.reports.filter(version=item.version,reporter=viewer.user).exclude(status='cancelled').first()
     data.update(likes=item.likes.count(), liked=item.likes.filter(user=viewer.user).exists(),
                 can_tip=bool(viewer.pk and viewer.is_active and viewer.team.currency_enabled and item.member.is_active and item.member.user_id != viewer.user_id and not item.semester.archived_at),
-                reported=item.reports.filter(version=item.version, reporter=viewer.user).exists(),
+                can_admin_edit=bool(viewer.is_admin and item.member.user_id != viewer.user_id and not item.semester.archived_at), reported=bool(report), can_cancel_report=bool(report and report.status=='pending'), report_status=report.status if report else '',
                 own=item.member.user_id == viewer.user_id, can_reject=viewer.is_admin and item.member.user_id != viewer.user_id and not item.semester.archived_at, archived=bool(item.semester.archived_at))
     return data
 
@@ -272,6 +273,7 @@ def tip_submission(request, submission_id):
         return api_error('打赏请求编号无效，请重新打开弹窗',400)
     target=Submission.objects.filter(pk=submission_id,team_id=member.team_id).first()
     if not target:return api_error('提交不存在',404)
+    list(User.objects.select_for_update().filter(pk__in=[member.user_id,target.member.user_id]).order_by('pk'))
     Semester.objects.select_for_update().get(pk=target.semester_id)
     target=Submission.objects.select_for_update().filter(pk=submission_id,team_id=member.team_id).first()
     if not target:return api_error('提交不存在',404)
@@ -290,27 +292,29 @@ def tip_submission(request, submission_id):
     if not target.is_valid or target.semester.archived_at:
         return api_error('该提交已退回或归档，无法打赏',409)
     balances=[get_or_create_balance(m) for m in members]
-    locked={b.member_id:b for b in CurrencyBalance.objects.select_for_update().filter(pk__in=[b.pk for b in balances]).order_by('pk')}
-    if locked[sender.pk].balance < amount:
+    locked={b.user_id:b for b in CurrencyBalance.objects.select_for_update().filter(pk__in=[b.pk for b in balances]).order_by('pk')}
+    if locked[sender.user_id].balance < amount:
         return api_error('RBC Coins 余额不足',400)
-    if locked[recipient.pk].balance+amount > 2147483647:
+    if locked[recipient.user_id].balance+amount > 2147483647:
         return api_error('收款方余额已达上限',400)
     from django.db import IntegrityError
     try:
         with transaction.atomic():
-            SubmissionTip.objects.create(request_id=token,team=member.team,sender_user=request.user,sender=sender,recipient=recipient,submission=target,amount=amount)
+            tip=SubmissionTip.objects.create(request_id=token,team=member.team,sender_user=request.user,sender=sender,recipient=recipient,submission=target,amount=amount)
     except IntegrityError:
         return api_error('打赏请求编号已被使用',409)
-    deduct_currency(sender,amount,'tip_sent',f'打赏 {recipient.display_name} 的提交 #{target.pk}')
-    add_currency(recipient,amount,'tip_received',f'收到 {sender.display_name} 对提交 #{target.pk} 的打赏')
+    from .currency_descriptions import transaction_description
+    deduct_currency(sender,amount,'tip_sent',transaction_description('tip_sent',submission_id=target.pk),tip=tip)
+    add_currency(recipient,amount,'tip_received',transaction_description('tip_received',submission_id=target.pk),tip=tip)
     return JsonResponse({'ok':True,'amount':amount,'recipient':recipient.display_name})
 
 
 @api_login_required
 @transaction.atomic
 def reaction(request, submission_id, kind):
-    if request.method not in ({'PUT', 'DELETE'} if kind == 'like' else {'POST'}):
+    if request.method not in ({'PUT', 'DELETE'} if kind == 'like' else {'POST','DELETE'}):
         return api_error('请求方法无效', 405)
+    if not User.objects.select_for_update().filter(pk=request.user.pk,is_active=True).exists():return api_error('账号已停用',403)
     member = membership_for(request)
     if not member:
         return api_error('未加入当前团队', 403)
@@ -329,11 +333,27 @@ def reaction(request, submission_id, kind):
         else:
             target.likes.filter(user=request.user).delete()
         return JsonResponse({'ok': True, 'likes': target.likes.count(), 'liked': request.method == 'PUT'})
-    report, created = SubmissionReport.objects.get_or_create(submission=target, version=target.version, reporter=request.user)
+    report=target.reports.select_for_update().filter(version=target.version,reporter=request.user).first()
+    if request.method=='DELETE':
+        if not report or report.status=='cancelled':return JsonResponse({'ok':True,'reported':False})
+        if report.status!='pending':return api_error('举报已经处理，不能取消',409)
+        report.status='cancelled';report.resolved_at=timezone.now();report.save(update_fields=['status','resolved_at'])
+        from .models import AstrBotNotification
+        AstrBotNotification.objects.filter(payload__data__report_id=report.pk,delivered_at__isnull=True).update(cancelled_at=timezone.now())
+        return JsonResponse({'ok':True,'reported':False})
+    data=body(request)
+    if not isinstance(data,dict):return api_error('举报理由格式无效')
+    reason=data.get('reason','未填写理由（旧版请求）')
+    if not isinstance(reason,str) or not 1<=len(reason.strip())<=500:return api_error('举报理由为 1–500 字')
+    created=not report
+    if not report:report=SubmissionReport.objects.create(submission=target,version=target.version,reporter=request.user,reason=reason.strip())
+    elif report.status=='cancelled':
+        report.status='pending';report.reason=reason.strip();report.resolved_at=None;report.resolved_by=None;report.note='';report.generation+=1
+        report.save(update_fields=['status','reason','resolved_at','resolved_by','note','generation']);created=True
     if created:
         from .astrbot_notifications import notify_report
         notify_report(report, member)
-    return JsonResponse({'ok': True})
+    return JsonResponse({'ok':True,'reported':True,'can_cancel':report.status=='pending'})
 
 
 @api_login_required
@@ -359,6 +379,12 @@ def report_queue(request):
         data = serialize_submission(item)
         data['team_name'] = item.team.name
         data['reports'] = item.reports.filter(status='pending', version=item.version).count()
+        pending=list(item.reports.filter(status='pending',version=item.version).select_related('reporter').order_by('pk'))
+        names=dict(item.team.memberships.filter(user_id__in=[r.reporter_id for r in pending]).values_list('user_id','display_name'))
+        data['report_details'] = [{'id':r.pk,'generation':r.generation,'reason':r.reason,'created_at':r.created_at,'reporter_id':r.reporter_id,
+            'reporter_name':names.get(r.reporter_id,'已退出团队的举报者'),
+            'reward_eligible':r.reporter.is_active and r.reporter_id!=item.member.user_id} for r in pending]
+        data['report_reasons'] = list(item.reports.filter(status='pending',version=item.version).values_list('reason',flat=True))
         data['can_resolve'] = item.member.user_id != request.user.pk
         rows.append(data)
     return JsonResponse({'submissions': rows, 'next': page.next_page_number() if page.has_next() else None})
@@ -378,7 +404,8 @@ def resolve_report(request, submission_id, direct=False):
     target = targets.first()
     if not target:
         return api_error('提交不存在', 404)
-    User.objects.select_for_update().get(pk=target.member.user_id)
+    involved=set(target.reports.filter(status='pending',version=target.version).values_list('reporter_id',flat=True))|{target.member.user_id}
+    list(User.objects.select_for_update().filter(pk__in=involved).order_by('pk'))
     from .problem_equivalence import lock_user_semesters, rebalance_submissions
     lock_user_semesters(target.member.user_id, [target.semester_id])
     semester = Semester.objects.select_for_update().get(pk=target.semester_id)
@@ -392,6 +419,15 @@ def resolve_report(request, submission_id, direct=False):
     data = body(request)
     if data.get('version') != target.version:
         return api_error('提交版本已变化，请刷新', 409)
+    expected=data.get('report_snapshot')
+    if not direct:
+        actual=list(target.reports.filter(status='pending',version=target.version).order_by('pk').values('id','generation')) if target else []
+        valid = (isinstance(expected,list) and all(isinstance(item,dict)
+            and set(item)=={'id','generation'}
+            and type(item['id']) is int and type(item['generation']) is int
+            and item['id']>0 and item['generation']>0 for item in expected))
+        if not valid or sorted(expected,key=lambda item:item['id'])!=actual:
+            return api_error('举报列表或内容已变化，请重新打开处理窗口',409)
     action = 'reject' if direct else data.get('action')
     note = str(data.get('note', '')).strip()
     if action not in {'dismiss', 'reject'} or (action == 'reject' and not note) or len(note) > 500:
@@ -399,22 +435,37 @@ def resolve_report(request, submission_id, direct=False):
     reports = target.reports.filter(status='pending', version=target.version)
     if not direct and not reports.exists():
         return api_error('举报已处理，请刷新', 409)
+    coin_settings=None
+    if 'report_coins' in data:
+        if direct or action!='reject':return api_error('仅确认举报成立并退回提交时可设置举报 Coins')
+        if expected is None:return api_error('请重新打开举报窗口确认完整名单',409)
+        from .report_rewards import validate_settings
+        try:coin_settings=validate_settings(data['report_coins'],list(reports.select_related('reporter')),target.member.user_id)
+        except ValueError as exc:return api_error(str(exc))
     plan = None
     if action == 'reject':
         from .reward_recovery import authorize
         plan, error = authorize(request, target, 'reject', data)
         if error is not None:
             return error
-    reports.update(status='rejected' if action == 'reject' else 'dismissed', resolved_by=request.user, resolved_at=timezone.now(), note=note)
-    if action == 'reject':
-        target.is_valid = False
-        target.rejection_note = note
-        target.save(update_fields=['is_valid', 'rejection_note'])
-        target.parts.update(status='rejected', points_awarded=0, review_note=note, reviewed_at=timezone.now(), reviewed_by=request.user)
-        if target.problem_id:
-            rebalance_submissions(target.member.user_id, target.problem_id, lost_records=[target])
-        from .currency_services import reconcile_submission_day
-        reconcile_submission_day(target.member, target.record_date, semester, recoveries=plan['recoveries'], reopen_makeup=False)
-        refresh_totals(semester)
-    ReviewLog.objects.create(submission=target, actor=request.user, action=('direct_' if direct else 'report_') + action, detail={'version': target.version, 'note': note})
-    return JsonResponse({'ok': True})
+    coin_result=None
+    try:
+        with transaction.atomic():
+            reports.update(status='rejected' if action == 'reject' else 'dismissed', resolved_by=request.user, resolved_at=timezone.now(), note=note)
+            if action == 'reject':
+                target.is_valid = False
+                target.rejection_note = note
+                target.save(update_fields=['is_valid', 'rejection_note'])
+                target.parts.update(status='rejected', points_awarded=0, review_note=note, reviewed_at=timezone.now(), reviewed_by=request.user)
+                if target.problem_id:
+                    rebalance_submissions(target.member.user_id, target.problem_id, lost_records=[target])
+                from .currency_services import reconcile_submission_day
+                reconcile_submission_day(target.member, target.record_date, semester, recoveries=plan['recoveries'], reopen_makeup=False)
+                refresh_totals(semester)
+            if coin_settings is not None:
+                from .report_rewards import settle
+                coin_result=settle(target,coin_settings,request.user)
+            ReviewLog.objects.create(submission=target, actor=request.user, action=('direct_' if direct else 'report_') + action, detail={'version': target.version, 'note': note, 'report_coins':coin_result})
+    except ValueError as exc:
+        return api_error(str(exc))
+    return JsonResponse({'ok': True,'report_coins':coin_result})

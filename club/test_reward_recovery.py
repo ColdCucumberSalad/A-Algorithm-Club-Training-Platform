@@ -30,6 +30,25 @@ class InventoryRewardRecoveryTests(TestCase):
         self.assertEqual(response.status_code,200,response.content)
         return response.json()
 
+    def test_existing_debt_recovers_unused_items_then_records_remaining_debt(self):
+        from .currency_services import adjust_currency
+        submission=self.submit_day()
+        item=self.buy(price=2)
+        adjust_currency(self.author_member,-5,'admin_adjust')
+        self.assertEqual(self.balance(),-4)
+        plan=self.preview(submission)
+        self.assertEqual(plan['refund'],2)
+        self.assertEqual(plan['reward_reversal'],3)
+        self.assertEqual(plan['balance_after'],-5)
+        self.assertEqual(self.delete(submission).status_code,409)
+        self.assertEqual(self.delete(submission,plan['token']).status_code,200)
+        self.assertEqual(self.balance(),-5)
+        self.assertEqual(UserInventory.objects.get(item=item).quantity,0)
+        self.assertEqual(ShopFulfillment.objects.filter(status='reclaimed').count(),1)
+        self.assertEqual(CurrencyTransaction.objects.filter(transaction_type='item_recovery').count(),1)
+        add_currency(self.author_member,2,'contest_reward')
+        self.assertEqual(self.balance(),-3)
+
     def delete(self, item, token=None):
         return self.client.delete(f'/api/submissions/{item.pk}',json.dumps({'version':item.version,'recovery_token':token}),content_type='application/json')
 

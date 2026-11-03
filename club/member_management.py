@@ -15,7 +15,7 @@ from .management_views import administrator_required
 from .models import (Team, TeamMembership, CurrencyBalance, CurrencyTransaction,
                      UserInventory, ShopItem, Purchase, ShopFulfillment, ShopCode)
 from .views import api_error, body
-from .member_titles import title_data, titles_data, validate_title, validate_titles, FONTS
+from .member_titles import title_data, titles_data, validate_title, validate_titles, FONTS, awarded_titles_data, STYLES
 from .grades import cohort_data, validate_admission_year, grade_for_year
 from .models import UserProfile
 
@@ -39,17 +39,16 @@ def audit(actor, member, changes):
 
 
 def summary(member):
-    balance = CurrencyBalance.objects.filter(team_id=member.team_id, member=member).values_list('balance', flat=True).first()
-    return {'id':member.pk, 'name':member.display_name, 'account':member.user.username,
-            'role':member.role, 'balance':balance or 0, 'title':title_data(member), 'titles':titles_data(member), 'title_fonts':FONTS, 'cohort':cohort_data(UserProfile.objects.filter(user_id=member.user_id).first())}
+    balance = CurrencyBalance.objects.filter(user_id=member.user_id).values_list('balance', flat=True).first()
+    return {'id':member.pk, 'user_id':member.user_id, 'name':member.display_name, 'account':member.user.username,
+            'role':member.role, 'balance':balance or 0, 'title':title_data(member), 'titles':awarded_titles_data(member), 'title_styles':STYLES, 'title_fonts':FONTS, 'cohort':cohort_data(UserProfile.objects.filter(user_id=member.user_id).first())}
 
 
 def detail(member):
     return {**summary(member), 'inventory':list(UserInventory.objects.filter(
-        member=member, team_id=member.team_id).select_related('item').order_by('pk').values(
+        member__user_id=member.user_id).select_related('item').order_by('pk').values(
         'id', 'item_id', 'item__name', 'item__item_type', 'quantity')),
-        'units':list(ShopFulfillment.objects.filter(purchase__member=member,
-        purchase__team_id=member.team_id).order_by('-pk').values(
+        'units':list(ShopFulfillment.objects.filter(purchase__member__user_id=member.user_id).order_by('-pk').values(
         'id', 'item_name', 'status', 'purchase__item__item_type'))}
 
 
@@ -60,7 +59,8 @@ def member_list(request, team_id):
     if not Team.objects.filter(pk=team_id).exists():
         return api_error('团队不存在', 404)
     rows = list(members(team_id).order_by('display_name','pk'))
-    balances = dict(CurrencyBalance.objects.filter(team_id=team_id).values_list('member_id','balance'))
+    wallets = dict(CurrencyBalance.objects.filter(user_id__in=[m.user_id for m in rows]).values_list('user_id','balance'))
+    balances = {m.pk:wallets.get(m.user_id,0) for m in rows}
     return private({'members':[{'id':m.pk, 'name':m.display_name, 'account':m.user.username,
         'role':m.role, 'balance':balances.get(m.pk,0)} for m in rows],
         'items':list(ShopItem.objects.filter(team_id=team_id).order_by('name','pk').values('id','name','item_type','stock'))})
@@ -127,16 +127,16 @@ def member_settings(request, team_id, member_id):
                 audit(request.user,target,{'action':'member_title','title':target.member_title})
             elif data.get('action') == 'balance':
                 value = data.get('balance')
-                if type(value) is not int or not 0 <= value <= 2147483647:
-                    raise ValueError('Coins 余额需为非负整数，且不超过 2147483647')
-                from .currency_services import get_or_create_balance, add_currency, deduct_currency
+                if type(value) is not int or not -2147483648 <= value <= 2147483647:
+                    raise ValueError('Coins 余额需为 -2147483648 至 2147483647 的整数')
+                from .currency_services import get_or_create_balance, adjust_currency
                 balance = get_or_create_balance(target)
                 balance = CurrencyBalance.objects.select_for_update().get(pk=balance.pk)
                 if type(data.get('expected_balance')) is not int or balance.balance != data['expected_balance']:
                     return api_error('余额已变化，请刷新成员资料后重试',409)
                 delta = value - balance.balance
                 if delta:
-                    (add_currency if delta > 0 else deduct_currency)(target,abs(delta),CurrencyTransaction.ADMIN_ADJUST,
+                    adjust_currency(target,delta,CurrencyTransaction.ADMIN_ADJUST,
                         '成员管理：调整余额',request.user)
                     audit(request.user,target,{'action':'balance','delta':delta,'balance':value})
             else:
@@ -159,16 +159,18 @@ def inventory_settings(request, team_id, member_id):
         return api_error('背包设置格式无效')
     try:
         with transaction.atomic():
-            member = members(team_id).select_for_update(of=('self',)).filter(pk=member_id).first()
+            subject=TeamMembership.objects.filter(pk=member_id,team_id=team_id).values_list('user_id',flat=True).first()
+            if subject:User.objects.select_for_update().get(pk=subject)
+            scope=TeamMembership.objects.filter(team_id=team_id,user_id=request.global_inventory_user_id) if getattr(request,'global_inventory_user_id',None) else members(team_id)
+            member = scope.select_for_update(of=('self',)).filter(pk=member_id).first()
             if not member:
                 return api_error('当前团队成员不存在',404)
             action = data.get('action')
             if action == 'revoke':
-                unit = ShopFulfillment.objects.filter(pk=data.get('unit_id'),purchase__member=member,
-                    purchase__team_id=team_id).select_related('purchase').first()
+                unit = ShopFulfillment.objects.filter(pk=data.get('unit_id'),purchase__member__user_id=member.user_id).select_related('purchase').first()
                 if not unit:
                     return api_error('背包物品不存在',404)
-                item = ShopItem.objects.select_for_update().get(pk=unit.purchase.item_id,team_id=team_id)
+                item = ShopItem.objects.select_for_update().get(pk=unit.purchase.item_id)
                 unit = ShopFulfillment.objects.select_for_update().get(pk=unit.pk)
                 if unit.status not in ('ready','dispatching'):
                     raise ValueError('只能收回未核销、未派发的物品')
@@ -180,7 +182,7 @@ def inventory_settings(request, team_id, member_id):
                 unit.save(update_fields=['status','reclaimed_at'])
                 audit(request.user,member,{'action':'inventory_revoke','unit_id':unit.pk,'item_id':item.pk})
             elif action in ('grant','quantity'):
-                item = ShopItem.objects.select_for_update().filter(pk=data.get('item_id'),team_id=team_id).first()
+                item = ShopItem.objects.select_for_update().filter(pk=data.get('item_id'),**({'team_id':team_id} if action=='grant' else {})).first()
                 if not item:
                     return api_error('当前团队商品不存在',404)
                 quantity = data.get('quantity')
@@ -217,7 +219,7 @@ def inventory_settings(request, team_id, member_id):
                         inv.save(update_fields=['quantity'])
                     audit(request.user,member,{'action':'inventory_grant','item_id':item.pk,'quantity':quantity,'purchase_id':purchase.pk})
                 else:
-                    inv = UserInventory.objects.select_for_update().filter(team_id=team_id,member=member,item=item).first()
+                    inv = UserInventory.objects.select_for_update().filter(member__user_id=member.user_id,item=item,**({'pk':data['inventory_id']} if data.get('inventory_id') else {})).first()
                     if not inv or item.item_type in ('physical','redeem_code'):
                         raise ValueError('该物品需要按单件状态管理')
                     if type(data.get('expected_quantity')) is not int or inv.quantity != data['expected_quantity']:

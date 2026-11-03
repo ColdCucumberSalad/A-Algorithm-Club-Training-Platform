@@ -104,6 +104,7 @@ class TeamMembership(models.Model):
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="memberships")
     display_name = models.CharField(max_length=40)
     member_title = models.JSONField(default=list, blank=True)
+    worn_titles = models.JSONField(default=None, null=True, blank=True)
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default=MEMBER)
     is_active = models.BooleanField(default=True)
     joined_at = models.DateTimeField(auto_now_add=True)
@@ -227,6 +228,9 @@ class SubmissionPart(models.Model):
 
     @property
     def has_content(self):
+        if self.kind==self.LOGIC:
+            from .submission_content import normalize_logic
+            return bool(normalize_logic(self.text_content) or self.link or self.upload)
         return bool(self.text_content or self.link or self.upload)
 
 
@@ -329,7 +333,9 @@ class SubmissionReport(models.Model):
     submission = models.ForeignKey(Submission, on_delete=models.CASCADE, related_name='reports')
     version = models.PositiveIntegerField()
     reporter = models.ForeignKey(User, on_delete=models.CASCADE)
-    status = models.CharField(max_length=12, default='pending', choices=[('pending', '待处理'), ('dismissed', '已驳回'), ('rejected', '已退回')])
+    reason = models.CharField(max_length=500, blank=True)
+    generation = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=12, default='pending', choices=[('pending', '待处理'), ('dismissed', '已驳回'), ('rejected', '已退回'), ('cancelled', '已取消')])
     created_at = models.DateTimeField(auto_now_add=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
     resolved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='resolved_reports')
@@ -354,9 +360,10 @@ def create_internal_username(team_code, display_name):
 
 # Currency system models
 class CurrencyBalance(models.Model):
-    """User currency balance for a team"""
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="currency_balances")
-    member = models.ForeignKey(TeamMembership, on_delete=models.CASCADE, related_name="currency_balance")
+    """One global wallet per account; team/member retain creation provenance."""
+    user = models.OneToOneField(User, null=True, on_delete=models.CASCADE, related_name="coin_wallet")
+    team = models.ForeignKey(Team, null=True, blank=True, on_delete=models.SET_NULL, related_name="currency_balances")
+    member = models.ForeignKey(TeamMembership, null=True, blank=True, on_delete=models.SET_NULL, related_name="currency_balance")
     balance = models.IntegerField(default=0, verbose_name="当前余额")
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -367,8 +374,13 @@ class CurrencyBalance(models.Model):
         verbose_name = "货币余额"
         verbose_name_plural = "货币余额"
 
+    def save(self, *args, **kwargs):
+        if not self.user_id and self.member_id:
+            self.user_id = self.member.user_id
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.member.display_name} - {self.balance} RBC"
+        return f"{self.user_id} - {self.balance} RBC"
 
 
 class CurrencyTransaction(models.Model):
@@ -393,11 +405,15 @@ class CurrencyTransaction(models.Model):
         (ITEM_RECOVERY, "物品回收返还"),
         ("tip_sent", "打赏支出"),
         ("tip_received", "收到打赏"),
+        ("report_reward", "有效举报奖励"),
+        ("report_penalty", "被举报扣除"),
     ]
 
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="currency_transactions")
-    member = models.ForeignKey(TeamMembership, on_delete=models.CASCADE, related_name="currency_transactions")
-    amount = models.IntegerField(verbose_name="变动金额")
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE, related_name="coin_transactions")
+    team = models.ForeignKey(Team, null=True, blank=True, on_delete=models.SET_NULL, related_name="currency_transactions")
+    member = models.ForeignKey(TeamMembership, null=True, blank=True, on_delete=models.SET_NULL, related_name="currency_transactions")
+    tip = models.ForeignKey('SubmissionTip',null=True,blank=True,on_delete=models.SET_NULL,related_name='ledger_entries')
+    amount = models.BigIntegerField(verbose_name="变动金额")
     balance_after = models.IntegerField(verbose_name="变动后余额")
     transaction_type = models.CharField(max_length=20, choices=TYPE_CHOICES, verbose_name="交易类型")
     description = models.CharField(max_length=200, blank=True, verbose_name="描述")
@@ -408,9 +424,14 @@ class CurrencyTransaction(models.Model):
         ordering = ["-created_at"]
         verbose_name = "货币交易记录"
         verbose_name_plural = "货币交易记录"
+        constraints = [models.UniqueConstraint(fields=['tip','transaction_type'],name='unique_tip_ledger_direction')]
+
+    def save(self, *args, **kwargs):
+        if not self.user_id and self.member_id: self.user_id=self.member.user_id
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.member.display_name} {self.amount:+d} ({self.get_transaction_type_display()})"
+        return f"{self.user_id} {self.amount:+d} ({self.get_transaction_type_display()})"
 
 
 class CheckinRecord(models.Model):
@@ -782,6 +803,12 @@ class ContestProblemClaim(models.Model):
             models.UniqueConstraint(fields=['member', 'platform', 'contest_key', 'problem_key'], name='unique_member_problem_claim'),
             models.UniqueConstraint(fields=['team', 'platform', 'account', 'contest_key', 'problem_key'], name='unique_team_account_problem_claim'),
         ]
+
+
+class AccountClosure(models.Model):
+    user = models.OneToOneField(User,on_delete=models.PROTECT,related_name='account_closure')
+    closed_by = models.ForeignKey(User,null=True,on_delete=models.SET_NULL,related_name='closed_accounts')
+    closed_at = models.DateTimeField(auto_now_add=True)
 
 
 class SubmissionTip(models.Model):

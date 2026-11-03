@@ -10,6 +10,8 @@ from .models import CleanupJob, ReviewLog, Semester, SemesterMemberTotal, Submis
 
 
 def score_part(part):
+    if part.kind==SubmissionPart.LOGIC and not part.has_content:
+        return 0
     semester = part.submission.semester
     return {SubmissionPart.PROOF: semester.screenshot_points, SubmissionPart.LOGIC: semester.logic_points, SubmissionPart.BLOG: semester.blog_points}.get(part.kind, 0)
 

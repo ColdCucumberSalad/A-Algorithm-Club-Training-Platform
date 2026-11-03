@@ -1,5 +1,6 @@
 from django.urls import path
 from . import extension_views
+from . import account_views, admin_submission_views
 from . import member_management
 from . import notification_views
 from .activity_views import training_activity
@@ -17,6 +18,14 @@ from .admin_test_mode import toggle as toggle_test_mode
 from . import shop_fulfillment
 
 urlpatterns = [
+    path('management/submissions/<int:submission_id>',admin_submission_views.edit_submission),
+    path('profile/titles/wear', profile_views.wear_title),
+    path('account',account_views.current_account),
+    path('account/close',account_views.close_account),
+    path('management/accounts',account_views.accounts),
+    path('management/accounts/<int:user_id>',account_views.update_account),
+    path('management/accounts/<int:user_id>/close',account_views.close_account),
+    path('management/accounts/<int:user_id>/inventory',account_views.account_inventory),
     path('management/teams/<int:team_id>/notifications', notification_views.notification_settings),
     path('auth/registration-options', views.registration_options),
     path('members/<int:member_id>/profile', profile_views.member_profile),

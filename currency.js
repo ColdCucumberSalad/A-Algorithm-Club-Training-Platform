@@ -66,7 +66,7 @@ const CurrencyModule = (() => {
     const balanceEl = document.createElement("div");
     balanceEl.className = "currency-balance";
     balanceEl.innerHTML = `
-      <button class="currency-button" type="button" title="RBC Coins余额">
+      <button class="currency-button" type="button" title="${currencyData.balance<0?'负余额待抵扣，后续收入先抵扣欠额':'RBC Coins余额'}">
         ${currencyData.currencyIcon ? `<img src="${escape(currencyData.currencyIcon)}" alt="RBC" class="currency-icon" />` : '<span class="currency-icon">💎</span>'}
         <strong>${currencyData.balance}</strong> RBC
       </button>
@@ -481,7 +481,7 @@ const CurrencyModule = (() => {
     if (container.querySelector('.shop-grid') && container.dataset.renderedShopTab === tab) return;
     container.dataset.renderedShopTab = tab;
     container.innerHTML = `<section class="page-heading"><div><p class="kicker">RBC SHOP</p><h1>RBC商店</h1></div>
-      <div class="currency-display">${currencyData.currencyIcon ? `<img src="${escape(currencyData.currencyIcon)}" alt="RBC" class="currency-icon-large" />` : '<span class="currency-icon-large">💎</span>'}<div><strong>${currencyData.balance}</strong><small>RBC Coins</small></div></div></section>
+      <div class="currency-display">${currencyData.currencyIcon ? `<img src="${escape(currencyData.currencyIcon)}" alt="RBC" class="currency-icon-large" />` : '<span class="currency-icon-large">💎</span>'}<div><strong>${currencyData.balance}</strong><small>${currencyData.balance<0?'待抵扣 · 收入优先抵扣':'RBC Coins'}</small></div></div></section>
       <section class="panel"><div class="segmented shop-tabs" role="tablist" aria-label="商店与背包">
       <button class="segment ${!backpack ? 'active' : ''}" type="button" data-shop-tab="shop">商店</button><button class="segment ${backpack ? 'active' : ''}" type="button" data-shop-tab="inventory">背包</button></div>
       <div class="shop-grid" aria-busy="true" aria-label="正在加载${backpack ? '背包' : '商品'}">${Array.from({length:3},()=>`<div class="shop-item-card shop-card-placeholder" aria-hidden="true"><div class="shop-item-icon is-image-loading"><span class="skeleton shop-image-placeholder"></span></div><div class="shop-item-info"><span class="skeleton shop-text-placeholder"></span><span class="skeleton shop-text-placeholder"></span></div><div class="shop-item-footer"><span class="skeleton shop-text-placeholder"></span></div></div>`).join('')}</div></section>`;
@@ -514,7 +514,7 @@ const CurrencyModule = (() => {
           ${currencyData.currencyIcon ? `<img src="${escape(currencyData.currencyIcon)}" alt="RBC" class="currency-icon-large" />` : '<span class="currency-icon-large">💎</span>'}
           <div>
             <strong>${currencyData.balance}</strong>
-            <small>RBC Coins</small>
+            <small>${currencyData.balance<0?'待抵扣 · 收入优先抵扣':'RBC Coins'}</small>
           </div>
         </div>
       </section>

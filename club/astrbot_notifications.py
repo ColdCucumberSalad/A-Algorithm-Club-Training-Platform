@@ -81,11 +81,11 @@ def notify_item_use(unit):
 def notify_report(report, member):
     target = report.submission
     queue_notification(
-        f"report:{report.pk}",
+        f"report:{report.pk}:{report.generation}",
         "submission_report",
         target.team,
         f"【提交举报】{member.display_name} 举报了 {target.member.display_name} 的提交。"
-        f"\n提交编号：{target.pk}，版本：{report.version}，请及时审核。",
+        f"\n提交编号：{target.pk}，版本：{report.version}，理由：{report.reason}，请及时审核。",
         report_id=report.pk,
         submission_id=target.pk,
         version=report.version,

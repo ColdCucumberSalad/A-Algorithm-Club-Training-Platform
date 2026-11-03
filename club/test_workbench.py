@@ -134,7 +134,7 @@ class WorkbenchTests(TestCase):
         SubmissionReport.objects.create(submission=second,version=1,reporter=self.reader)
         rows=self.admin_client.get('/api/admin/reports').json()['submissions']
         self.assertEqual({r['id'] for r in rows},{first.pk,second.pk})
-        response=self.admin_client.post(f'/api/admin/reports/{second.pk}/resolve',json.dumps({'version':1,'action':'dismiss'}),content_type='application/json')
+        response=self.admin_client.post(f'/api/admin/reports/{second.pk}/resolve',json.dumps({'version':1,'action':'dismiss','report_snapshot':list(second.reports.values('id','generation'))}),content_type='application/json')
         self.assertEqual(response.status_code,200,response.content)
         self.client.force_login(self.owner)
         rows=self.client.get('/api/admin/reports').json()['submissions']

@@ -12,6 +12,7 @@ from PIL import Image, UnidentifiedImageError
 from datetime import datetime, timedelta
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.contrib.auth.models import User
 from django.db.models import Sum
 from django.db.models.deletion import ProtectedError
 from django.http import JsonResponse, FileResponse, Http404
@@ -25,6 +26,7 @@ from .models import (
     ShopItem, Purchase, UserInventory, TeamMembership, Team, FileDeletion
 )
 from .currency_config import config_data, validate_config, apply_config, currency_icon_url
+from .currency_descriptions import ledger_description
 from .currency_services import (
     get_or_create_balance, add_currency, deduct_currency,
     get_current_streak, perform_checkin, makeup_checkin,
@@ -40,9 +42,6 @@ def api_currency_balance(request):
     member = membership_for(request)
     if not member:
         return api_error("未找到团队成员信息", 404)
-
-    if not member.team.currency_enabled:
-        return api_error("该团队未启用货币系统", 403)
 
     if member.pk and not request.user.is_superuser:
         from .retirement import ensure_retirement_subsidies
@@ -67,9 +66,6 @@ def api_currency_transactions(request):
     if not member:
         return api_error("未找到团队成员信息", 404)
 
-    if not member.team.currency_enabled:
-        return api_error("该团队未启用货币系统", 403)
-
     try:
         limit = int(request.GET.get('limit',50))
         if not 1 <= limit <= 500: raise ValueError()
@@ -83,7 +79,7 @@ def api_currency_transactions(request):
         "balance_after": t.balance_after,
         "type": t.transaction_type,
         "type_display": t.get_transaction_type_display(),
-        "description": t.description,
+        "description": ledger_description(t),
         "created_at": t.created_at.isoformat()
     } for t in transactions]
 
@@ -227,7 +223,7 @@ def api_shop_item_icon(request, item_id):
     item = ShopItem.objects.select_related('team').filter(pk=item_id).first()
     if not item or not item.icon or not item.team.currency_enabled:
         raise Http404
-    if not membership_for(request, item.team_id):
+    if not membership_for(request, item.team_id) and not UserInventory.objects.filter(member__user=request.user,item=item).exists() and not Purchase.objects.filter(member__user=request.user,item=item).exists():
         raise Http404
     image_file = None
     try:
@@ -329,12 +325,8 @@ def api_user_inventory(request):
     if not member:
         return api_error("未找到团队成员信息", 404)
 
-    if not member.team.currency_enabled:
-        return api_error("该团队未启用货币系统", 403)
-
     inventory_items = UserInventory.objects.filter(
-        team=member.team,
-        member=member,
+        member__user_id=member.user_id,
         quantity__gt=0
     ).select_related('item')
 
@@ -406,8 +398,10 @@ def api_admin_adjust_balance(request):
         return api_error("成员不存在", 404)
 
     try:
-        new_balance = (add_currency if amount > 0 else deduct_currency)(
-            target_member, abs(amount), CurrencyTransaction.ADMIN_ADJUST, description, request.user)
+        from .currency_services import adjust_currency
+        with transaction.atomic():
+            User.objects.select_for_update().get(pk=target_member.user_id)
+            new_balance = adjust_currency(target_member, amount, CurrencyTransaction.ADMIN_ADJUST, description, request.user)
     except ValueError as exc:
         return api_error(str(exc), 400)
 

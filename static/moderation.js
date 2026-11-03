@@ -1,0 +1,52 @@
+/* Bounded review and administrator editing windows; no draggable/resizable dialog shell. */
+window.ModerationWindows=(()=>{
+  const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const records=new Map();let review,editor,rewards,version=0,focusReturn,rewardReturnFocus;
+  function shell(id,title){const el=document.createElement('div');el.id=id;el.className='modal-backdrop moderation-overlay';el.setAttribute('aria-hidden','true');el.innerHTML=`<section class="modal moderation-modal" role="dialog" aria-modal="true" aria-labelledby="${id}Title"><header class="modal-header"><h2 id="${id}Title">${title}</h2><button class="close-button" type="button" data-moderation-close aria-label="关闭">×</button></header><div class="moderation-body"></div></section>`;document.body.append(el);el.querySelector('[data-moderation-close]').onclick=()=>close(el);el.addEventListener('dragstart',event=>{if(event.target.matches('img'))event.preventDefault();});return el;}
+  function close(el){if(!el)return;if(el===review){review.hidden=false;rewards?.classList.remove('open');rewards?.setAttribute('aria-hidden','true');}el.classList.remove('open');el.setAttribute('aria-hidden','true');if(focusReturn?.isConnected)focusReturn.focus();}
+  function show(el){focusReturn=document.activeElement;el.classList.add('open');el.setAttribute('aria-hidden','false');el.querySelector('.close-button').focus();}
+  function store(items,append){if(!append)records.clear();for(const item of items)records.set(item.id,item);}
+  function openReport(id){
+    const item=records.get(Number(id));if(!item)return;
+    review ||= shell('moderationReviewModal','举报处理');
+    const reasons=item.report_details||[];
+    review.querySelector('.moderation-body').innerHTML=`<div class="moderation-meta"><h3>${esc(uiProblemTitle(item.problem_title))}</h3><p class="muted">${esc(item.member_name)} · ${esc(item.team_name)} · 版本 ${item.version} · ${item.reports} 条待处理举报</p></div><div class="moderation-columns"><aside class="moderation-reasons"><h4>本题解的举报</h4>${reasons.map((report,i)=>`<article class="report-reason-entry"><strong>举报 ${i+1} · ${esc(report.reporter_name||'举报者')}</strong><small>${esc(new Date(report.created_at).toLocaleString('zh-CN'))}</small><p>${esc(report.reason||'旧版举报未填写理由')}</p></article>`).join('')}</aside><div class="moderation-materials">${item.parts.map(part=>`<section class="tm-card"><h4>${esc({proof:'通过截图',logic:'题解思路',code:'代码',blog:'Blog'}[part.kind]||part.kind)}</h4>${part.upload?`<img src="${esc(part.upload)}" alt="提交截图" draggable="false">`:''}${part.text?`<pre>${esc(part.text)}</pre>`:''}</section>`).join('')}</div></div><footer class="moderation-actions">${item.can_resolve?`<button class="secondary-button" type="button" data-report-rewards-open>奖励设置</button><button class="secondary-button" type="button" data-admin-edit="${item.id}">编辑题解</button><button class="secondary-button" type="button" data-resolve="dismiss" data-id="${item.id}" data-version="${item.version}" data-report-snapshot="${esc(JSON.stringify(reasons.map(r=>({id:r.id,generation:r.generation}))))}">驳回这些举报</button><button class="primary-button" type="button" data-resolve="reject" data-id="${item.id}" data-version="${item.version}" data-report-snapshot="${esc(JSON.stringify(reasons.map(r=>({id:r.id,generation:r.generation}))))}">举报成立并退回</button>`:'<span class="muted">请其他管理员处理自己的记录</span>'}</footer>`;
+    rewards ||= shell('reportRewardsModal','举报奖励设置');
+    rewards.querySelector('[data-moderation-close]').onclick=backRewards;
+    rewards.querySelector('.moderation-body').innerHTML=`<button class="secondary-button report-rewards-back" type="button" data-report-rewards-back>‹ 返回举报处理</button><div class="moderation-meta"><h3>${esc(uiProblemTitle(item.problem_title))}</h3><p class="muted">仅在确认举报成立时执行，返回后保留本次设置。</p></div><section class="report-coin-settings" ${item.can_resolve?'':'hidden'}><div><h4>举报成立的 Coins 处理</h4><p class="muted">每个选中的有效举报者分别奖励；被举报者整条提交只扣一次。设为 0 则不调整，余额不足时会记为负数；原提交奖励仍按原规则撤回。</p></div><div class="report-coin-fields"><label>每人奖励<input type="number" data-report-reward-each value="1" min="0" max="100" step="1" required></label><label>被举报者扣除<input type="number" data-report-author-penalty value="1" min="0" max="100" step="1" required></label></div><output class="report-coin-summary" aria-live="polite"></output></section><section class="report-reward-list"><h4>奖励名单</h4>${reasons.map((report,i)=>`<article class="report-reason-entry"><strong>${esc(report.reporter_name||'举报者 '+(i+1))}</strong><label class="report-reward-recipient"><input type="checkbox" data-report-reward-user="${report.reporter_id}" ${report.reward_eligible?'checked':'disabled'}> ${report.reward_eligible?'奖励此举报者':'账号已停用，不发奖励'}</label></article>`).join('')}</section>`;
+    updateCoinSummary();rewards.oninput=updateCoinSummary;review.hidden=false;show(review);
+  }
+  function openRewards(){
+    if(!rewards||!review?.classList.contains('open'))return;
+    rewardReturnFocus=document.activeElement;review.hidden=true;review.setAttribute('aria-hidden','true');
+    rewards.classList.add('open');rewards.setAttribute('aria-hidden','false');rewards.querySelector('[data-report-rewards-back]').focus();
+  }
+  function backRewards(){
+    try{coinSettings();}catch{return;}
+    rewards.classList.remove('open');rewards.setAttribute('aria-hidden','true');review.hidden=false;review.setAttribute('aria-hidden','false');
+    if(rewardReturnFocus?.isConnected)rewardReturnFocus.focus({preventScroll:true});
+  }
+  function coinSettings(){
+    if(!review?.classList.contains('open'))return undefined;
+    const reward=rewards.querySelector('[data-report-reward-each]'),penalty=rewards.querySelector('[data-report-author-penalty]');
+    if(!reward?.checkValidity()||!penalty?.checkValidity()){reward?.reportValidity();penalty?.reportValidity();throw new Error('请输入 0–100 的整数金额');}
+    return {reward_each:Number(reward.value),author_penalty:Number(penalty.value),reporter_ids:[...new Set([...rewards.querySelectorAll('[data-report-reward-user]:checked:not(:disabled)')].map(input=>Number(input.dataset.reportRewardUser)))]};
+  }
+  function updateCoinSummary(){
+    if(!rewards)return;const host=rewards.querySelector('.report-coin-summary');if(!host)return;
+    const count=new Set([...rewards.querySelectorAll('[data-report-reward-user]:checked:not(:disabled)')].map(el=>el.dataset.reportRewardUser)).size;
+    const reward=Number(rewards.querySelector('[data-report-reward-each]').value),penalty=Number(rewards.querySelector('[data-report-author-penalty]').value);
+    if(!Number.isInteger(reward)||!Number.isInteger(penalty)||reward<0||reward>100||penalty<0||penalty>100){host.textContent='请输入 0–100 的整数金额';return;}
+    host.textContent=`${count} 位举报者 × ${reward} Coins = 共奖励 ${count*reward} Coins；被举报者另扣 ${penalty} Coins。仅在举报成立时执行。`;
+  }
+  async function edit(id){
+    editor ||= shell('adminSubmissionEditor','编辑题解');editor.classList.add('admin-submission-editor');show(editor);const current=++version;const host=editor.querySelector('.moderation-body');host.textContent='正在加载题解…';
+    try{const data=await communityRequest(`/api/management/submissions/${id}`);if(current!==version)return;const item=data.submission,parts=Object.fromEntries(item.parts.map(p=>[p.kind,p]));const parsed=parseSubmissionCode(parts.code?.text||'');
+      host.innerHTML=`<div class="moderation-meta"><h3>${esc(uiProblemTitle(item.problem_title))}</h3><p class="muted">${esc(item.member_name)} · 编辑将保留原作者、提交日期和截图，并重新计算积分。</p></div><form class="admin-submission-form"><label>题解思路<textarea name="logic" maxlength="50000" rows="4">${esc(parts.logic?.text||'')}</textarea></label><label>代码语言<select name="code_language">${['text','cpp','c','python','java','javascript','typescript','go','rust','csharp','kotlin','swift','sql','bash'].map(lang=>`<option ${lang===parsed.language?'selected':''}>${lang}</option>`).join('')}</select></label><label>代码<textarea name="code" maxlength="200000" rows="9" required spellcheck="false">${esc(parsed.code)}</textarea></label><label>Blog<textarea name="blog" maxlength="100000" rows="6">${esc(parts.blog?.text||'')}</textarea></label><footer class="moderation-actions"><p class="account-form-error" role="alert"></p><button class="primary-button" type="submit">修改并提交</button></footer></form>`;
+      host.querySelector('form').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{await communityRequest(`/api/management/submissions/${id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({...Object.fromEntries(new FormData(event.target)),version:item.version})});close(editor);close(review);showToast('题解已修改，积分已重新计算');await refreshAfterMutation();if(currentView==='admin')await loadWorkbench();if(galleryProblem)await openProblem(galleryProblem);}catch(error){host.querySelector('[role=alert]').textContent=error.message;}finally{button.disabled=false;}};
+    }catch(error){if(current===version)host.textContent=error.message;}
+  }
+  document.addEventListener('click',event=>{if(event.target.closest('[data-report-rewards-open]')){openRewards();return;}if(event.target.closest('[data-report-rewards-back]')){backRewards();return;}const report=event.target.closest('[data-open-report]');if(report)openReport(report.dataset.openReport);const button=event.target.closest('[data-admin-edit]');if(button)edit(button.dataset.adminEdit);});
+  document.addEventListener('keydown',event=>{const active=rewards?.classList.contains('open')?rewards:editor?.classList.contains('open')?editor:review?.classList.contains('open')?review:null;if(!active||document.querySelector('#reportDecisionModal.open,.swal2-container'))return;if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();if(active===rewards)backRewards();else close(active);return;}if(event.key!=='Tab')return;const controls=[...active.querySelectorAll('button:not(:disabled),input,textarea,select,a[href]')].filter(el=>el.getClientRects().length),first=controls[0],last=controls.at(-1);if(event.shiftKey&&(document.activeElement===first||!active.contains(document.activeElement))){event.preventDefault();last?.focus();}else if(!event.shiftKey&&(document.activeElement===last||!active.contains(document.activeElement))){event.preventDefault();first?.focus();}},true);
+  return {store,openReport,coinSettings,closeReview:()=>close(review)};
+})();
