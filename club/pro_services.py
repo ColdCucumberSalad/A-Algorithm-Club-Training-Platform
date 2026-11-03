@@ -1,12 +1,11 @@
 """Pro benefit operations. Call mutations inside a transaction with the User locked."""
 import hashlib
 import secrets
-import uuid
 from datetime import timedelta
 
 from django.utils import timezone
 
-from .models import ProEntitlement, ProRedeemCode, ProAudit
+from .models import ProEntitlement, ProRedeemCode
 from .problem_parser import key_cipher
 
 APP_KEY = 'rbc_helper'
@@ -52,28 +51,13 @@ def redeem_code(user, raw):
     if not code:
         raise ValueError('卡密无效或不属于当前账号')
     if code.redeemed_at:
-        return  # A retry never restores a subsequently revoked benefit.
+        return  # Retries return current state without extending the benefit again.
     now = timezone.now()
     entitlement = ProEntitlement.objects.filter(user=user, app=APP_KEY).first()
     if entitlement is None:
         entitlement = ProEntitlement(user=user, app=APP_KEY)
     before = entitlement.expires_at
     entitlement.expires_at = extend_expiry(before, code.duration_days, now)
-    entitlement.revision += 1
     entitlement.save()
     code.redeemed_at = now
     code.save(update_fields=['redeemed_at'])
-    ProAudit.objects.create(user=user, app=APP_KEY, actor=user, action='redeem',
-        request_id=uuid.uuid4(), code=code, before_expires_at=before,
-        after_expires_at=entitlement.expires_at)
-
-
-def management_data(user):
-    row = ProEntitlement.objects.filter(user=user, app=APP_KEY).first()
-    audits = ProAudit.objects.filter(user=user, app=APP_KEY).select_related('actor')[:50]
-    return {'app': APP_KEY, **pro_data(user), 'revision': row.revision if row else 0,
-        'unredeemed_codes': ProRedeemCode.objects.filter(owner=user, app=APP_KEY, redeemed_at__isnull=True).count(),
-        'audit': [{'id': a.pk, 'action': a.action, 'actor': a.actor.username if a.actor else None,
-            'before_expires_at': a.before_expires_at.isoformat() if a.before_expires_at else None,
-            'after_expires_at': a.after_expires_at.isoformat() if a.after_expires_at else None,
-            'reason': a.reason, 'created_at': a.created_at.isoformat()} for a in audits]}

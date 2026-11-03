@@ -16,15 +16,10 @@ from . import system_management_views as system_management
 from .admin_test_mode import toggle as toggle_test_mode
 
 from . import shop_fulfillment
-from . import app_views, pro_admin_views
+from . import app_views
 
 urlpatterns = [
     path('app/cards/redeem', app_views.card_redeem),
-    path('app/auth/login', app_views.login),
-    path('app/auth/logout', app_views.logout),
-    path('app/pro', app_views.pro),
-    path('app/pro/redeem', app_views.redeem),
-    path('management/accounts/<int:user_id>/pro', pro_admin_views.account_pro),
     path('management/submissions/<int:submission_id>',admin_submission_views.edit_submission),
     path('profile/titles/wear', profile_views.wear_title),
     path('account',account_views.current_account),

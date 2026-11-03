@@ -32,7 +32,7 @@ class AccountProblemMigrationTests(TransactionTestCase):
         self.assertIsNone(current_unit.pro_duration_days)
         self.assertEqual(apps.get_model('club', 'Purchase').objects.get(pk=purchase.pk).total_price, 3)
         self.assertEqual(apps.get_model('club', 'CurrencyBalance').objects.get(user_id=uid).balance, 12)
-        for model in ('ProEntitlement', 'ProRedeemCode', 'ProAudit', 'AppAccessToken'):
+        for model in ('ProEntitlement', 'ProRedeemCode', 'AppRateLimit'):
             self.assertEqual(apps.get_model('club', model).objects.count(), 0)
 
     def migrate(self, targets):

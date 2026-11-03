@@ -14,15 +14,6 @@ class Migration(migrations.Migration):
         migrations.AddField(model_name='shopitem', name='pro_duration_days', field=models.PositiveIntegerField(blank=True, null=True)),
         migrations.AddField(model_name='shopfulfillment', name='pro_app', field=models.CharField(blank=True, max_length=40)),
         migrations.AddField(model_name='shopfulfillment', name='pro_duration_days', field=models.PositiveIntegerField(blank=True, null=True)),
-        migrations.CreateModel(name='AppAccessToken', fields=[
-            ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-            ('token_hash', models.CharField(max_length=64, unique=True)),
-            ('auth_hash', models.CharField(max_length=64)),
-            ('created_at', models.DateTimeField(auto_now_add=True)),
-            ('expires_at', models.DateTimeField(db_index=True)),
-            ('revoked_at', models.DateTimeField(blank=True, null=True)),
-            ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='app_tokens', to=settings.AUTH_USER_MODEL)),
-        ]),
         migrations.CreateModel(name='AppRateLimit', fields=[
             ('key', models.CharField(max_length=64, primary_key=True, serialize=False)),
             ('window_start', models.DateTimeField(db_index=True)),
@@ -32,7 +23,6 @@ class Migration(migrations.Migration):
             ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
             ('app', models.CharField(max_length=40)),
             ('expires_at', models.DateTimeField(blank=True, null=True)),
-            ('revision', models.PositiveIntegerField(default=0)),
             ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='pro_entitlements', to=settings.AUTH_USER_MODEL)),
         ], options={'constraints': [models.UniqueConstraint(fields=('user', 'app'), name='unique_user_pro_app')]}),
         migrations.CreateModel(name='ProRedeemCode', fields=[
@@ -45,18 +35,4 @@ class Migration(migrations.Migration):
             ('fulfillment', models.OneToOneField(on_delete=django.db.models.deletion.PROTECT, related_name='pro_code', to='club.shopfulfillment')),
             ('owner', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='pro_codes', to=settings.AUTH_USER_MODEL)),
         ]),
-        migrations.CreateModel(name='ProAudit', fields=[
-            ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-            ('app', models.CharField(max_length=40)),
-            ('action', models.CharField(max_length=24)),
-            ('request_id', models.UUIDField(unique=True)),
-            ('command', models.JSONField(default=dict)),
-            ('before_expires_at', models.DateTimeField(blank=True, null=True)),
-            ('after_expires_at', models.DateTimeField(blank=True, null=True)),
-            ('reason', models.CharField(blank=True, max_length=300)),
-            ('created_at', models.DateTimeField(auto_now_add=True)),
-            ('actor', models.ForeignKey(null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL)),
-            ('code', models.OneToOneField(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, to='club.proredeemcode')),
-            ('user', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='pro_audits', to=settings.AUTH_USER_MODEL)),
-        ], options={'ordering': ['-pk']}),
     ]

@@ -1,12 +1,8 @@
-"""Native-app-only Bearer authentication. Browser sessions never authorize these views."""
-import hmac
+"""Anonymous App card verification; no account login or management endpoints."""
 import ipaddress
-import secrets
 from datetime import timedelta
-from functools import wraps
 
 from django.conf import settings
-from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db import transaction
 from django.http import JsonResponse
@@ -14,7 +10,7 @@ from django.utils import timezone
 from django.utils.crypto import salted_hmac
 from django.views.decorators.csrf import csrf_exempt
 
-from .models import AppAccessToken, AppRateLimit
+from .models import AppRateLimit
 from .pro_services import fingerprint, pro_data, redeem_code
 from .views import body
 
@@ -28,8 +24,6 @@ def response(data, status=200):
 
 def error(message, status):
     result = response({'error': message}, status)
-    if status == 401:
-        result['WWW-Authenticate'] = 'Bearer'
     return result
 
 
@@ -37,6 +31,10 @@ def limited(scope, value, limit, seconds):
     """Database-backed fixed window; independent of process-local caches/workers."""
     now = timezone.now()
     key = salted_hmac('app-rate:' + scope, value).hexdigest()
+    # Request-driven bounded expiry avoids a separate background cleanup feature.
+    stale = list(AppRateLimit.objects.filter(window_start__lt=now - timedelta(days=1))
+                 .order_by('window_start').values_list('pk', flat=True)[:100])
+    AppRateLimit.objects.filter(pk__in=stale, window_start__lt=now - timedelta(days=1)).delete()
     with transaction.atomic():
         row, _ = AppRateLimit.objects.select_for_update().get_or_create(key=key, defaults={'window_start': now})
         if now >= row.window_start + timedelta(seconds=seconds):
@@ -72,97 +70,15 @@ def client_address(request):
     return str(peer)
 
 
-def app_endpoint(method, authenticated=True):
-    def decorate(view):
-        @csrf_exempt
-        @wraps(view)
-        def wrapped(request):
-            if settings.APP_REQUIRE_HTTPS and not request.is_secure():
-                return error('App 接口必须通过 HTTPS 访问', 403)
-            if request.method != method:
-                result = error('请求方法不支持', 405)
-                result['Allow'] = method
-                return result
-            if not authenticated:
-                return view(request)
-            header = request.headers.get('Authorization', '')
-            parts = header.split()
-            if len(parts) != 2 or parts[0].lower() != 'bearer' or len(parts[1]) != 64:
-                return error('登录凭据无效或已过期', 401)
-            token_hash = fingerprint(parts[1])
-            candidate = AppAccessToken.objects.filter(token_hash=token_hash).values_list('user_id', flat=True).first()
-            if candidate is None:
-                return error('登录凭据无效或已过期', 401)
-            # Same order as shop and admin operations: user, then dependent records.
-            with transaction.atomic():
-                user = User.objects.select_for_update().filter(pk=candidate, is_active=True).first()
-                token = AppAccessToken.objects.select_for_update().filter(token_hash=token_hash,
-                    revoked_at__isnull=True, expires_at__gt=timezone.now()).first()
-                if not user or not token or not hmac.compare_digest(token.auth_hash, user.get_session_auth_hash()):
-                    return error('登录凭据无效或已过期', 401)
-                request.app_user, request.app_token = user, token
-                return view(request)
-        return wrapped
-    return decorate
-
-
-@app_endpoint('POST', authenticated=False)
-def login(request):
-    data = body(request)
-    username, password = data.get('username'), data.get('password')
-    address = client_address(request)
-    if limited('login-ip', address, 60, 300):
-        return throttle_error()
-    if not isinstance(username, str) or not 1 <= len(username.strip()) <= 150 or not isinstance(password, str) or not 1 <= len(password) <= 128:
-        return error('账号或密码格式无效', 400)
-    username = username.strip()
-    # Unknown random names share the peer's bucket instead of creating a row per name.
-    account_key = username.casefold() if User.objects.filter(username=username).exists() else 'unknown:' + address
-    if limited('login-account', account_key, 10, 300):
-        return throttle_error()
-    user = authenticate(request, username=username, password=password)
-    if not user or user.first_name == 'CLUB_TEST_SANDBOX':
-        return error('账号或密码错误', 401)
-    with transaction.atomic():
-        # Account disable/reset racing with password verification invalidates the login.
-        locked = User.objects.select_for_update().get(pk=user.pk)
-        if not locked.is_active or locked.password != user.password:
-            return error('账号或密码错误', 401)
-        raw = secrets.token_hex(32)
-        expires = timezone.now() + timedelta(seconds=settings.APP_TOKEN_TTL_SECONDS)
-        AppAccessToken.objects.create(user=locked, token_hash=fingerprint(raw),
-            auth_hash=locked.get_session_auth_hash(), expires_at=expires)
-        return response({'token': raw, 'token_expires_at': expires.isoformat(),
-            'user': {'id': locked.pk, 'username': locked.username}, 'pro': pro_data(locked)})
-
-
-@app_endpoint('GET')
-def pro(request):
-    return response(pro_data(request.app_user))
-
-
-@app_endpoint('POST')
-def redeem(request):
-    if limited('redeem-user', str(request.app_user.pk), 60, 300):
-        return throttle_error()
-    try:
-        with transaction.atomic():
-            redeem_code(request.app_user, body(request).get('code'))
-    except ValueError as exc:
-        return error(str(exc), 400)
-    return response({'pro': pro_data(request.app_user)})
-
-
-@app_endpoint('POST')
-def logout(request):
-    request.app_token.revoked_at = timezone.now()
-    request.app_token.save(update_fields=['revoked_at'])
-    return response({'ok': True})
-
-
-@app_endpoint('POST', authenticated=False)
+@csrf_exempt
 def card_redeem(request):
     from .models import ProRedeemCode
+    if settings.APP_REQUIRE_HTTPS and not request.is_secure():
+        return error('App 接口必须通过 HTTPS 访问', 403)
+    if request.method != 'POST':
+        result = error('请求方法不支持', 405)
+        result['Allow'] = 'POST'
+        return result
     if limited('card-ip', client_address(request), 30, 300):
         return throttle_error()
     data = body(request)

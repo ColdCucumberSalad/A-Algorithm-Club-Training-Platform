@@ -25,9 +25,6 @@ class AdminTestModeMiddleware:
     def __init__(self, get_response): self.get_response = get_response
     def __call__(self, request):
         request.admin_test_mode = False
-        # Native app identity is exclusively resolved from its Bearer token/credentials.
-        if request.path.startswith('/api/app/'):
-            return self.get_response(request)
         # Authentication must remain reachable even with an expired/legacy sandbox.
         if request.path in ('/api/auth/login','/api/auth/logout') and request.method=='POST':
             if request.session.get(USER_KEY):clear_test_session(request)

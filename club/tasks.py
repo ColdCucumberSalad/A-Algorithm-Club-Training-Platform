@@ -11,21 +11,6 @@ from django.core.files.storage import default_storage
 from .services import build_weeks, cleanup_semester, settle_week, validate_week_dates
 
 
-@shared_task
-def cleanup_app_credentials():
-    """Bound retained throttle state and expired/revoked token hashes; retain Pro audit."""
-    from .models import AppRateLimit, AppAccessToken
-    now = timezone.now()
-    cutoff = now - timedelta(days=1)
-    stale_keys = list(AppRateLimit.objects.filter(window_start__lt=cutoff).order_by('window_start').values_list('pk', flat=True)[:5000])
-    limits, _ = AppRateLimit.objects.filter(pk__in=stale_keys, window_start__lt=cutoff).delete()
-    token_cutoff = now - timedelta(days=30)
-    old = Q(expires_at__lt=token_cutoff) | Q(revoked_at__lt=token_cutoff)
-    token_ids = list(AppAccessToken.objects.filter(old).order_by('pk').values_list('pk', flat=True)[:5000])
-    tokens, _ = AppAccessToken.objects.filter(pk__in=token_ids).filter(old).delete()
-    return {'rate_limits': limits, 'tokens': tokens}
-
-
 @shared_task(soft_time_limit=115, time_limit=120)
 def send_astrbot_notifications():
     from .astrbot_notifications import deliver_pending, queue_weekly_reminders

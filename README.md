@@ -2,24 +2,13 @@
 
 **A-Algorithm-Club-Training-Platform**
 
-## RBC Helper API 接入
+## RBC Helper 商品配置与 App 卡密验证
 
-新增迁移 `0053_app_pro_codes`、`0054_card_device`，运行 `python manage.py migrate`。旧商品、价格、库存和用户数据不自动更改。商城核销类商品可选择“内部 Pro 卡密”、RBC Helper、时长（默认31天），并由管理员设置库存。购买保存时长快照，背包领取卡密，核销后开始计时。
+商城核销类商品新增“内部 Pro 卡密”来源，可配置 RBC Helper 和时长（默认 31 天）。购买保存权益快照，背包领取卡密，首次在 App 核销后开始计时；旧商品、价格、库存和用户数据不自动修改。
 
-当前 App **只输入卡密，不要求网站账号密码**。使用 HTTPS：
+App 通过 HTTPS 调用 `POST /api/app/cards/redeem`，发送 `{"code":"RBC-...","device_secret":"本机安全存储的64位小写十六进制随机秘密"}`，无需网站账号密码。同设备重试不重复加时，已核销卡密不能被另一设备重复使用；续期卡须来自同一购买账号。权益按服务器时间叠加，App 日常在本地判断到期。
 
-```http
-POST /api/app/cards/redeem
-Content-Type: application/json
-
-{"code":"RBC-...","device_secret":"本机安全存储的64位十六进制随机秘密"}
-```
-
-返回 `{token,token_expires_at,user:{id,username},pro:{active,expires_at,server_time}}`。卡密首次核销绑定设备凭据哈希，同设备重试不重复加时，其他设备不能重复核销；续期卡须来自同一购买账号，服务端按 `max(now, expires_at)` 叠加有效期。App平时本机判断到期，不轮询接口，离线授权无法立即获知管理员撤销。响应中的卡密凭据不是网站登录token。
-
-全局账号管理增加 Pro 查询、延长、设到期、撤销及审计。原账号 Bearer API 保留兼容，非当前 App 必经流程。仅保存token/设备凭据哈希，浏览器管理仍使用session和CSRF。生产要求HTTPS；Docker代理需配置实际 `APP_TRUSTED_PROXY_CIDRS`，代理覆盖 `X-Real-IP`，后端8000不得公网直达。Web/Worker/Beat应同步更新，保留原加密密钥。不会随代码上传本机卡密、账号、数据库或密钥。
-
-完整请求响应、旧账号API和上线检查见 [App Pro 说明](docs/app-pro.md)。
+部署执行 `python manage.py migrate`（新增 `0053_app_pro_codes`、`0054_card_device`），更新 Web 和商城静态资源，保留原加密密钥，正确配置 HTTPS 和 `APP_TRUSTED_PROXY_CIDRS`。商品与库存须由管理员配置。完整格式和验证命令见 [App 卡密验证说明](docs/app-pro.md)。
 
 This project was born out of the need to make it easier to compile statistics on members’ training records and to encourage club members to train themselves.
 

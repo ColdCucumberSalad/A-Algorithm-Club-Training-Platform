@@ -95,7 +95,6 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
 SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
 # Native app credentials require HTTPS by default; opt out only for local development.
 APP_REQUIRE_HTTPS = os.environ.get('APP_REQUIRE_HTTPS', '1') == '1'
-APP_TOKEN_TTL_SECONDS = int(os.environ.get('APP_TOKEN_TTL_SECONDS', '2592000'))
 APP_TRUSTED_PROXY_CIDRS = tuple(cidr.strip() for cidr in os.environ.get(
     'APP_TRUSTED_PROXY_CIDRS', '127.0.0.0/8,::1/128').split(',') if cidr.strip())
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
@@ -117,7 +116,6 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {'priority_steps':list(range(10)), 'queue_orde
 from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
-    'cleanup-app-credentials': {'task': 'club.tasks.cleanup_app_credentials', 'schedule': 60.0},
     'refresh-tracker-catalogs': {'task': 'club.tasks.refresh_tracker_catalogs',
                                'schedule': crontab(hour='6,18', minute=0)},
     "astrbot-notifications": {

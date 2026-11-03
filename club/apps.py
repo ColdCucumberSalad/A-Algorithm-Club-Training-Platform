@@ -6,7 +6,6 @@ class ClubConfig(AppConfig):
     name = "club"
 
     def ready(self):
-        from . import app_signals  # noqa: F401
         from . import role_signals  # noqa: F401
         from . import solved_signals  # noqa: F401
         from . import system_task  # noqa: F401
