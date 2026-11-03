@@ -233,6 +233,8 @@ def store(binding,rows):
             for field in ('title','url'):
                 if not item.get(field):
                     item[field]=getattr(old,field)
+        if old and all(getattr(old, field) == item.get(field) for field in ('solved_on', 'title', 'url')):
+            continue
         records.append(PlatformSolvedRecord(binding=binding,problem_key=key,**item))
     PlatformSolvedRecord.objects.bulk_create(records,batch_size=300,update_conflicts=True,
         unique_fields=['binding','problem_key'],update_fields=['solved_on','title','url'])
