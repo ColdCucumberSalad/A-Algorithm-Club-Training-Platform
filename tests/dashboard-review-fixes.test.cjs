@@ -23,15 +23,26 @@ test('continuous month-end cells align to the right and snap to the next month',
  c.wireActivityHeatScroll();assert.equal(track.scrollLeft,200);track.scrollLeft=300;snap();assert.equal(month.value,'2026-11');assert.equal(loads,1);assert.equal(track.scrollLeft,300);
 });
 function render(bindings){const target={};const c={$:()=>target,escapeHtml:String};vm.createContext(c);vm.runInContext(source.slice(source.indexOf('function renderDashboardPlatforms('),source.indexOf('async function loadDashboardPlatforms(')),c);c.renderDashboardPlatforms({platforms:{codeforces:{name:'Codeforces'}},bindings});return target.innerHTML;}
-test('multiple bindings select highest rating instead of a new pending account in either response order',()=>{
- const rows=[{id:2,platform:'codeforces',account:'rated',snapshot:{rating:1800,solved:100},synced_at:'2026-11-04'},{id:3,platform:'codeforces',account:'pending',status:'pending'},{id:1,platform:'codeforces',account:'lower',snapshot:{rating:1500}}];
- for(const bindings of [rows,[...rows].reverse()]){const html=render(bindings);assert.match(html,/rated/);assert.match(html,/1,800/);assert.match(html,/>100</);assert.doesNotMatch(html,/pending/);}
+test('every bound account keeps its own statistics and sync status regardless of order',()=>{
+ const rows=[{id:2,platform:'codeforces',account:'rated',snapshot:{rating:1800,solved:100},synced_at:'2026-11-04'},{id:3,platform:'codeforces',account:'pending',status:'pending'},{id:1,platform:'codeforces',account:'lower',snapshot:{rating:1500,solved:42}}];
+ for(const bindings of [rows,[...rows].reverse()]){
+ const html=render(bindings),cards=html.match(/<article[\s\S]*?<\/article>/g);
+ assert.equal(cards.length,3);
+ assert.match(cards.find(card=>card.includes('>pending<')),/\u540c\u6b65\u4e2d/);
+ assert.doesNotMatch(cards.find(card=>card.includes('>rated<')),/\u540c\u6b65\u4e2d/);
+ assert.match(cards.find(card=>card.includes('>rated<')),/1,800/);
+ assert.match(cards.find(card=>card.includes('>rated<')),/>100</);
+ assert.match(cards.find(card=>card.includes('>lower<')),/1,500/);
+ assert.match(cards.find(card=>card.includes('>lower<')),/>42</);
+ assert.doesNotMatch(cards.find(card=>card.includes('>pending<')),/1,800|1,500/);
+ }
 });
-test('numeric ratings follow ranking tie breaks and ignore boolean or negative ratings',()=>{
- const rows=[{id:5,platform:'codeforces',account:'newer',snapshot:{rating:1900}},{id:2,platform:'codeforces',account:'older',snapshot:{rating:'1900'}},{id:1,platform:'codeforces',account:'invalid',snapshot:{rating:true}},{id:6,platform:'codeforces',account:'negative',snapshot:{rating:-1}}];
- assert.match(render(rows),/older/);assert.doesNotMatch(render(rows),/newer/);
+test('unbound platforms still show one empty summary',()=>{
+ const html=render([]);assert.equal((html.match(/dashboard-platform-card/g)||[]).length,1);
 });
-test('unrated platforms prefer synced accounts and unbound platforms retain empty state',()=>{
- assert.match(render([{id:2,platform:'codeforces',account:'synced',synced_at:'2026-11-04',snapshot:{solved:10}},{id:1,platform:'codeforces',account:'pending',status:'pending'}]),/synced/);
- assert.match(render([]),/dashboard-platform-card/);
+test('binding account names are escaped before rendering',()=>{
+ const target={},c={$:()=>target,escapeHtml:s=>String(s).replaceAll('<','&lt;').replaceAll('>','&gt;')};vm.createContext(c);
+ vm.runInContext(source.slice(source.indexOf('function renderDashboardPlatforms('),source.indexOf('async function loadDashboardPlatforms(')),c);
+ c.renderDashboardPlatforms({platforms:{codeforces:{name:'Codeforces'}},bindings:[{platform:'codeforces',account:'<script>bad</script>'}]});
+ assert.doesNotMatch(target.innerHTML,/<script>/);assert.match(target.innerHTML,/&lt;script&gt;/);
 });

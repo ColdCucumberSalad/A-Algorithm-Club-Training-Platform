@@ -1366,23 +1366,19 @@ function renderDashboardPlatforms(payload){
     if(!bindings.has(row.platform))bindings.set(row.platform,[]);
     bindings.get(row.platform).push(row);
   }
-  const rating=row=>{
-    const raw=row?.snapshot?.rating;
-    const value=typeof raw==='number'||typeof raw==='string'&&raw.trim()!==''?Number(raw):NaN;
-    return Number.isFinite(value)&&value>=0?value:-1;
-  };
-  const representative=rows=>[...rows].sort((a,b)=>(a.id??0)-(b.id??0)).reduce((best,row)=>
-    !best||rating(row)>rating(best)||rating(row)===-1&&rating(best)===-1&&!best.synced_at&&row.synced_at?row:best,null);
   const order=['nowcoder','codeforces','leetcode','atcoder','luogu','qoj'];
   const number=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocaleString():'—';
-  $('#dashboardPlatformGrid').innerHTML=order.filter(key=>payload.platforms?.[key]).map(key=>{
-    const rows=bindings.get(key)||[],meta=payload.platforms[key],binding=representative(rows),stats=binding?.snapshot||{};
-    const baseline=binding?.solved_baseline;
-    const hasBaseline=Boolean(baseline?.captured_at);
-    const solved=hasBaseline?baseline.total:stats.solved;
-    const status=!binding?'未绑定':binding.status==='pending'?'同步中':binding.status==='failed'?'同步失败':!binding.synced_at?'待同步':'';
-    const scope=hasBaseline?'已解题数':stats.solved_label||'已解题数';
-    return `<article class="dashboard-platform-card" data-platform="${key}"><div class="dashboard-platform-title"><span class="platform-color-dot" aria-hidden="true"></span><h3>${escapeHtml(meta.name)}</h3>${status?`<small>${status}</small>`:''}</div><div class="dashboard-platform-values"><span title="${escapeHtml(scope)}"><strong>${number(solved)}</strong> 已解</span><span><strong>${number(rating(binding)>=0?rating(binding):null)}</strong> Rating</span></div><small class="dashboard-platform-account">${escapeHtml(binding?.account||'尚未绑定账号')}${rows.length>1?` · 共 ${rows.length} 个账号，${rating(binding)>=0?'展示最高 Rating':'展示代表账号'}`:''}</small></article>`;
+  $('#dashboardPlatformGrid').innerHTML=order.filter(key=>payload.platforms?.[key]).flatMap(key=>{
+    const rows=bindings.get(key)||[];
+    return (rows.length?rows:[null]).map(binding=>{
+      const meta=payload.platforms[key],stats=binding?.snapshot||{};
+      const baseline=binding?.solved_baseline;
+      const hasBaseline=Boolean(baseline?.captured_at);
+      const solved=hasBaseline?baseline.total:stats.solved;
+      const status=!binding?'未绑定':binding.status==='pending'?'同步中':binding.status==='failed'?'同步失败':!binding.synced_at?'待同步':'';
+      const scope=hasBaseline?'已解题数':stats.solved_label||'已解题数';
+      return `<article class="dashboard-platform-card" data-platform="${key}"><div class="dashboard-platform-title"><span class="platform-color-dot" aria-hidden="true"></span><h3>${escapeHtml(meta.name)}</h3>${status?`<small>${status}</small>`:''}</div><div class="dashboard-platform-values"><span title="${escapeHtml(scope)}"><strong>${number(solved)}</strong> 已解</span><span><strong>${number(stats.rating)}</strong> Rating</span></div><small class="dashboard-platform-account">${escapeHtml(binding?.account||'尚未绑定账号')}</small></article>`;
+    });
   }).join('');
 }
 async function loadDashboardPlatforms(){
