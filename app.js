@@ -41,7 +41,7 @@ const rankingData = {};
 const rankingKey = (scope, platform='codeforces', period='semester') => scope === 'rating' ? `${scope}:${platform}` : scope === 'solved' ? `${scope}:${period}` : scope;
 function rankingSelection(target) {
   const panel = document.querySelector(target)?.closest('.panel');
-  return {scope: panel?.querySelector('[data-ranking].active')?.dataset.ranking || 'checkin',
+  return {scope: document.querySelector(target)?.dataset?.dashboardRanking || panel?.querySelector('[data-ranking].active')?.dataset.ranking || 'checkin',
     platform: panel?.querySelector('[data-rating-platform]')?.value || 'codeforces',
     period: panel?.querySelector('[data-solved-period]')?.value || 'semester', panel};
 }
@@ -71,34 +71,68 @@ let selectedPulseDate = '';
 let pulseToday = '';
 let activityPayload = null, trainingRequestVersion = 0;
 
-function activityMonthBounds(month) {
+function shiftActivityMonth(month, offset) {
+  const [year,m]=month.split('-').map(Number),date=new Date(year,m-1+offset,1);
+  return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0');
+}
+function renderActivitySlidingMonths(data){
+  const months=new Map();
+  for(const day of data.neighborDays||data.days){if(data.semester?.end&&day.date>data.semester.end)continue;const key=day.date.slice(0,7);if(!months.has(key))months.set(key,[]);months.get(key).push(day);}
+  if(document.documentElement.dataset.heatmapMonthGap==='false'){
+    const days=[...months.values()].flat();
+    const endings=new Map([...months].map(([month,items])=>[items.at(-1).date,month]));
+    return renderActivityMonths(days,'ac','题',data.today).replace(/data-activity-date="([^"]+)"/g,(attribute,date)=>
+      endings.has(date)?`${attribute} data-window-end="${endings.get(date)}"`:attribute);
+  }
+  return `<div class="activity-sliding-months">${[...months].map(([month,days])=>`<div class="activity-slide-month" data-window-end="${month}">${renderActivityMonths(days,'ac','题',data.today)}</div>`).join('')}</div>`;
+}
+function activityVisibleMonthCount() {
+  const track=$('.activity-heat-scroll');
+  if(!track?.clientWidth)return 4;
+  const style=getComputedStyle($('#activityHeatmap'));
+  const measured=track.querySelector?.('.activity-heat-cell')?.getBoundingClientRect().width;
+  const originalSize=Math.min(28,Math.max(10,((track.parentElement?.clientWidth||track.clientWidth)-130)/22));
+  const cell=measured||parseFloat(style.getPropertyValue('--activity-cell'))||originalSize;
+  const gap=parseFloat(style.getPropertyValue('--activity-gap'))||4;
+  return Math.max(1,Math.ceil((track.clientWidth+12)/(4*cell+3*gap+12))+1);
+}
+function activityMonthBounds(month, count=4) {
   const [year, m] = month.split('-').map(Number);
-  const first=new Date(year,m-4,1);
+  const first=new Date(year,m-count,1);
   const start=first.getFullYear()+'-'+String(first.getMonth()+1).padStart(2,'0')+'-01';
   return [start, month+'-'+new Date(year,m,0).getDate()];
 }
+function activityRequestRanges(start,end){
+  const last=Date.parse(end+'T00:00:00Z'),day=86400000,ranges=[];
+  for(let cursor=Date.parse(start+'T00:00:00Z');cursor<=last;cursor+=365*day){
+    ranges.push([new Date(cursor).toISOString().slice(0,10),new Date(Math.min(last,cursor+364*day)).toISOString().slice(0,10)]);
+  }
+  return ranges;
+}
 function renderActivityMonthPicker(year){
+  const maxMonth=activityPayload?.semester?.end?.slice(0,7)||'';
+  const maxYear=maxMonth?Number(maxMonth.slice(0,4)):2199;
+  year=Math.min(year,maxYear);
   const selected=$('#activityMonth').value;
   const popup=$('#activityMonthPopover');
   popup.dataset.year=year;
-  popup.innerHTML=`<div class="activity-month-picker-heading"><button type="button" data-month-year="${year-1}" aria-label="上一年" ${year<=2001?'disabled':''}>‹</button><strong>${year} 年</strong><button type="button" data-month-year="${year+1}" aria-label="下一年" ${year>=2199?'disabled':''}>›</button></div><div class="activity-month-picker-grid">${Array.from({length:12},(_,i)=>{const value=year+'-'+String(i+1).padStart(2,'0');return `<button type="button" data-month-value="${value}" aria-pressed="${value===selected}">${i+1}月</button>`;}).join('')}</div>`;
+  popup.innerHTML=`<div class="activity-month-picker-heading"><button type="button" data-month-year="${year-1}" aria-label="上一年" ${year<=2001?'disabled':''}>‹</button><strong>${year} 年</strong><button type="button" data-month-year="${year+1}" aria-label="下一年" ${year>=maxYear?'disabled':''}>›</button></div><div class="activity-month-picker-grid">${Array.from({length:12},(_,i)=>{const value=year+'-'+String(i+1).padStart(2,'0');return `<button type="button" data-month-value="${value}" ${maxMonth&&value>maxMonth?'disabled':''} aria-pressed="${value===selected}">${i+1}月</button>`;}).join('')}</div>`;
 }
 $('#activityMonthPopover')?.addEventListener('beforetoggle',event=>{
   if(event.newState!=='open')return;
   renderActivityMonthPicker(Number($('#activityMonth').value.slice(0,4))||new Date().getFullYear());
-  const rect=$('#activityMonthTrigger').getBoundingClientRect(),popup=$('#activityMonthPopover');
+  const rect=$('#activityMonthCalendar').getBoundingClientRect(),popup=$('#activityMonthPopover');
   const width=Math.min(280,innerWidth-24);
   popup.style.width=width+'px';popup.style.left=Math.max(12,Math.min(rect.right-width,innerWidth-width-12))+'px';
   popup.style.top=Math.max(12,Math.min(rect.bottom+8,innerHeight-250))+'px';
 });
 $('#activityMonthPopover')?.addEventListener('click',event=>{
   const year=event.target.closest('[data-month-year]');if(year){renderActivityMonthPicker(Number(year.dataset.monthYear));return;}
-  const month=event.target.closest('[data-month-value]');if(!month)return;
+  const month=event.target.closest('[data-month-value]');if(!month||month.disabled)return;
   $('#activityMonth').value=month.dataset.monthValue;
   $('#activityMonthPopover').hidePopover();
   $('#activityMonth').dispatchEvent(new Event('change',{bubbles:true}));
 });
-function activityUnit(){return $('#activityMetric')?.value==='daily'?'次':'题';}
 function activitySafeLink(url){try{const u=new URL(url);return ['http:','https:'].includes(u.protocol)?u.href:'';}catch(_){return '';}}
 function updatePulseDay(day){
   const index=pulseDays.findIndex(item=>item.date===day.date);
@@ -106,13 +140,13 @@ function updatePulseDay(day){
 }
 function renderActivityDay(day) {
   const container=$('#activityRecords');if(!container)return;
-  const metric=$('#activityMetric').value,record=activityPayload?.days.find(d=>d.date===day.date);
-  const rows=(record?.records||[]).filter(r=>r.kind===metric);
-  const count=record?.[metric]||0;
+  const record=activityPayload?.days.find(d=>d.date===day.date);
+  const rows=(record?.records||[]).filter(r=>r.kind==='ac');
+  const count=record?.ac||0;
   const dateLabel=day.date===pulseToday?'今日':'当日';
   const hasSubmission=Boolean(record?.hasSubmission||record?.daily>0);
-  $('#pulseFocus').textContent=`${day.date} · ${metric==='ac'?'AC 题目':'每日一题提交'} ${count} ${activityUnit()}`;
-  container.innerHTML=rows.length?rows.map((r,index)=>{const url=activitySafeLink(r.url);return `<div class="activity-record"><div><small>第${index+1}题</small>${url?`<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(uiProblemTitle(r.title))} <span aria-hidden="true">↗</span></a>`:`<strong>${escapeHtml(uiProblemTitle(r.title))}</strong>`}</div><span class="activity-record-check" aria-label="已记录">✓</span></div>`;}).join(''):`<p class="activity-empty">${day.date>pulseToday?'这一天还未到来。':!record?'正在加载当天记录…':metric==='ac'&&hasSubmission?`${dateLabel}已有提交，暂无已确认的 AC 记录。`:`${dateLabel}没有提交`}${record?.checkedIn&&!hasSubmission?' 已签到，尚未提交题目。':''}</p>`;
+  $('#pulseFocus').textContent=`${day.date} · AC 题目 ${count} 题`;
+  container.innerHTML=rows.length?rows.map((r,index)=>{const url=activitySafeLink(r.url);return `<div class="activity-record"><div><small>第${index+1}题</small>${url?`<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(uiProblemTitle(r.title))} <span aria-hidden="true">↗</span></a>`:`<strong>${escapeHtml(uiProblemTitle(r.title))}</strong>`}</div><span class="activity-record-check" aria-label="已记录">✓</span></div>`;}).join(''):`<p class="activity-empty">${day.date>pulseToday?'这一天还未到来。':!record?'正在加载当天记录…':hasSubmission?`${dateLabel}已有提交，暂无已确认的 AC 记录。`:`${dateLabel}没有提交`}${record?.checkedIn&&!hasSubmission?' 已签到，尚未提交题目。':''}</p>`;
   const submit=$('#activitySubmit'),primary=$('#openSubmission');
   submit.hidden=!primary||primary.hidden||document.body.classList.contains('site-admin-mode');
   submit.disabled=false;submit.textContent='查看历史提交';
@@ -152,11 +186,10 @@ function renderActivityMonths(days,metric,unit,today){
 window.addEventListener('site-heatmap-layout-change',()=>{if(activityPayload)renderTrainingActivity();});
 function renderTrainingActivity(){
   const data=activityPayload;if(!data)return;
-  const metric=$('#activityMetric').value,summary=data[metric],unit=activityUnit(),semester=$('#activityRange').value==='semester';
-  $('#activityPeriod').textContent=semester?(data.semester?.name||'当前学期'):'近四个月 · 截至 '+data.end.slice(0,7).replace('-',' 年 ')+' 月';
-  $('#activityMonthLabel').hidden=semester;
+  const semester=$('#activityRange').value==='semester';
+  $('#activityPeriod').textContent=semester?(data.semester?.name||'当前学期'):'截至 '+data.end.slice(0,7).replace('-',' 年 ')+' 月';
   $('#activityHeatmap').dataset.range=semester?'semester':'month';
-  $('#activityHeatmap').innerHTML=`<div class="activity-weekdays" aria-hidden="true">${['一','二','三','四','五','六','日'].map(n=>`<span>${n}</span>`).join('')}</div>${renderActivityMonths(data.days,'ac','题',data.today)}`;
+  $('#activityHeatmap').innerHTML=`${!semester&&data.neighborDays?renderActivitySlidingMonths(data):renderActivityMonths(data.days,'ac','题',data.today)}`;
   wireActivityHeatScroll();
   $('#activityNote').hidden=!data.ac?.undated;
   $('#activityNote').textContent=data.ac?.undated ? `另有 ${data.ac.undated} 题日期未知，仅计入总榜，不计入学期榜和热力图。` : '';
@@ -167,32 +200,46 @@ async function loadTrainingActivity(dashboard=null){
   if(!$('#activityMonth'))return;
   if(dashboard){pulseToday=dashboard.today||new Date().toLocaleDateString('sv-SE');}
   const month=$('#activityMonth');if(!month.value)month.value=(pulseToday||new Date().toLocaleDateString('sv-SE')).slice(0,7);
-  $('#activityMonthTrigger').innerHTML=month.value.replace('-',' 年 ')+' 月 <span aria-hidden="true">⌄</span>';
+  const semesterEnd=activityPayload?.semester?.end;
+  if(semesterEnd&&month.value>semesterEnd.slice(0,7))month.value=semesterEnd.slice(0,7);
   const requestVersion=++trainingRequestVersion;
-  let [start,end]=activityMonthBounds(month.value);
+  let [start,end]=activityMonthBounds(month.value,activityVisibleMonthCount());
   // The first request supplies actual semester bounds; no fabricated calendar dates.
   if($('#activityRange').value==='semester'&&activityPayload?.semester){start=activityPayload.semester.start;end=activityPayload.semester.end;}
-  $('#activityNote').hidden=false;$('#activityNote').textContent='正在加载训练活动…';$('#activityHeatmap').setAttribute('aria-busy','true');
+  const visibleStart=start,visibleEnd=semesterEnd&&end>semesterEnd?semesterEnd:end;
+  const monthly=$('#activityRange').value==='month';
+  if(monthly){start=shiftActivityMonth(start.slice(0,7),-1)+'-01';end=activityMonthBounds(shiftActivityMonth(month.value,1))[1];}
+  if(semesterEnd&&end>semesterEnd)end=semesterEnd;
+  $('#activityNote').hidden=true;$('#activityNote').textContent='';$('#activityHeatmap').setAttribute('aria-busy','true');
   try{
-    const response=await clubApi.request(`/api/training-activity?start=${start}&end=${end}`);
-    const data=await response.json();if(requestVersion!==trainingRequestVersion)return;
-    if(!response.ok)throw new Error(data.error||'训练活动加载失败');
+    const chunks=await Promise.all(activityRequestRanges(start,end).map(async([from,to])=>{
+      const response=await clubApi.request(`/api/training-activity?start=${from}&end=${to}`);
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.error||'训练活动加载失败');
+      return data;
+    }));
+    if(requestVersion!==trainingRequestVersion)return;
+    const data={...chunks[0],start,end,days:chunks.flatMap(chunk=>chunk.days)};
+    const limit=data.semester?.end;
+    if(limit){
+      month.max=limit.slice(0,7);
+      if(month.value>month.max){month.value=month.max;activityPayload=data;await loadTrainingActivity();return;}
+      data.days=data.days.filter(day=>day.date<=limit);
+    }else month.removeAttribute?.('max');
+    if(monthly){data.neighborDays=data.days;data.days=data.days.filter(day=>day.date>=visibleStart&&day.date<=visibleEnd);data.start=visibleStart;data.end=limit&&visibleEnd>limit?limit:visibleEnd;}
     activityPayload=data;
-    const option=$('#activityRange option[value="semester"]');option.disabled=!data.semester;
     if(!data.semester&&$('#activityRange').value==='semester')$('#activityRange').value='month';
     if($('#activityRange').value==='semester'&&data.semester&&(start!==data.semester.start||end!==data.semester.end)){loadTrainingActivity();return;}
     renderTrainingActivity();
-  }catch(error){if(requestVersion!==trainingRequestVersion)return;activityPayload=null;$('#activityHeatmap').innerHTML='<button type="button" class="secondary-button" data-activity-retry>重新加载</button>';$('#activityNote').textContent=error.message;$('#activityRecords').textContent='当天记录暂未加载成功，请重试。';}
+  }catch(error){if(requestVersion!==trainingRequestVersion)return;activityPayload=null;$('#activityHeatmap').innerHTML='<button type="button" class="secondary-button" data-activity-retry>重新加载</button>';$('#activityNote').hidden=false;$('#activityNote').textContent=error.message;$('#activityRecords').textContent='当天记录暂未加载成功，请重试。';}
   finally{if(requestVersion===trainingRequestVersion)$('#activityHeatmap').removeAttribute('aria-busy');}
 }
-$('#activityMetric')?.addEventListener('change',renderTrainingActivity);
-$('#activityRange')?.addEventListener('change',()=>loadTrainingActivity());
-$('#activityMonth')?.addEventListener('change',event=>{if(/^\d{4}-\d{2}$/.test(event.target.value))loadTrainingActivity();});
+$('#activityMonth')?.addEventListener('change',event=>{if(/^\d{4}-\d{2}$/.test(event.target.value)){$('#activityRange').value='month';loadTrainingActivity();}});
 $('#activitySubmit')?.addEventListener('click',()=>setView('submissions'));
 $('#activityHeatmap')?.addEventListener('click',event=>{
   if(event.target.closest('[data-activity-retry]')){loadTrainingActivity();return;}
   const button=event.target.closest('[data-activity-date]');if(!button||!activityPayload)return;
-  const day=activityPayload.days.find(d=>d.date===button.dataset.activityDate);if(!day)return;
+  const day=(activityPayload.neighborDays||activityPayload.days).find(d=>d.date===button.dataset.activityDate);if(!day)return;
   updatePulseDay(day);
   selectPulseDay(day.date);
 });
@@ -217,13 +264,19 @@ function renderLeaderboard(mode='checkin', target='#leaderboardList') {
   const selection = rankingSelection(target);
   const allRows = rankingData[rankingKey(selection.scope,selection.platform,selection.period)];
   const query=selection.panel?.querySelector('[data-ranking-search]')?.value||'';
-  const rows = target === '#leaderboardList' ? allRows?.filter(row => row.isCurrent) : allRows?.filter(row=>window.MemberTitles.matchesMember(row,query));
+  const rows = target !== '#leaderboardListFull' ? allRows?.filter(row => row.isCurrent) : allRows?.filter(row=>window.MemberTitles.matchesMember(row,query));
   const filter = selection.panel?.querySelector('.rating-platform-filter:not(.solved-period-filter)');
   const solvedFilter = selection.panel?.querySelector('.solved-period-filter');
   if (solvedFilter) solvedFilter.hidden = selection.scope !== 'solved';
   if (filter) filter.hidden = selection.scope !== 'rating';
+  if(el.dataset.dashboardRanking){
+    const row=rows?.find(item=>item.isCurrent);
+    const rank=row?.rank;
+    el.innerHTML=!rows?'<div class="queue-empty" role="status">正在加载排名…</div>':`<div class="personal-ranking-result"><span class="personal-ranking-place">${rank?`团队第 <strong>${escapeHtml(String(rank))}</strong> 名`:'暂无排名'}</span><span class="personal-ranking-value"><strong>${escapeHtml(String(row?.value??'—'))}</strong><small>${escapeHtml(row?.unit||'')}</small></span></div>`;
+    return;
+  }
   el.innerHTML = !rows ? '<div class="queue-empty" role="status">正在加载榜单…</div>' : !rows.length
-    ? `<div class="queue-empty">${target === '#leaderboardList' ? '你在当前榜单暂无排名' : query.trim() ? '没有匹配的成员或分队' : selection.scope === 'rating' ? '当前团队暂无绑定此平台的成员' : '暂无排行榜数据'}</div>`
+    ? `<div class="queue-empty">${target !== '#leaderboardListFull' ? '你在当前榜单暂无排名' : query.trim() ? '没有匹配的成员或分队' : selection.scope === 'rating' ? '当前团队暂无绑定此平台的成员' : '暂无排行榜数据'}</div>`
     : rows.map(row => `
       <button type="button" class="leader-row ${row.isCurrent ? 'you' : ''}" data-ranking-member="${row.memberId}" aria-label="查看${escapeHtml(uiMemberName(row.name))}的个人信息">
         <span class="leader-rank ${row.rank && row.rank <= 3 ? 'top' : ''}">${row.rank || '—'}</span>
@@ -265,7 +318,7 @@ function setView(view, {preserveContent=false}={}) {
     }, 1120);
   }
   window.scrollTo({top:0, behavior:'smooth'});
-  if (view === 'dashboard') {const selected=rankingSelection('#leaderboardList');loadLeaderboard(selected.scope,selected.platform,{period:selected.period});}
+  if (view === 'dashboard') loadDashboardRankings();
   if (view === 'leaderboard') { const selected = rankingSelection('#leaderboardListFull'); renderLeaderboard(selected.scope, '#leaderboardListFull'); loadLeaderboard(selected.scope,selected.platform,{period:selected.period}); }
   if (!demoMode && previousView === 'admin' && view !== 'admin') stopAdminQueuePolling();
   if (!demoMode && view === 'admin') startAdminQueuePolling();
@@ -313,7 +366,7 @@ function selectPulseDay(date) {
   }
 }
 
-function wireHorizontalDateScroll(track, itemSelector) {
+function wireHorizontalDateScroll(track, itemSelector, options = {}) {
   if (!track || track.dataset.scrollWired) return;
   track.dataset.scrollWired = 'true';
   let drag = null, frame = 0, suppressClick = false, settleTimer = 0, settling = false;
@@ -327,6 +380,7 @@ function wireHorizontalDateScroll(track, itemSelector) {
   const snap = () => {
     if (settling || contacts.size || drag || !track.clientWidth) return;
     clearTimeout(settleTimer);
+    if(options.snap?.(track))return;
     const maxLeft = track.scrollWidth-track.clientWidth;
     // Keep the right edge reachable when the final month is narrower than the viewport.
     if (track.scrollLeft >= maxLeft-1) return;
@@ -432,10 +486,51 @@ function wireHorizontalDateScroll(track, itemSelector) {
 
 let refreshActivityHeatScroll;
 function wireActivityHeatScroll() {
-  if (!refreshActivityHeatScroll) {
-    refreshActivityHeatScroll = wireHorizontalDateScroll($('.activity-heat-scroll'),'.activity-month-section, .activity-continuous-months [data-activity-date]');
-  }
-  requestAnimationFrame(() => refreshActivityHeatScroll?.());
+  const track=$('.activity-heat-scroll');
+  if(!track)return;
+  track.classList.toggle('has-month-window',Boolean(activityPayload?.neighborDays));
+  const alignMonth=(items,month)=>{
+    const item=items.find(item=>item.dataset.windowEnd===month);
+    if(!item||!items.length)return 0;
+    const continuous=Boolean(item.dataset.activityDate);
+    const origin=(continuous?items[0].parentElement:items[0]).getBoundingClientRect().left;
+    const edge=continuous?item:item.querySelector('.activity-heat-grid');
+    return edge.getBoundingClientRect().right-origin-track.clientWidth;
+  };
+  const snapMonthly=()=>{
+    if($('#activityRange').value!=='month'||!activityPayload?.neighborDays)return false;
+    if(track.dataset.positioning==='true')return true;
+    if(Number(track.dataset.viewportWidth)!==track.clientWidth){
+      if(track.clientWidth&&Number(track.dataset.pendingWidth)!==track.clientWidth){
+        track.dataset.pendingWidth=String(track.clientWidth);
+        loadTrainingActivity();
+      }
+      return true;
+    }
+    const items=[...track.querySelectorAll('[data-window-end]')];
+    const selected=$('#activityMonth').value;
+    const firstMonth=shiftActivityMonth(selected,-1),lastMonth=shiftActivityMonth(selected,1);
+    const semesterMonth=activityPayload.semester?.end?.slice(0,7);
+    const candidates=items.filter(item=>item.dataset.windowEnd>=firstMonth&&item.dataset.windowEnd<=lastMonth&&(!semesterMonth||item.dataset.windowEnd<=semesterMonth));
+    if(!candidates.length)return true;
+    const maxScroll=Math.max(0,track.scrollWidth-track.clientWidth);
+    const stops=candidates.map(item=>Math.max(0,Math.min(alignMonth(items,item.dataset.windowEnd),maxScroll)));
+    const nearest=stops.reduce((best,left,i)=>Math.abs(left-track.scrollLeft)<Math.abs(stops[best]-track.scrollLeft)?i:best,0);
+    track.scrollTo({left:stops[nearest],behavior:'instant'});
+    const month=candidates[nearest].dataset.windowEnd;
+    if(selected!==month){$('#activityMonth').value=month;loadTrainingActivity();}
+    return true;
+  };
+  if(!refreshActivityHeatScroll)refreshActivityHeatScroll=wireHorizontalDateScroll(track,'[data-window-end]',{snap:snapMonthly});
+  track.dataset.positioning='true';
+  requestAnimationFrame(()=>{
+    const items=[...track.querySelectorAll('[data-window-end]')];
+    track.dataset.viewportWidth=String(track.clientWidth);
+    delete track.dataset.pendingWidth;
+    track.scrollLeft=Math.max(0,alignMonth(items,$('#activityMonth').value));
+    refreshActivityHeatScroll?.();
+    track.dataset.positioning='false';
+  });
 }
 
 function wirePulseAtlas() {
@@ -1141,13 +1236,13 @@ function wireRankingControls(root=document) {
     await loadLeaderboard(selected.scope,selected.platform,{period:selected.period});
   }));
   $$('[data-solved-period]', root).forEach(select => select.addEventListener('change',async () => {
-    const target = select.closest('.full-leaderboard') ? '#leaderboardListFull' : '#leaderboardList';
+    const target = select.closest('.full-leaderboard') ? '#leaderboardListFull' : '#leaderboardSolvedList';
     const selected = rankingSelection(target);
     renderLeaderboard('solved',target);
     await loadLeaderboard('solved',selected.platform,{period:select.value});
   }));
   $$('[data-rating-platform]', root).forEach(select => select.addEventListener('change',async () => {
-    const target = select.closest('.full-leaderboard') ? '#leaderboardListFull' : '#leaderboardList';
+    const target = select.closest('.full-leaderboard') ? '#leaderboardListFull' : '#leaderboardRatingList';
     renderLeaderboard('rating',target);
     await loadLeaderboard('rating',select.value);
   }));
@@ -1264,7 +1359,7 @@ $('#proofImage').addEventListener('change', (event) => {
 function clearStaticPreview() {
   const loading = '<div class="queue-empty">正在加载真实数据…</div>';
   Object.keys(rankingData).forEach(key => delete rankingData[key]);
-  ['#leaderboardList', '#leaderboardListFull'].forEach((selector) => {
+  ['#leaderboardList', '#leaderboardRatingList', '#leaderboardSolvedList', '#leaderboardWealthList', '#leaderboardListFull'].forEach((selector) => {
     const element = $(selector);
     if (element) { element.innerHTML = loading; element.setAttribute('aria-live', 'polite'); }
   });
@@ -1322,11 +1417,44 @@ function clearStaticPreview() {
   if (profile) { profile.querySelector('strong').textContent = '正在加载…'; profile.querySelector('small').textContent = '正在验证登录状态'; }
 }
 
+let dashboardPlatformRequest=0;
+function renderDashboardPlatforms(payload){
+  const bindings=new Map();
+  for(const row of payload.bindings||[]){
+    if(!bindings.has(row.platform))bindings.set(row.platform,[]);
+    bindings.get(row.platform).push(row);
+  }
+  const order=['nowcoder','codeforces','leetcode','atcoder','luogu','qoj'];
+  const number=value=>typeof value==='number'&&Number.isFinite(value)?value.toLocaleString():'—';
+  $('#dashboardPlatformGrid').innerHTML=order.filter(key=>payload.platforms?.[key]).flatMap(key=>{
+    const rows=bindings.get(key)||[];
+    return (rows.length?rows:[null]).map(binding=>{
+      const meta=payload.platforms[key],stats=binding?.snapshot||{};
+      const baseline=binding?.solved_baseline;
+      const hasBaseline=Boolean(baseline?.captured_at);
+      const solved=hasBaseline?baseline.total:stats.solved;
+      const status=!binding?'未绑定':binding.status==='pending'?'同步中':binding.status==='failed'?'同步失败':!binding.synced_at?'待同步':'';
+      const scope=hasBaseline?'已解题数':stats.solved_label||'已解题数';
+      return `<article class="dashboard-platform-card" data-platform="${key}"><div class="dashboard-platform-title"><span class="platform-color-dot" aria-hidden="true"></span><h3>${escapeHtml(meta.name)}</h3>${status?`<small>${status}</small>`:''}</div><div class="dashboard-platform-values"><span title="${escapeHtml(scope)}"><strong>${number(solved)}</strong> 已解</span><span><strong>${number(stats.rating)}</strong> Rating</span></div><small class="dashboard-platform-account">${escapeHtml(binding?.account||'尚未绑定账号')}</small></article>`;
+    });
+  }).join('');
+}
+async function loadDashboardPlatforms(){
+  const target=$('#dashboardPlatformGrid');if(!target)return;
+  const version=++dashboardPlatformRequest;
+  try{
+    const response=await clubApi.request('/api/profile');
+    if(!response.ok)throw Error('平台统计暂时无法加载');
+    const payload=await response.json();
+    if(version===dashboardPlatformRequest)renderDashboardPlatforms(payload);
+  }catch(error){if(version===dashboardPlatformRequest)target.innerHTML='<p class="muted" role="status">平台统计暂时无法加载，请刷新重试。</p>';}
+}
+
 async function loadDashboardSummary({forceMine = false} = {}) {
   const dashboardResponse = await clubApi.request('/api/dashboard');
   if (!dashboardResponse.ok) return null;
   const dashboard = await dashboardResponse.json();
-  await loadTrainingActivity(dashboard);
+  await Promise.all([loadTrainingActivity(dashboard),loadDashboardPlatforms()]);
   const scoreValue = $('.metric-card.featured .metric-value');
   const scoreFoot = $('.metric-card.featured .metric-foot span');
   const submissionValue = $('.metric-card:nth-child(2) .metric-value');
@@ -1352,6 +1480,13 @@ async function loadDashboardSummary({forceMine = false} = {}) {
   return dashboard;
 }
 
+function loadDashboardRankings(){
+  return Promise.allSettled(['#leaderboardList','#leaderboardRatingList','#leaderboardSolvedList','#leaderboardWealthList'].map(target=>{
+    const selected=rankingSelection(target);
+    return loadLeaderboard(selected.scope,selected.platform,{period:selected.period});
+  }));
+}
+
 async function loadLeaderboard(scope = 'checkin', platform='codeforces', {force=false,period='semester'} = {}) {
   const key = rankingKey(scope,platform,period);
   if (!force && leaderboardInFlight.has(key)) return leaderboardInFlight.get(key);
@@ -1362,13 +1497,13 @@ async function loadLeaderboard(scope = 'checkin', platform='codeforces', {force=
       if (leaderboardInFlight.get(key) !== request) return false;
       if (!response.ok) throw new Error(payload.error || '榜单加载失败');
       rankingData[key] = payload.rows || [];
-      for (const target of ['#leaderboardList','#leaderboardListFull']) {
+      for (const target of ['#leaderboardList','#leaderboardRatingList','#leaderboardSolvedList','#leaderboardWealthList','#leaderboardListFull']) {
         const selected = rankingSelection(target);
         if (rankingKey(selected.scope,selected.platform,selected.period) === key) renderLeaderboard(scope,target);
       }
       return true;
     } catch (error) {
-      for (const target of ['#leaderboardList','#leaderboardListFull']) {
+      for (const target of ['#leaderboardList','#leaderboardRatingList','#leaderboardSolvedList','#leaderboardWealthList','#leaderboardListFull']) {
         const selected = rankingSelection(target);
         if (rankingKey(selected.scope,selected.platform,selected.period) === key && !rankingData[key]) $(target).innerHTML = `<div class="queue-empty" role="alert">${escapeHtml(error.message)}</div>`;
       }
@@ -1381,7 +1516,7 @@ async function loadLeaderboard(scope = 'checkin', platform='codeforces', {force=
 }
 
 async function refreshAfterMutation({refreshAdmin = false} = {}) {
-  const selections=new Map(['#leaderboardList','#leaderboardListFull'].map(target=>{
+  const selections=new Map(['#leaderboardList','#leaderboardRatingList','#leaderboardSolvedList','#leaderboardWealthList','#leaderboardListFull'].map(target=>{
     const selected=rankingSelection(target);return [rankingKey(selected.scope,selected.platform,selected.period),selected];
   }));
   const tasks = [
@@ -1485,7 +1620,7 @@ async function loadLiveData() {
       if (pageTitles[requestedView]) setView(requestedView);
       return;
     }
-    await Promise.allSettled([loadRecentActivity(), loadDashboardSummary(), loadLeaderboard('checkin')]);
+    await Promise.allSettled([loadRecentActivity(), loadDashboardSummary(), loadDashboardRankings()]);
     renderLeaderboard();
     const requestedView = new URLSearchParams(location.search).get('view');
     if (pageTitles[requestedView]) setView(requestedView);
