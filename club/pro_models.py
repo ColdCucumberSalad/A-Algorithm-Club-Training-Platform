@@ -18,3 +18,5 @@ class ProRedeemCode(models.Model):
     code_hash = models.CharField(max_length=64, unique=True)
     issued_at = models.DateTimeField(auto_now_add=True)
     consumed_at = models.DateTimeField(null=True, blank=True)
+    activation_token_hash = models.CharField(max_length=64, blank=True)
+    activation_expires_at = models.DateTimeField(null=True, blank=True)

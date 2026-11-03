@@ -54,6 +54,9 @@ class ProFixture:
     def verify(self, code):
         return self.post(Client(), '/api/app/cards/verify', {'code': code})
 
+    def confirm(self, code, token):
+        return self.post(Client(), '/api/app/cards/confirm', {'code': code, 'activation_token': token})
+
 
 @override_settings(APP_REQUIRE_HTTPS=True)
 class AppProTests(ProFixture, TestCase):
@@ -141,42 +144,128 @@ class AppProConcurrencyTests(ProFixture, TransactionTestCase):
         self.assertEqual(ProRedeemCode.objects.count(), 1)
 
 
-    def test_concurrent_verification_consumes_card_only_once(self):
+    def test_concurrent_verification_reserves_card_only_once(self):
         code = self.issue()[0]
         def verify():
             result = self.verify(code)
             return result.status_code, result.json()
         results = self.parallel([verify, verify])
-        self.assertTrue(all(status == 200 for status, _ in results), results)
-        self.assertCountEqual([data for _, data in results], [
-            {'valid': True, 'app': APP_KEY, 'duration_days': 31},
-            {'valid': False, 'app': APP_KEY, 'duration_days': None},
-        ])
-        self.assertIsNotNone(ProRedeemCode.objects.get().consumed_at)
+        self.assertCountEqual([status for status, _ in results], [200, 409])
+        success = next(data for status, data in results if status == 200)
+        busy = next(data for status, data in results if status == 409)
+        self.assertTrue(success['valid'])
+        self.assertEqual(busy, {'error': '错误，卡密占用，请稍后重试'})
+        self.assertIsNone(ProRedeemCode.objects.get().consumed_at)
+        self.assertEqual(self.confirm(code, success['activation_token']).status_code, 200)
+
+    def test_concurrent_confirmation_consumes_once_and_replays_safely(self):
+        code = self.issue()[0]
+        token = self.verify(code).json()['activation_token']
+        results = self.parallel([lambda: self.confirm(code, token).json(),
+                                 lambda: self.confirm(code, token).json()])
+        self.assertEqual(results, [{'ok': True}, {'ok': True}])
+        card = ProRedeemCode.objects.get()
+        self.assertIsNotNone(card.consumed_at)
+        self.assertFalse(self.verify(code).json()['valid'])
 
 
 
 @override_settings(APP_REQUIRE_HTTPS=True)
 class CardVerifyTests(ProFixture, TestCase):
-    def test_success_consumes_card_and_retries_are_invalid(self):
+    def test_verify_reserves_until_app_receipt_then_consumes(self):
         code = self.issue()[0]
         before_units = list(ShopFulfillment.objects.values())
-        client = Client(enforce_csrf_checks=True)
-        result = self.post(client, '/api/app/cards/verify', {'code': code})
+        result = self.post(Client(enforce_csrf_checks=True), '/api/app/cards/verify', {'code': code})
         self.assertEqual(result.status_code, 200, result.content)
-        self.assertEqual(result.json(), {'valid': True, 'app': APP_KEY, 'duration_days': 31})
+        data = result.json()
+        self.assertTrue(data['valid'])
+        self.assertEqual(data['duration_days'], 31)
+        self.assertEqual(data['confirmation_timeout_seconds'], 30)
         self.assertEqual(result['Cache-Control'], 'private, no-store')
         self.assertNotIn('sessionid', result.cookies)
         card = ProRedeemCode.objects.get()
-        self.assertIsNotNone(card.consumed_at)
+        self.assertIsNone(card.consumed_at)
+        self.assertEqual(card.activation_token_hash, fingerprint(data['activation_token']))
+        self.assertNotIn(data['activation_token'], list(ProRedeemCode.objects.values())[0].values())
         for client in (self.browser, self.admin, Client()):
             retry = self.post(client, '/api/app/cards/verify', {'code': code})
-            self.assertEqual(retry.json(), {'valid': False, 'app': APP_KEY, 'duration_days': None})
-        self.assertEqual(ProRedeemCode.objects.get().consumed_at, card.consumed_at)
+            self.assertEqual(retry.status_code, 409)
+            self.assertEqual(retry.json(), {'error': '错误，卡密占用，请稍后重试'})
+        receipt = self.post(Client(enforce_csrf_checks=True), '/api/app/cards/confirm',
+                            {'code': code, 'activation_token': data['activation_token']})
+        self.assertEqual(receipt.json(), {'ok': True})
+        card.refresh_from_db()
+        self.assertIsNotNone(card.consumed_at)
+        consumed = card.consumed_at
+        self.assertEqual(self.confirm(code, data['activation_token']).json(), {'ok': True})
+        self.assertEqual(ProRedeemCode.objects.get().consumed_at, consumed)
+        self.assertEqual(self.verify(code).json(), {'valid': False, 'app': APP_KEY, 'duration_days': None})
         self.assertEqual(list(ShopFulfillment.objects.values()), before_units)
         again = self.post(self.browser, f'/api/currency/inventory/{card.fulfillment_id}/redeem')
         self.assertEqual(again.json()['code'], code)
         self.assertFalse(self.verify(code).json()['valid'])
+
+    def test_timeout_releases_card_and_rejects_late_or_superseded_receipt(self):
+        code = self.issue()[0]
+        now = timezone.now()
+        with patch('django.utils.timezone.now', return_value=now):
+            first = self.verify(code).json()
+        self.assertEqual(ProRedeemCode.objects.get().activation_expires_at, now + timedelta(seconds=30))
+        with patch('django.utils.timezone.now', return_value=now + timedelta(seconds=29)):
+            self.assertEqual(self.verify(code).status_code, 409)
+        with patch('django.utils.timezone.now', return_value=now + timedelta(seconds=30)):
+            self.assertEqual(self.confirm(code, first['activation_token']).status_code, 409)
+            second = self.verify(code).json()
+            self.assertTrue(second['valid'])
+            self.assertNotEqual(first['activation_token'], second['activation_token'])
+            self.assertEqual(self.confirm(code, first['activation_token']).status_code, 409)
+            self.assertIsNone(ProRedeemCode.objects.get().consumed_at)
+            self.assertEqual(self.confirm(code, second['activation_token']).json(), {'ok': True})
+
+    def test_receipt_before_deadline_consumes_and_other_tokens_do_not(self):
+        code = self.issue()[0]
+        now = timezone.now()
+        with patch('django.utils.timezone.now', return_value=now):
+            token = self.verify(code).json()['activation_token']
+        with patch('django.utils.timezone.now', return_value=now + timedelta(seconds=29)):
+            self.assertEqual(self.confirm(code, '0' * 64).status_code, 409)
+            self.assertIsNone(ProRedeemCode.objects.get().consumed_at)
+            self.assertEqual(self.confirm(code, token).status_code, 200)
+        with patch('django.utils.timezone.now', return_value=now + timedelta(seconds=31)):
+            self.assertEqual(self.confirm(code, token).json(), {'ok': True})
+            self.assertEqual(self.confirm(code, '0' * 64).status_code, 409)
+
+    def test_receipt_requires_valid_code_token_and_active_fulfillment(self):
+        code = self.issue()[0]
+        for token in (None, '', 'x', 'G' * 64, 12):
+            self.assertEqual(self.confirm(code, token).status_code, 400)
+        self.assertEqual(self.confirm(code, '0' * 64).status_code, 409)
+        token = self.verify(code).json()['activation_token']
+        other = self.issue()[0]
+        self.assertEqual(self.confirm(other, token).status_code, 409)
+        self.assertEqual(self.confirm('unknown', token).status_code, 409)
+        ShopFulfillment.objects.filter(pk=ProRedeemCode.objects.get(code_hash=fingerprint(code)).fulfillment_id).update(status='reclaimed')
+        self.assertEqual(self.confirm(code, token).status_code, 409)
+        self.assertFalse(ProRedeemCode.objects.filter(consumed_at__isnull=False).exists())
+
+    def test_confirmation_failure_keeps_reservation_retryable(self):
+        code = self.issue()[0]
+        token = self.verify(code).json()['activation_token']
+        for target in ('club.app_views.response', 'club.pro_models.ProRedeemCode.save'):
+            with self.subTest(target=target), patch(target, side_effect=RuntimeError('test failure')):
+                with self.assertRaises(RuntimeError):
+                    self.confirm(code, token)
+            self.assertIsNone(ProRedeemCode.objects.get().consumed_at)
+        self.assertEqual(self.confirm(code, token).json(), {'ok': True})
+
+    def test_verification_limit_does_not_block_confirmation_retry(self):
+        code = self.issue()[0]
+        token = self.verify(code).json()['activation_token']
+        for _ in range(29):
+            self.assertEqual(self.verify('unknown').status_code, 200)
+        self.assertEqual(self.verify(code).status_code, 429)
+        self.assertEqual(self.confirm(code, token).json(), {'ok': True})
+        self.assertEqual(self.confirm(code, token).json(), {'ok': True})
 
     def test_response_or_database_failure_does_not_consume_card(self):
         code = self.issue()[0]
@@ -184,7 +273,10 @@ class CardVerifyTests(ProFixture, TestCase):
             with self.subTest(target=target), patch(target, side_effect=RuntimeError('test failure')):
                 with self.assertRaises(RuntimeError):
                     self.verify(code)
-            self.assertIsNone(ProRedeemCode.objects.get().consumed_at)
+            card = ProRedeemCode.objects.get()
+            self.assertIsNone(card.consumed_at)
+            self.assertIsNone(card.activation_expires_at)
+            self.assertEqual(card.activation_token_hash, '')
         self.assertTrue(self.verify(code).json()['valid'])
 
     def test_unknown_card_returns_invalid_with_no_duration(self):
@@ -221,6 +313,8 @@ class CardVerifyTests(ProFixture, TestCase):
     def test_https_methods_and_malformed_requests(self):
         path = '/api/app/cards/verify'
         client = Client()
+        self.assertEqual(client.post('/api/app/cards/confirm', '{}', content_type='application/json').status_code, 403)
+        self.assertEqual(client.get('/api/app/cards/confirm', secure=True).status_code, 405)
         self.assertEqual(client.post(path, '{}', content_type='application/json').status_code, 403)
         result = client.get(path, secure=True)
         self.assertEqual(result.status_code, 405)
