@@ -101,7 +101,7 @@ function openShowcaseDetails(id){
   const part=kind=>item.parts.find(p=>p.kind===kind);
   const key=(item.own?'mine-':'showcase-')+item.id;
   if(item.own)ownRecords.set(Number(item.id),item);
-  reviewData[key]={name:uiMemberName(item.member_name),initial:uiMemberName(item.member_name).slice(0,1),time:new Date(item.submitted_at).toLocaleString('zh-CN'),logic:part('logic')?.text||'',status:'approved',submissionId:item.id,memberId:item.member_id,problemTitle:item.problem_title||$('#problemHeading').textContent,problemUrl:item.problem_url||$('#problemOriginal').href,upload:part('proof')?.upload,fileName:'通过截图',blog:part('blog')?.text||'',code:part('code')?.text||''};
+  reviewData[key]={name:uiMemberName(item.member_name),initial:uiMemberName(item.member_name).slice(0,1),time:new Date(item.submitted_at).toLocaleString('zh-CN'),logic:part('logic')?.text||'',logicPart:part('logic')||null,status:'approved',submissionId:item.id,memberId:item.member_id,problemTitle:item.problem_title||$('#problemHeading').textContent,problemUrl:item.problem_url||$('#problemOriginal').href,upload:part('proof')?.upload,fileName:'通过截图',blog:part('blog')?.text||'',code:part('code')?.text||''};
   openReview(key);
 }
 function submissionCard(item, moderation = false) {
