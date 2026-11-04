@@ -136,3 +136,23 @@ def operation_status(request, operation_id):
     response['Cache-Control'] = 'private, no-store'
     response['Referrer-Policy'] = 'no-referrer'
     return response
+
+
+@administrator_required
+@require_http_methods(['GET', 'POST', 'PUT'])
+def site_updates(request):
+    from . import site_updates as updates
+    if request.method == 'GET':
+        response = JsonResponse(updates.summary())
+        response['Cache-Control'] = 'private, no-store'
+        return response
+    data = body(request)
+    if not isinstance(data, dict):
+        return api_error('无效的更新参数')
+    action = 'schedule' if request.method == 'PUT' else data.get('action')
+    payload = data if action == 'schedule' else {key:value for key,value in data.items() if key != 'action'}
+    try:
+        identifier = updates.enqueue(action, payload, request.user.pk)
+    except ValueError as exc:
+        return api_error(str(exc), 409)
+    return JsonResponse({'id': identifier, 'state': 'queued'}, status=202)
