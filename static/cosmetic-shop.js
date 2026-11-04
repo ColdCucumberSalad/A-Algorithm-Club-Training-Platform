@@ -7,7 +7,21 @@ window.CosmeticShop = (() => {
     overlay.className='cosmetic-preview-overlay';
     const cosmetic=['badge','theme','frame'].includes(item.item_type),isTheme=item.item_type==='theme';
     const name=document.querySelector('#openProfile strong')?.textContent || '你的名字';
-    let context='ranking',busy=false,equipped=false;
+    let context='ranking',busy=false,equipped=false,checking=owned&&!item.preview_only,stateFailed=false;
+    async function refreshEquipped(){
+      checking=true;stateFailed=false;
+      if(overlay.isConnected)draw();
+      try{
+        const response=await window.clubApi.request(cosmetic?'/api/profile/cosmetics':'/api/profile');
+        if(!response.ok)throw Error('读取佩戴状态失败');
+        const data=await response.json();
+        if(cosmetic){
+          window.SpecialThemes?.sync(data);
+          equipped=isTheme?data.active_theme===item.cosmetic_key:(item.item_type==='frame'?data.avatar_frame:data.badge)?.key===item.cosmetic_key;
+        }else equipped=(data.titles||[]).some(title=>title.text===item.title_definition?.text);
+      }catch{stateFailed=true;}
+      finally{checking=false;if(overlay.isConnected)draw();}
+    }
     const close=()=>{if(busy)return;overlay.remove();document.removeEventListener('keydown',keydown,true);previous?.isConnected&&previous.focus();};
     const keydown=event=>{
       if(!overlay.isConnected||busy)return;
@@ -28,12 +42,14 @@ window.CosmeticShop = (() => {
           <div class="cosmetic-live-person ${context==='profile'?'is-profile':''}">${window.MemberTitles.frameAvatar(`<span class="cosmetic-demo-avatar" aria-hidden="true">${esc(name.slice(0,1))}</span>`,isTheme?{key:"taffy-goggles"}:item.item_type==="frame"?{key:item.cosmetic_key}:null)}<div><div class="cosmetic-live-name">${context==='ranking'?(cosmetic?(item.item_type==='frame'?'':window.MemberTitles.badgeMarkup({key:item.item_type==='badge'?item.cosmetic_key:'taffy'})):window.MemberTitles.markup(item.title_definition)):''}<strong>${esc(name)}</strong></div>${context==='profile'?`<p class="cosmetic-live-name">${cosmetic?(item.item_type==='frame'?'':window.MemberTitles.badgeMarkup({key:item.item_type==='badge'?item.cosmetic_key:'taffy'})):window.MemberTitles.markup(item.title_definition)}</p>`:'<small>你的排行榜名片</small>'}</div></div>
           <span class="cosmetic-preview-note">试戴预览</span></div>
         <p class="cosmetic-product-description">${esc(item.description || '让你的每一次登榜都有自己的风格。')}</p><div class="cosmetic-product-traits"><span>${esc(term())}</span><span>全部团队通用</span><span>可随时更换</span>${isTheme?'<span class="cosmetic-theme-gift"><img src="/static/cosmetics/taffy-original-head.svg" alt="">附赠小塔菲徽章与护目镜头像框</span>':''}</div>
-        <footer><div><strong>${item.preview_only?'预览示例':owned?'已拥有':`${Number(item.price)} RBC`}</strong><small>${owned?'选择后在当前团队佩戴':'购买后进入全局背包'}</small></div><button type="button" class="primary-button" data-cosmetic-action ${!canPurchase||blocked||equipped||isExpired?'disabled':''}>${isExpired?'已过期':!canPurchase?'管理预览':equipped?(isTheme?'已启用':'已佩戴'):owned?(isTheme?'立即启用':'立即佩戴'):blocked?'暂不可购买':(isTheme?'购买主题':cosmetic?'购买徽章':'购买称号')}</button></footer><p class="cosmetic-status" role="status">${blocked?esc(item.purchase_block_reason||'当前商品不可购买'):''}</p>
+        <footer><div><strong>${item.preview_only?'预览示例':owned?'已拥有':`${Number(item.price)} RBC`}</strong><small>${owned?'选择后在当前团队佩戴':'购买后进入全局背包'}</small></div><button type="button" class="primary-button" data-cosmetic-action ${!canPurchase||blocked||equipped||isExpired||checking?'disabled':''}>${isExpired?'已过期':!canPurchase?'管理预览':checking?'读取状态…':stateFailed?'重试读取状态':equipped?(isTheme?'已启用':'已佩戴'):owned?(isTheme?'立即启用':'立即佩戴'):blocked?'暂不可购买':(isTheme?'购买主题':cosmetic?'购买徽章':'购买称号')}</button></footer><p class="cosmetic-status" role="status">${stateFailed?'暂时无法读取佩戴状态，请重试。':blocked?esc(item.purchase_block_reason||'当前商品不可购买'):''}</p>
       </section>`;
       overlay.querySelector('[data-cosmetic-close]').onclick=close;
       overlay.querySelectorAll('[data-cosmetic-context]').forEach(button=>button.onclick=()=>{context=button.dataset.cosmeticContext;draw();overlay.querySelector(`[data-cosmetic-context="${context}"]`).focus();});
       overlay.querySelector('[data-cosmetic-action]').onclick=async event=>{
-        if(busy)return;busy=true;const button=event.currentTarget;button.disabled=true;button.textContent=owned?'佩戴中…':'确认中…';
+        if(busy||checking||equipped)return;
+        if(stateFailed){await refreshEquipped();return;}
+        busy=true;const button=event.currentTarget;button.disabled=true;button.textContent=owned?'佩戴中…':'确认中…';
         try {
           if(!owned){overlay.hidden=true;try{if(await onPurchase()){owned=true;if(cosmetic){const response=await window.clubApi.request('/api/profile/cosmetics');if(!response.ok)throw Error('已购买，请刷新外观列表');window.SpecialThemes.sync(await response.json());}await onChange?.();}}finally{overlay.hidden=false;}}
           else {
@@ -50,6 +66,7 @@ window.CosmeticShop = (() => {
       };
     }
     draw();document.body.append(overlay);document.addEventListener('keydown',keydown,true);overlay.querySelector('[data-cosmetic-close]').focus();
+    if(checking)refreshEquipped();
     // Use capture so Escape only dismisses this topmost window.
   }
   return {openTitle};
