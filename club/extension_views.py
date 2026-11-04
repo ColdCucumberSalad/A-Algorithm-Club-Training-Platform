@@ -10,7 +10,7 @@ from django.db import transaction
 from django.http import JsonResponse, FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_http_methods
-from .models import ExtensionResource, FileDeletion
+from .models import ExtensionResource, FileDeletion, BuiltinExtensionCategory
 from .views import api_login_required, api_error, membership_for
 
 
@@ -19,7 +19,7 @@ def allowed(request):
 
 
 def data(item):
-    return dict(id=item.pk, title=item.title, description=item.description, url=item.url,
+    return dict(category=item.category, id=item.pk, title=item.title, description=item.description, url=item.url,
                 kind='file' if item.upload else 'link', filename=item.filename,
                 href=f'/api/extensions/{item.pk}/download' if item.upload else item.url,
                 cover=f'/api/extensions/{item.pk}/cover' if item.cover else None)
@@ -32,6 +32,7 @@ def resources(request, resource_id=None):
         return api_error('请先加入团队', 403)
     if request.method == 'GET':
         return JsonResponse({'items': [data(i) for i in ExtensionResource.objects.all()],
+                             'poker_category': BuiltinExtensionCategory.objects.filter(key='poker').values_list('category', flat=True).first() or 'games',
                              'can_manage': request.user.is_superuser})
     if not request.user.is_superuser:
         return api_error('仅系统管理员可管理资源', 403)
@@ -42,6 +43,9 @@ def resources(request, resource_id=None):
                 if field: FileDeletion.objects.create(name=field.name)
             item.delete()
         return JsonResponse({'ok': True})
+    category = request.POST.get('category')
+    if category is not None and category not in ('library', 'games'):
+        return api_error('请选择资料库或小游戏')
     title = request.POST.get('title', '').strip()
     description = request.POST.get('description', '').strip()
     kind = request.POST.get('kind')
@@ -74,6 +78,8 @@ def resources(request, resource_id=None):
             item = get_object_or_404(ExtensionResource.objects.select_for_update(), pk=resource_id) if resource_id else ExtensionResource()
             if kind == 'file' and not upload and not item.upload:
                 return api_error('请选择要下载的文件')
+            if category is not None:
+                item.category = category
             item.title, item.description = title, description
             item.url = url if kind == 'link' else ''
             if kind == 'link' or upload:
@@ -113,3 +119,15 @@ def asset(request, resource_id, cover=False):
     response['Cache-Control'] = 'private, no-store'
     response['X-Content-Type-Options'] = 'nosniff'
     return response
+
+
+@api_login_required
+@require_http_methods(['POST'])
+def builtin_category(request):
+    if not request.user.is_superuser:
+        return api_error('仅系统管理员可管理资源', 403)
+    category = request.POST.get('category')
+    if category not in ('library', 'games'):
+        return api_error('请选择资料库或小游戏')
+    BuiltinExtensionCategory.objects.update_or_create(key='poker', defaults={'category': category})
+    return JsonResponse({'ok': True})

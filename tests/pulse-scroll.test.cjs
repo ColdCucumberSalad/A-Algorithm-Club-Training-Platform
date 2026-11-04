@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function fixture(stops = Array.from({length:14}, (_, i) => i*100)) {
+function fixture(stops = Array.from({length:14}, (_, i) => i*100), options = {}) {
   const handlers = {}, timers = new Map(), frames = new Map(), calls = [];
   let clock = 0, next = 0, captured = null;
   const track = {
@@ -16,10 +16,7 @@ function fixture(stops = Array.from({length:14}, (_, i) => i*100)) {
     hasPointerCapture:id => captured === id,
     releasePointerCapture() { captured = null; },
   };
-  const source = fs.readFileSync(require.resolve('../app.js'), 'utf8');
-  const start = source.indexOf('function wireHorizontalDateScroll(');
-  const end = source.indexOf('\nlet refreshActivityHeatScroll', start);
-  const refresh = vm.runInNewContext(source.slice(start,end)+"\nwireHorizontalDateScroll(track, '.activity-month-section');", {
+  const view = require('../activity-view.js').create({}, {
     track, ResizeObserver:class {observe(){}},
     matchMedia:() => ({matches:true}), selectPulseDay(){},
     setTimeout(fn, delay) { const id = ++next; timers.set(id,{fn,at:clock+delay}); return id; },
@@ -27,6 +24,7 @@ function fixture(stops = Array.from({length:14}, (_, i) => i*100)) {
     requestAnimationFrame(fn) { const id = ++next; frames.set(id,fn); return id; },
     cancelAnimationFrame:id => frames.delete(id),
   });
+  const refresh=view.wireHorizontalDateScroll(track,'.activity-month-section',options);
   const emit = (type, props = {}) => handlers[type].handler({type,target:track,preventDefault(){},...props});
   const advance = ms => {
     const until = clock+ms;
@@ -42,6 +40,20 @@ function fixture(stops = Array.from({length:14}, (_, i) => i*100)) {
   const up = () => emit('touchend',{changedTouches:[finger],touches:[]});
   return {track,handlers,calls,emit,advance,down,up,finger,refresh};
 }
+
+for(const ending of ['pointerup','pointercancel','pointerleave','vertical'])test(`an inactive mouse ${ending} releases pending prefetch without blocking clicks`,()=>{
+ let applied=0;
+ const f=fixture(undefined,{snap(track){assert.equal(track.dataset.interacting,'false');applied++;return true;}});
+ f.emit('pointerdown',{pointerId:7,pointerType:'mouse',button:0,clientX:300,clientY:40});
+ assert.equal(f.track.dataset.interacting,'true');
+ if(ending==='vertical')f.emit('pointermove',{pointerId:7,clientX:301,clientY:60});
+ else f.emit(ending,{pointerId:7});
+ let blocked=false;
+ f.emit('click',{detail:1,preventDefault(){blocked=true;},stopImmediatePropagation(){blocked=true;}});
+ assert.equal(blocked,false);assert.equal(applied,0);
+ f.advance(200);
+ assert.equal(applied,1);assert.equal(f.track.dataset.interacting,'false');
+});
 
 test('native touch takeover and a stationary finger never trigger snapping', () => {
   const f = fixture(); f.down(); f.calls.length = 0;

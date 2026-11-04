@@ -58,6 +58,7 @@ urlpatterns = [
     path('management/backups/<uuid:backup_id>', system_management.backup_detail),
     path('management/backups/<uuid:backup_id>/restore', system_management.restore_backup),
     path('management/system-operations/<uuid:operation_id>', system_management.operation_status),
+    path('extensions/builtin/poker', extension_views.builtin_category),
     path('extensions', extension_views.resources),
     path('extensions/<int:resource_id>', extension_views.resources),
     path('extensions/<int:resource_id>/download', extension_views.asset),

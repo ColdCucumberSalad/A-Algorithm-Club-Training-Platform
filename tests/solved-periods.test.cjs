@@ -40,7 +40,7 @@ test('heatmap always uses dated solved counts and explains unknown dates',()=>{
   const context={$,
     activityPayload:{end:'2026-11-01',today:'2026-11-01',days:[],ac:{undated:42}},
     renderActivityMonths:(days,metric,unit)=>{calls.push([metric,unit]);return '';},
-    wireActivityHeatScroll(){},selectedPulseDate:'2026-11-01',updatePulseDay(){},selectPulseDay(){}};
+    wireActivityHeatScroll(){},pulseDays:[],selectedPulseDate:'2026-11-01',updatePulseDay(){},selectPulseDay(){}};
   vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('function renderTrainingActivity('),source.indexOf('\nasync function loadTrainingActivity')),context);
   vm.runInContext('renderTrainingActivity()',context);

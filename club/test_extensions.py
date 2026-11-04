@@ -62,3 +62,18 @@ class ExtensionTests(TestCase):
         response = self.client.post('/api/extensions/'+str(item['id']), {'title':'Y','kind':'file'})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['item']['filename'], 'a.txt')
+
+    def test_categories_and_builtin_permissions(self):
+        self.assertEqual(self.client.get('/api/extensions').json()['poker_category'], 'games')
+        self.assertEqual(self.client.post('/api/extensions/builtin/poker', {'category': 'library'}).status_code, 403)
+        self.admin()
+        payload = {'title': '练习', 'kind': 'link', 'url': 'https://example.com'}
+        item = self.client.post('/api/extensions', payload).json()['item']
+        self.assertEqual(item['category'], 'library')
+        path = '/api/extensions/' + str(item['id'])
+        self.assertEqual(self.client.post(path, {**payload, 'category': 'games'}).json()['item']['category'], 'games')
+        self.assertEqual(self.client.post(path, payload).json()['item']['category'], 'games')
+        self.assertEqual(self.client.post(path, {**payload, 'category': 'bad'}).status_code, 400)
+        self.assertEqual(self.client.post('/api/extensions/builtin/poker', {'category': 'bad'}).status_code, 400)
+        self.assertEqual(self.client.post('/api/extensions/builtin/poker', {'category': 'library'}).status_code, 200)
+        self.assertEqual(self.client.get('/api/extensions').json()['poker_category'], 'library')
