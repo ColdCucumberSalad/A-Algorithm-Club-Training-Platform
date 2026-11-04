@@ -5,7 +5,13 @@ window.MemberTitles = (() => {
   const frameAssets={'taffy-goggles':'taffy-goggles-frame.svg'},memberFrames=new Map();
   const endOf=item=>item?.expires_at?Date.parse(item.expires_at):NaN;
   const expired=item=>Number.isFinite(endOf(item))&&endOf(item)<=Date.now()+clockOffset;
-  const until=item=>Number.isFinite(endOf(item))?` data-cosmetic-until="${endOf(item)}"`:'';
+  function until(item){
+    const end=endOf(item);
+    if(!Number.isFinite(end))return '';
+    window.SpecialThemes?.registerExpiry?.(end);
+    return ` data-cosmetic-until="${end}"`;
+  }
+  function syncClock(now){if(Number.isFinite(now))clockOffset=now-Date.now();}
   function frameImage(frame){return Object.hasOwn(frameAssets,frame?.key)&&!expired(frame)?`<img class="avatar-frame-art" src="/static/cosmetics/${frameAssets[frame.key]}" alt="" aria-hidden="true"${until(frame)}>`:'';}
   function frameAvatar(markup,frame){const image=frameImage(frame);return image?`<span class="avatar-frame-wrap">${markup}${image}</span>`:markup;}
   function frameElement(element,frame){
@@ -16,7 +22,7 @@ window.MemberTitles = (() => {
   }
   function rememberFrames(rows){for(const row of rows)if(Object.hasOwn(row,'avatar_frame'))memberFrames.set(Number(row.memberId||row.id),row.avatar_frame);}
   function pruneExpired(now){
-    if(Number.isFinite(now))clockOffset=now-Date.now();
+    syncClock(now);
     document.querySelectorAll('[data-cosmetic-until]').forEach(el=>{if(Number(el.dataset.cosmeticUntil)<=Date.now()+clockOffset)el.remove();});
   }
   const fonts = new Set(['system','serif','kai','mono','rounded']);
@@ -45,5 +51,5 @@ window.MemberTitles = (() => {
       squad?`${squad.squad_number}分队 第${squad.squad_number}分队 ${squad.admission_year}级`:'未分队 未设置'].join(' ').toLowerCase();
     return String(query||'').trim().toLowerCase().split(/\s+/).every(token=>haystack.includes(token));
   }
-  return {markup,list,badgeMarkup,badgeAssets,frameAvatar,frameElement,rememberFrames,frameFor:id=>memberFrames.get(Number(id)),pruneExpired,cohort,matchesMember,styles};
+  return {markup,list,badgeMarkup,badgeAssets,frameAvatar,frameElement,rememberFrames,frameFor:id=>memberFrames.get(Number(id)),syncClock,pruneExpired,cohort,matchesMember,styles};
 })();

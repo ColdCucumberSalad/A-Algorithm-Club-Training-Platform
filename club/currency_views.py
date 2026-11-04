@@ -277,10 +277,16 @@ def api_shop_items(request):
     def owns_cosmetic(item):
         return item.item_type in owned_cosmetics and item.cosmetic_key in owned_cosmetics[item.item_type]
     from .models import OwnedTitle
-    owned = list(OwnedTitle.objects.filter(active_term(),user_id=member.user_id, inventory__quantity__gt=0).values_list('item_id','text','expires_at'))
+    owned = list(OwnedTitle.objects.filter(active_term(),user_id=member.user_id, inventory__quantity__gt=0).order_by('acquired_at','pk').values_list('item_id','text','expires_at','definition'))
     owned_items, owned_names = {row[0] for row in owned}, {row[1] for row in owned}
     def owns_title(item):
         return item.item_type == 'title' and (item.pk in owned_items or item.title_definition.get('text') in owned_names)
+
+    def title_preview(item):
+        if item.item_type != 'title':return {}
+        if owns_title(item):
+            return next(row[3] for row in owned if row[0]==item.pk or row[1]==item.title_definition.get('text'))
+        return item.title_definition
 
     def owned_expiry(item):
         if owns_cosmetic(item):end=owned_cosmetics[item.item_type][item.cosmetic_key]
@@ -298,7 +304,7 @@ def api_shop_items(request):
         "allow_multiple_purchase": bool(item.item_type == 'redeem_code' and item.card_source == 'api' and item.allow_multiple_purchase),
         "item_type": item.item_type,
         "cosmetic_duration_days":item.cosmetic_duration_days,
-        "title_definition": item.title_definition if item.item_type == 'title' else {},
+        "title_definition": title_preview(item),
         "title_owned": owns_title(item),
         "cosmetic_key":item.cosmetic_key, "cosmetic":product_data(item), "cosmetic_owned":owns_cosmetic(item),
         "purchase_limit": item.purchase_limit if item.item_type == 'physical' else 0,

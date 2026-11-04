@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import timedelta
 from django.utils import timezone
 from .models import TeamMembership, CheckinRecord, Submission, PlatformBinding, CurrencyBalance
-from .member_titles import title_data, titles_data
+from .member_titles import titles_data
 from .grades import cohort_data
 
 RATING_PLATFORMS = {
@@ -35,7 +35,18 @@ def ranking_data(member, scope, platform='codeforces', period='semester'):
             slot=(kind,key)
             if slot not in cached[user_id] or cached[user_id][slot] is not None and (end is None or end>cached[user_id][slot]):cached[user_id][slot]=end
         for m in cosmetic_members:m._cosmetic_owned=cached[m.user_id]
-    rows = {m.pk: {'memberId':m.pk, 'name':m.display_name, 'title':title_data(m), 'titles':titles_data(m), 'badge':badge_data(m),'avatar_frame':frame_data(m), 'cohort':cohort_data(profiles.get(m.user_id)), 'isCurrent':m.pk==member.pk,
+    title_members = [m for m in members if m.worn_titles]
+    if title_members:
+        from .models import OwnedTitle
+        from .cosmetic_terms import active_term
+        owned_titles = defaultdict(list)
+        for title in OwnedTitle.objects.filter(active_term(), user_id__in=[m.user_id for m in title_members],
+                inventory__quantity__gt=0).order_by('acquired_at', 'pk'):
+            owned_titles[title.user_id].append(title)
+        for m in title_members:
+            m._active_owned_titles = owned_titles[m.user_id]
+    displayed_titles = {m.pk: titles_data(m) for m in members}
+    rows = {m.pk: {'memberId':m.pk, 'name':m.display_name, 'title':next(iter(displayed_titles[m.pk]), {}), 'titles':displayed_titles[m.pk], 'badge':badge_data(m),'avatar_frame':frame_data(m), 'cohort':cohort_data(profiles.get(m.user_id)), 'isCurrent':m.pk==member.pk,
         'avatar':url_for(profiles.get(m.user_id), m.pk, 'small')} for m in members}
     if scope == 'checkin':
         days = defaultdict(set)

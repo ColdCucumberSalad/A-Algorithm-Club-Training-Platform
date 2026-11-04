@@ -87,3 +87,48 @@ class ShopTitleTests(TestCase):
         self.buy()
         result=self.admin.put(url,json.dumps({**payload,'item_id':self.item.pk,'title_definition':{**self.definition,'text':'Different'}}),content_type='application/json')
         self.assertEqual(result.status_code,400,result.content)
+
+    def test_owned_shop_preview_uses_snapshot_across_teams(self):
+        self.buy()
+        changed = {**self.definition, 'color':'#aa6688', 'font':'mono', 'style':'neon'}
+        self.item.title_definition = changed
+        self.item.save()
+        session = self.client.session; session['team_id'] = self.team.pk; session.save()
+        row = next(r for r in self.client.get('/api/currency/shop/items').json()['items'] if r['id'] == self.item.pk)
+        self.assertTrue(row['title_owned'])
+        self.assertEqual(row['title_definition'], self.definition)
+        duplicate = ShopItem.objects.create(team=self.other, name='Global preview', price=2,
+            item_type='title', title_definition=changed)
+        session = self.client.session; session['team_id'] = self.other.pk; session.save()
+        row = next(r for r in self.client.get('/api/currency/shop/items').json()['items'] if r['id'] == duplicate.pk)
+        self.assertTrue(row['title_owned'])
+        self.assertEqual(row['title_definition'], self.definition)
+        newcomer = User.objects.create_user('new-title-viewer')
+        TeamMembership.objects.create(team=self.other, user=newcomer, display_name='New buyer')
+        self.client.force_login(newcomer)
+        session = self.client.session; session['team_id'] = self.other.pk; session.save()
+        row = next(r for r in self.client.get('/api/currency/shop/items').json()['items'] if r['id'] == duplicate.pk)
+        self.assertFalse(row['title_owned'])
+        self.assertEqual(row['title_definition'], changed)
+
+    def test_ranking_title_queries_are_constant_for_the_roster(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from .rankings import ranking_data
+        self.buy()
+        self.member.worn_titles = [self.definition['text']]
+        self.member.save()
+        with CaptureQueriesContext(connection) as first:
+            row = ranking_data(self.member, 'checkin')['rows'][0]
+        self.assertEqual(row['titles'], [self.definition])
+        self.assertEqual(row['title'], self.definition)
+        for i in range(39):
+            user = User.objects.create_user(f'ranking-title-{i}')
+            TeamMembership.objects.create(team=self.team, user=user, display_name=f'Member {i}',
+                member_title=self.definition, worn_titles=[self.definition['text']])
+        with CaptureQueriesContext(connection) as many:
+            rows = ranking_data(self.member, 'checkin')['rows']
+        self.assertEqual(len(rows), 40)
+        self.assertEqual(len(first), len(many))
+        self.assertEqual(sum('club_ownedtitle' in q['sql'] for q in many), 1)
+        self.assertTrue(all(r['title'] == self.definition and r['titles'] == [self.definition] for r in rows))

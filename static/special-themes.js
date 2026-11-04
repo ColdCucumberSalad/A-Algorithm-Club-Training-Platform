@@ -1,10 +1,16 @@
 /* A purchased preset feeds the existing theme tokens; custom settings stay saved. */
 window.SpecialThemes=(()=>{
   let library={themes:[],active_theme:'',badges:[],frames:[]},expiryTimer,clockOffset=0;
+  const displayedEnds=new Set();
+  function registerExpiry(end){
+    if(Number.isFinite(end)&&end>Date.now()+clockOffset&&!displayedEnds.has(end)){displayedEnds.add(end);schedule();}
+  }
   const expired=item=>item.expires_at&&Date.parse(item.expires_at)<=Date.now()+clockOffset;
   function schedule(){
     if(expiryTimer)clearTimeout(expiryTimer);
-    const ends=[...library.themes,...library.badges,...library.frames].map(t=>t.expires_at).concat(library.title_expirations||[]).map(Date.parse).filter(Number.isFinite);
+    const now=Date.now()+clockOffset;
+    for(const end of displayedEnds)if(end<=now)displayedEnds.delete(end);
+    const ends=[...library.themes,...library.badges,...library.frames].map(t=>t.expires_at).concat(library.title_expirations||[]).map(Date.parse).concat([...displayedEnds]).filter(end=>Number.isFinite(end)&&end>now);
     if(!ends.length)return;
     expiryTimer=setTimeout(async()=>{
       const now=Date.now()+clockOffset;
@@ -20,6 +26,7 @@ window.SpecialThemes=(()=>{
   };
   function sync(data={}){
     if(data.server_time&&Number.isFinite(Date.parse(data.server_time)))clockOffset=Date.parse(data.server_time)-Date.now();
+    window.MemberTitles?.syncClock?.(Date.now()+clockOffset);
     library={themes:(data.themes||[]).filter(t=>!expired(t)),badges:(data.badges||[]).filter(t=>!expired(t)),frames:(data.frames||[]).filter(t=>!expired(t)),title_expirations:data.title_expirations||[],active_theme:data.active_theme||''};
     if(!library.themes.some(t=>t.key===library.active_theme))library.active_theme='';
     schedule();
@@ -54,5 +61,5 @@ window.SpecialThemes=(()=>{
     button.onclick=async()=>{if(library.active_theme==='taffy')return;button.disabled=true;try{await select('theme','taffy',button);}catch(error){row.querySelector('[role=status]').textContent=error.message;}finally{button.disabled=false;}};
   }
   document.addEventListener('DOMContentLoaded',render);
-  return {sync,adjust,select,requestSelection,render};
+  return {sync,adjust,select,requestSelection,render,registerExpiry};
 })();

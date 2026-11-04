@@ -70,7 +70,9 @@ def available_titles_data(member):
     result = awarded_titles_data(member)
     seen = {title['text'] for title in result}
     from .cosmetic_terms import active_term
-    owned = OwnedTitle.objects.filter(active_term(),user_id=member.user_id, inventory__quantity__gt=0).order_by('acquired_at','pk')
+    owned = getattr(member, '_active_owned_titles', None)
+    if owned is None:
+        owned = OwnedTitle.objects.filter(active_term(),user_id=member.user_id, inventory__quantity__gt=0).order_by('acquired_at','pk')
     for entry in owned:
         try:
             title = validate_title(entry.definition)
