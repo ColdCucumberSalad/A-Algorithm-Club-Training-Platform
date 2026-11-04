@@ -82,3 +82,44 @@ test('server synchronization corrects ahead and behind clocks before rendering a
    assert.equal(c.ui.frameAvatar('avatar',{key:'taffy-goggles',expires_at:end}),'avatar');
  }
 });
+
+function expiryRace({initial='',transition=false,deferJson=false}={}){
+ let now=Date.parse('2026-11-05T00:00:00Z'),callback,resolveRead,finishTransition;
+ const root={dataset:{}},events=[];
+ class Clock extends Date{static now(){return now;}}
+ const pending=new Promise(resolve=>resolveRead=resolve);
+ const context={Date:Clock,Event,setTimeout(fn){callback=fn;return 1},clearTimeout(){},
+ document:{documentElement:root,addEventListener(){},querySelector(){return null}},
+ window:{dispatchEvent:event=>events.push(event.type),clubApi:{async request(url,options){
+   if(options?.method==='POST')return {ok:true,json:async()=>({themes:[{key:'taffy'}],active_theme:JSON.parse(options.body).key})};
+   return deferJson?{ok:true,json:()=>pending}:pending;
+ }}}};
+ if(transition)context.window.SiteAppearance={transition(button,commit){return new Promise(resolve=>finishTransition=()=>{commit();resolve()})}};
+ vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../static/special-themes.js'),'utf8'),context);
+ const themes=context.window.SpecialThemes;
+ themes.sync({server_time:new Date(now).toISOString(),themes:[{key:'taffy'}],active_theme:initial,title_expirations:[new Date(now+1000).toISOString()]});
+ return {themes,root,events,start(){now+=1010;return callback()},read(data){resolveRead(deferJson?data:{ok:true,json:async()=>data})},finish:()=>finishTransition()};
+}
+for(const initial of ['', 'taffy'])for(const deferJson of [false,true])test('new selection supersedes expiry read, old='+initial+', delayed JSON='+deferJson,async()=>{
+ const f=expiryRace({initial,deferJson}),refresh=f.start(),key=initial?'':'taffy';
+ await f.themes.select('theme',key);
+ assert.equal(f.root.dataset.specialTheme,key||undefined);
+ f.read({themes:[{key:'taffy'}],active_theme:initial});await refresh;
+ assert.equal(f.root.dataset.specialTheme,key||undefined);
+});
+test('successful selection invalidates an expiry read before its transition commits',async()=>{
+ const f=expiryRace({transition:true}),refresh=f.start();
+ const selection=f.themes.select('theme','taffy',{});await new Promise(resolve=>setImmediate(resolve));
+ const changes=f.events.filter(x=>x==='site-special-theme-change').length;
+ f.read({themes:[{key:'taffy'}],active_theme:''});await refresh;
+ assert.equal(f.events.filter(x=>x==='site-special-theme-change').length,changes);
+ f.finish();await selection;assert.equal(f.root.dataset.specialTheme,'taffy');
+});
+test('expiry read still synchronizes when no newer state has been applied',async()=>{
+ const f=expiryRace(),refresh=f.start();f.read({themes:[{key:'taffy'}],active_theme:'taffy'});await refresh;
+ assert.equal(f.root.dataset.specialTheme,'taffy');
+});
+test('a newer library synchronization also invalidates the pending expiry snapshot',async()=>{
+ const f=expiryRace(),refresh=f.start();f.themes.sync({themes:[{key:'taffy'}],active_theme:'taffy'});
+ f.read({themes:[{key:'taffy'}],active_theme:''});await refresh;assert.equal(f.root.dataset.specialTheme,'taffy');
+});

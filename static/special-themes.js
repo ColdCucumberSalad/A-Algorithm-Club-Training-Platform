@@ -1,6 +1,6 @@
 /* A purchased preset feeds the existing theme tokens; custom settings stay saved. */
 window.SpecialThemes=(()=>{
-  let library={themes:[],active_theme:'',badges:[],frames:[]},expiryTimer,clockOffset=0;
+  let library={themes:[],active_theme:'',badges:[],frames:[]},expiryTimer,clockOffset=0,stateVersion=0;
   const displayedEnds=new Set();
   function registerExpiry(end){
     if(Number.isFinite(end)&&end>Date.now()+clockOffset&&!displayedEnds.has(end)){displayedEnds.add(end);schedule();}
@@ -17,7 +17,13 @@ window.SpecialThemes=(()=>{
       sync({...library,server_time:new Date(now).toISOString(),title_expirations:(library.title_expirations||[]).filter(t=>Date.parse(t)>now)});
       window.MemberTitles?.pruneExpired?.(now);
       window.dispatchEvent(new Event('club:cosmetics-expired'));
-      try{const response=await window.clubApi.request('/api/profile/cosmetics');if(response.ok)sync(await response.json());}catch{}
+      const version=stateVersion;
+      try{
+        const response=await window.clubApi.request('/api/profile/cosmetics');
+        if(!response.ok)return;
+        const data=await response.json();
+        if(version===stateVersion)sync(data);
+      }catch{}
     },Math.min(2147483647,Math.max(20,Math.min(...ends)-Date.now()-clockOffset+10)));
   }
   const palette={
@@ -25,6 +31,7 @@ window.SpecialThemes=(()=>{
     dark:{pageBackground:'#24151f',surface:'#2c1d26',surfaceElevated:'#30212a',fill:'#3d2834',separator:'#60424f',labelPrimary:'#f3e6ec',labelSecondary:'#bca1af',labelTertiary:'#a68a99',accent:'#dfa0b7',overlayDim:'#160c12bd'}
   };
   function sync(data={}){
+    stateVersion++;
     if(data.server_time&&Number.isFinite(Date.parse(data.server_time)))clockOffset=Date.parse(data.server_time)-Date.now();
     window.MemberTitles?.syncClock?.(Date.now()+clockOffset);
     library={themes:(data.themes||[]).filter(t=>!expired(t)),badges:(data.badges||[]).filter(t=>!expired(t)),frames:(data.frames||[]).filter(t=>!expired(t)),title_expirations:data.title_expirations||[],active_theme:data.active_theme||''};
@@ -41,7 +48,9 @@ window.SpecialThemes=(()=>{
   }
   async function requestSelection(kind,key){
     const response=await window.clubApi.request('/api/profile/cosmetics',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,key})});
-    const data=await response.json();if(!response.ok)throw Error(data.error||'设置失败');return data;
+    const data=await response.json();if(!response.ok)throw Error(data.error||'设置失败');
+    // Invalidate reads immediately on success, before an optional transition commits the selection.
+    stateVersion++;return data;
   }
   async function select(kind,key,button){
     const data=await requestSelection(kind,key);
