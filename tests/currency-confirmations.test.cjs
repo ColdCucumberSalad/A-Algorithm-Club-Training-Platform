@@ -3,19 +3,24 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function setup({confirmed = false, tickets = 2} = {}) {
-  const calls = [], dialogs = [];
+function setup({confirmed = false, tickets = 2, cosmeticFailure = false, duplicate = false} = {}) {
+  const calls = [], dialogs = [], synced = [];
   const context = {
     console, document: {querySelector: () => null, getElementById: () => null},
     window: {
+      SpecialThemes:{sync:data=>synced.push(data)},
       clubDialog: {confirm: async options => {dialogs.push(options); return confirmed;}, notice: async options => dialogs.push(options)},
       clubApi: {
         requestId: () => 'test-request',
         request: async (url, options = {}) => {
           calls.push({url, options});
+          if(url==='/api/profile/cosmetics'){
+            if(cosmeticFailure)throw Error('offline');
+            return {ok:true,json:async()=>({themes:[{key:'taffy'}],badges:[{key:'taffy'}],frames:[{key:'taffy-goggles'}]})};
+          }
           let data = url.includes('inventory') ? {inventory:[{item_type:'makeup_ticket', quantity:tickets}]} :
             url.includes('makeup') ? {success:true, week_id:14} :
-            url.includes('purchase') ? {balance:7, total_price:3} : {balance:10, can_purchase:true};
+            url.includes('purchase') ? {balance:7, total_price:3, duplicate} : {balance:10, can_purchase:true};
           return {ok:true, json:async () => data};
         }
       }
@@ -23,7 +28,7 @@ function setup({confirmed = false, tickets = 2} = {}) {
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(require.resolve('../currency.js'), 'utf8'), context);
-  return {module:context.window.CurrencyModule, calls, dialogs};
+  return {module:context.window.CurrencyModule, calls, dialogs, synced};
 }
 
 test('canceling ticket use never spends a ticket or opens permission', async () => {
@@ -69,4 +74,22 @@ test('multi-use card confirms the combined benefit and sends the selected quanti
   assert.equal(JSON.parse(state.calls[0].options.body).quantity, 4);
   assert.match(state.dialogs[0].text, /一张可用 4 次/);
   assert.match(state.dialogs[0].text, /需支付 12 RBC/);
+});
+
+for(const kind of ['title','theme','badge','frame'])test('ordinary '+kind+' purchase refreshes the shared cosmetic library',async()=>{
+ const state=setup({confirmed:true});
+ assert.equal(await state.module.purchaseItem(5,1,{name:'Cosmetic',price:3,item_type:kind}),true);
+ assert.deepEqual(state.calls.map(call=>call.url),['/api/currency/shop/purchase','/api/profile/cosmetics']);
+ assert.equal(state.synced.length,1);assert.equal(state.synced[0].themes[0].key,'taffy');
+});
+test('a confirmed duplicate purchase also refreshes the library',async()=>{
+ const state=setup({confirmed:true,duplicate:true});
+ assert.equal(await state.module.purchaseItem(5,1,{name:'Theme',price:3,item_type:'theme'}),true);
+ assert.equal(state.synced.length,1);assert.match(state.dialogs.at(-1).text,/未重复扣款/);
+});
+test('cosmetic refresh failure preserves the confirmed purchase result and does not retry payment',async()=>{
+ const state=setup({confirmed:true,cosmeticFailure:true});
+ assert.equal(await state.module.purchaseItem(5,1,{name:'Theme',price:3,item_type:'theme'}),true);
+ assert.equal(state.calls.filter(call=>call.options.method==='POST').length,1);
+ assert.equal(state.dialogs.at(-1).title,'购买成功');assert.match(state.dialogs.at(-1).text,/外观列表暂未刷新/);
 });

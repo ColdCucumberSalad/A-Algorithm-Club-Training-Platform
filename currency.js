@@ -389,7 +389,15 @@ const CurrencyModule = (() => {
         purchaseRequests.delete(requestKey);
         currencyData.balance = data.balance;
         updateCurrencyDisplay();
-        await window.clubDialog.notice({title:'购买成功', text:data.duplicate ? '已确认上次购买成功，本次未重复扣款' : `已放入背包，花费 ${data.total_price} RBC。`, kind:'cart'});
+        let cosmeticRefreshFailed=false;
+        if(['title','theme','badge','frame'].includes(item.item_type)){
+          try{
+            const cosmetics=await window.clubApi.request('/api/profile/cosmetics');
+            if(!cosmetics.ok)throw Error('外观列表刷新失败');
+            window.SpecialThemes?.sync(await cosmetics.json());
+          }catch{cosmeticRefreshFailed=true;}
+        }
+        await window.clubDialog.notice({title:'购买成功', text:(data.duplicate ? '已确认上次购买成功，本次未重复扣款' : `已放入背包，花费 ${data.total_price} RBC。`)+(cosmeticRefreshFailed?' 外观列表暂未刷新，请稍后重新打开详情。':''), kind:'cart'});
         return true;
       } else {
         if(response.status<500)purchaseRequests.delete(requestKey);

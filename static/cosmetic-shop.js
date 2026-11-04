@@ -18,7 +18,10 @@ window.CosmeticShop = (() => {
         if(cosmetic){
           window.SpecialThemes?.sync(data);
           equipped=isTheme?data.active_theme===item.cosmetic_key:(item.item_type==='frame'?data.avatar_frame:data.badge)?.key===item.cosmetic_key;
-        }else equipped=(data.titles||[]).some(title=>title.text===item.title_definition?.text);
+        }else {
+          if(data.cosmetics)window.SpecialThemes?.sync(data.cosmetics);
+          equipped=(data.titles||[]).some(title=>title.text===item.title_definition?.text);
+        }
       }catch{stateFailed=true;}
       finally{checking=false;if(overlay.isConnected)draw();}
     }
@@ -32,9 +35,10 @@ window.CosmeticShop = (() => {
         else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
       }
     };
-    const term=()=>item.expires_at?(Date.parse(item.expires_at)<=Date.now()?'已过期':'有效至 '+new Date(item.expires_at).toLocaleString('zh-CN')):item.cosmetic_duration_days?item.cosmetic_duration_days+' 天':'永久有效';
+    const now=()=>window.SpecialThemes?.now?.()??Date.now();
+    const term=()=>item.expires_at?(Date.parse(item.expires_at)<=now()?'已过期':'有效至 '+new Date(item.expires_at).toLocaleString('zh-CN')):item.cosmetic_duration_days?item.cosmetic_duration_days+' 天':'永久有效';
     function draw(){
-      const isExpired=Boolean(owned&&item.expires_at&&Date.parse(item.expires_at)<=Date.now());
+      const isExpired=Boolean(owned&&item.expires_at&&Date.parse(item.expires_at)<=now());
       const blocked=!owned && (item.purchase_blocked||item.purchase_limit_reached||item.stock===0);
       overlay.innerHTML=`<section class="cosmetic-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="cosmeticProductTitle">
         <header><div><p class="section-label">${isTheme?'SPECIAL THEME':cosmetic?'BADGE COLLECTION':'TITLE COLLECTION'}</p><h2 id="cosmeticProductTitle">${esc(item.name)}</h2></div><button type="button" class="secondary-button" data-cosmetic-close aria-label="关闭商品详情">×</button></header>
@@ -51,7 +55,7 @@ window.CosmeticShop = (() => {
         if(stateFailed){await refreshEquipped();return;}
         busy=true;const button=event.currentTarget;button.disabled=true;button.textContent=owned?'佩戴中…':'确认中…';
         try {
-          if(!owned){overlay.hidden=true;try{if(await onPurchase()){owned=true;if(cosmetic){const response=await window.clubApi.request('/api/profile/cosmetics');if(!response.ok)throw Error('已购买，请刷新外观列表');window.SpecialThemes.sync(await response.json());}await onChange?.();}}finally{overlay.hidden=false;}}
+          if(!owned){overlay.hidden=true;try{if(await onPurchase()){owned=true;await onChange?.();}}finally{overlay.hidden=false;}}
           else {
             if(cosmetic){await window.SpecialThemes.select(item.item_type,item.cosmetic_key,button);}
             else {

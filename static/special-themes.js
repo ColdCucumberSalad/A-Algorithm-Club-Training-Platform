@@ -61,5 +61,5 @@ window.SpecialThemes=(()=>{
     button.onclick=async()=>{if(library.active_theme==='taffy')return;button.disabled=true;try{await select('theme','taffy',button);}catch(error){row.querySelector('[role=status]').textContent=error.message;}finally{button.disabled=false;}};
   }
   document.addEventListener('DOMContentLoaded',render);
-  return {sync,adjust,select,requestSelection,render,registerExpiry};
+  return {sync,adjust,select,requestSelection,render,registerExpiry,now:()=>Date.now()+clockOffset};
 })();
