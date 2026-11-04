@@ -1,0 +1,17 @@
+[Unit]
+Description=Club website update coordinator
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/club-platform/site-updater/site_updater.py --config /opt/club-platform/site-updater/config.json
+Restart=on-failure
+RestartSec=10
+UMask=0077
+TimeoutStopSec=1800
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
