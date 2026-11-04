@@ -62,6 +62,8 @@ HTTPServer(('0.0.0.0',8000),Handler).serve_forever()
             value = {'services': {
                 'web': {'image': image, 'networks': {'default': {'ipv4_address': address}},
                         'healthcheck': {'test': ['CMD', 'python', '-c', "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/auth.html')"], 'interval': '1s', 'timeout': '2s', 'retries': 20}},
+                'worker': {'image': old_image, 'command': ['python', '-c', 'import signal,sys,time;signal.signal(signal.SIGTERM,lambda *args:sys.exit(0));time.sleep(300)']},
+                'beat': {'image': old_image, 'command': ['python', '-c', 'import signal,sys,time;signal.signal(signal.SIGTERM,lambda *args:sys.exit(0));time.sleep(300)']},
                 'nginx': {'image': 'nginx:1.27-alpine', 'ports': ['127.0.0.1:' + str(port) + ':80'],
                           'volumes': [proxy.as_posix() + ':/etc/nginx/conf.d/default.conf:ro'],
                           'depends_on': {'web': {'condition': 'service_healthy'}}}},
@@ -85,3 +87,5 @@ HTTPServer(('0.0.0.0',8000),Handler).serve_forever()
         updater.start_web()
         with urllib.request.urlopen(health, timeout=10) as response:
             self.assertEqual(response.read(), b'old old-startup')
+        updater.pause_applications()
+        self.assertEqual(updater.run(updater.compose + ['ps', '--status', 'running', '-q', 'web', 'worker', 'beat']), '')

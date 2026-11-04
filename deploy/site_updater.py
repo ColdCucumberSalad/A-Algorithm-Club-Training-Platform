@@ -165,6 +165,28 @@ class Updater:
         self.run(self.compose + ['exec', '-T', 'web', 'python', 'manage.py', 'migrate', '--check'])
         self.verify_public()
 
+    def pause_applications(self):
+        try:
+            self.run(self.compose + ['stop', 'beat', 'worker', 'web'], timeout=180)
+        except Exception:
+            self.run(self.compose + ['kill', 'beat', 'worker', 'web'], timeout=60)
+        if self.run(self.compose + ['ps', '--status', 'running', '-q', 'web', 'worker', 'beat']):
+            raise RuntimeError('应用停写确认失败，请人工停止服务，数据库锁仍保留')
+
+    def quarantine_interrupted(self):
+        requests = list(self.control.glob('request-*.json'))
+        active = next((read(path, {}) for path in requests if read(path, {}).get('id') == self.state.get('operation')), {})
+        interrupted = self.state.get('state') in BUSY or bool(active and self.state.get('state') != 'succeeded')
+        action = active.get('action') or self.state.get('action')
+        recovery = self.state.get('recovery_required', False) or (interrupted and action not in ('check', 'schedule'))
+        for path in requests:
+            request = read(path, {})
+            if (interrupted and request.get('id') == self.state.get('operation')) or (recovery and request.get('action') == 'update'):
+                path.rename(path.with_suffix('.interrupted'))
+        if interrupted or recovery:
+            self.status(state='failed', recovery_required=bool(recovery),
+                        message='更新服务曾中断，请求已隔离，请人工核对版本、备份和全部应用服务后恢复' if recovery else '检查操作曾中断，原请求已隔离，可重新检查')
+
     def check(self):
         routes, revisions = [], []
         for kind, name in [('git', 'GitHub Git 直连'), ('api', 'GitHub API 直连')]:
@@ -236,6 +258,12 @@ class Updater:
             selector.close()
         return process, name
 
+    def release_guard(self, guard):
+        process, name = guard
+        subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+        process.stdin.close()
+        process.wait(timeout=20)
+
     def audit(self, image, backup, mode, host=None):
         args = ['docker', 'run', '--rm', '--network', host or self.config['network'], '--env-file', str(self.project / '.env'), '-v', str(Path(__file__).with_name('site_update_audit.py')) + ':/audit.py:ro', '-v', str(backup) + ':/audit']
         if host:
@@ -270,6 +298,8 @@ class Updater:
             self.run(['docker', 'network', 'rm', name])
 
     def update(self, revision):
+        if self.state.get('recovery_required'):
+            raise RuntimeError('上次更新需要人工恢复，暂不允许再次更新')
         if not isinstance(revision, str) or not re.fullmatch('[0-9a-f]{40}', revision) or self.check() != revision:
             raise ValueError('主分支已变化，请重新检查后更新')
         if self.state.get('current') == revision:
@@ -282,6 +312,7 @@ class Updater:
         backup = self.project / 'deploy-backups' / release.name
         stopped = migrated = False
         guard = None
+        release_guard = True
         try:
             mounts=json.loads(self.run(['docker','inspect',self.run(self.compose+['ps','-aq','web']),'--format','{{json .Mounts}}']))
             for name in ('media','static'):
@@ -355,40 +386,54 @@ class Updater:
             self.status(current=revision, message='更新完成，数据校验通过', last_success=dt.datetime.now(dt.timezone.utc).isoformat())
         except Exception:
             if stopped:
-                self.status(message='新版本未通过验证，正在恢复原版本')
-                self.run(self.compose + ['stop', 'beat', 'worker', 'web'], timeout=180)
-                (self.project / 'compose.yaml').write_bytes(old_compose)
-                if migrated:
-                    for name, digest in checksums.items():
-                        if file_digest(backup / name) != digest:
-                            raise RuntimeError('备份校验失败，已保持停写，请人工恢复')
-                    self.run(self.compose + ['exec', '-T', 'db', 'sh', '-c', 'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'])
-                    with (backup / 'database.dump').open('rb') as data:
-                        self.run(self.compose + ['exec', '-T', 'db', 'sh', '-c', 'pg_restore --no-owner --no-acl -U "$POSTGRES_USER" -d "$POSTGRES_DB"'], stdin=data, timeout=600)
-                    for kind in ('media', 'static'):
-                        target = (self.project / 'data' / kind).resolve()
-                        if target != self.project / 'data' / kind or target.is_symlink():
-                            raise RuntimeError('回退路径校验失败，请人工恢复备份')
-                        shutil.rmtree(target)
-                        with tarfile.open(backup / (kind + '.tar.gz')) as archive:
-                            archive.extractall(self.project / 'data', filter='data')
-                    self.audit(old_image, backup, 'verify')
-                self.start_web()
-                self.run(self.compose + ['up', '-d', '--no-deps', '--force-recreate', 'worker', 'beat'])
+                try:
+                    self.status(message='新版本未通过验证，正在恢复原版本')
+                    self.run(self.compose + ['stop', 'beat', 'worker', 'web'], timeout=180)
+                    (self.project / 'compose.yaml').write_bytes(old_compose)
+                    if migrated:
+                        for name, digest in checksums.items():
+                            if file_digest(backup / name) != digest:
+                                raise RuntimeError('备份校验失败，已保持停写，请人工恢复')
+                        self.run(self.compose + ['exec', '-T', 'db', 'sh', '-c', 'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'])
+                        with (backup / 'database.dump').open('rb') as data:
+                            self.run(self.compose + ['exec', '-T', 'db', 'sh', '-c', 'pg_restore --no-owner --no-acl -U "$POSTGRES_USER" -d "$POSTGRES_DB"'], stdin=data, timeout=600)
+                        for kind in ('media', 'static'):
+                            target = (self.project / 'data' / kind).resolve()
+                            if target != self.project / 'data' / kind or target.is_symlink():
+                                raise RuntimeError('回退路径校验失败，请人工恢复备份')
+                            shutil.rmtree(target)
+                            with tarfile.open(backup / (kind + '.tar.gz')) as archive:
+                                archive.extractall(self.project / 'data', filter='data')
+                        self.audit(old_image, backup, 'verify')
+                        # dropdb --force terminated the original lock session.
+                        # Acquire a new session before reopening the old Web.
+                        previous_guard = guard
+                        guard = self.guard(old_image)
+                        if previous_guard is not None:
+                            self.release_guard(previous_guard)
+                    self.start_web()
+                    self.run(self.compose + ['up', '-d', '--no-deps', '--force-recreate', 'worker', 'beat'])
+                except Exception as rollback_error:
+                    release_guard = False
+                    try:
+                        self.status(state='failed', recovery_required=True, message='回退验证失败，正在停止应用服务，请人工恢复')
+                    finally:
+                        self.pause_applications()
+                    release_guard = True
+                    raise RuntimeError('回退验证失败，应用服务已停止，请人工核对备份并恢复') from rollback_error
             raise
         finally:
-            if guard is not None:
-                process, name = guard
-                subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
-                process.stdin.close()
-                process.wait(timeout=20)
+            if guard is not None and not release_guard:
+                self.retained_guard = guard
+            if guard is not None and release_guard:
+                self.release_guard(guard)
             self.log.close(); self.log = None
 
     def process(self, request):
         action, data = request.get('action'), request.get('data', {})
         if action not in ('check', 'update', 'schedule') or not isinstance(data, dict):
             raise ValueError('无效操作')
-        self.status(state='running', operation=request.get('id'), message='正在处理请求')
+        self.status(state='running', operation=request.get('id'), action=action, message='正在处理请求')
         if action == 'schedule':
             write(self.control / 'schedule.json', validate_schedule(data))
             self.status(message='检查设置已保存')
@@ -402,37 +447,43 @@ class Updater:
 
     def serve(self):
         import fcntl
-        lock = (self.control / 'daemon.lock').open('a')
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        threading.Thread(target=self.heartbeat, daemon=True).start()
-        if self.state.get('state') in BUSY:
-            self.status(state='failed', message='更新服务曾中断，请核对网站状态和备份后重试')
-        while True:
+        with (self.control / 'daemon.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             try:
-                requests = sorted(self.control.glob('request-*.json'))
-                if requests:
-                    path = requests[0]
-                    request = read(path, {})
-                    self.process(request)
-                    path.unlink(missing_ok=True)
-                else:
-                    schedule = validate_schedule(read(self.control / 'schedule.json', DEFAULT_SCHEDULE))
-                    now = dt.datetime.now(ZoneInfo('Asia/Shanghai'))
-                    date = now.date().isoformat()
-                    last = read(self.control / 'last-scheduled.json', {})
-                    if schedule['mode'] != 'off' and now.strftime('%H:%M') >= schedule['time'] and last.get('date') != date:
-                        write(self.control / 'last-scheduled.json', {'date': date})
-                        self.status(state='running', message='正在定时检查更新')
-                        latest = self.check()
-                        if schedule['mode'] == 'auto' and latest != self.state.get('current'):
-                            self.update(latest)
-                        self.status(state='succeeded')
-            except Exception as error:
-                # No raw command output, credentials or remote content in the UI.
-                self.status(state='failed', message=str(error) if isinstance(error, (RuntimeError, ValueError)) else '更新未完成，请查看服务器更新日志及备份')
-                if 'path' in locals() and path.exists():
-                    path.rename(path.with_suffix('.failed'))
-            time.sleep(3)
+                threading.Thread(target=self.heartbeat, daemon=True).start()
+                self.quarantine_interrupted()
+                while True:
+                    try:
+                        requests = sorted(self.control.glob('request-*.json'))
+                        if requests:
+                            path = requests[0]
+                            request = read(path, {})
+                            self.process(request)
+                            path.unlink(missing_ok=True)
+                        else:
+                            if self.state.get('recovery_required'):
+                                time.sleep(3)
+                                continue
+                            schedule = validate_schedule(read(self.control / 'schedule.json', DEFAULT_SCHEDULE))
+                            now = dt.datetime.now(ZoneInfo('Asia/Shanghai'))
+                            date = now.date().isoformat()
+                            last = read(self.control / 'last-scheduled.json', {})
+                            if schedule['mode'] != 'off' and now.strftime('%H:%M') >= schedule['time'] and last.get('date') != date:
+                                write(self.control / 'last-scheduled.json', {'date': date})
+                                self.status(state='running', action='check', operation=None, message='正在定时检查更新')
+                                latest = self.check()
+                                if schedule['mode'] == 'auto' and latest != self.state.get('current'):
+                                    self.status(action='update')
+                                    self.update(latest)
+                                self.status(state='succeeded')
+                    except Exception as error:
+                        # No raw command output, credentials or remote content in the UI.
+                        self.status(state='failed', message=str(error) if isinstance(error, (RuntimeError, ValueError)) else '更新未完成，请查看服务器更新日志及备份')
+                        if 'path' in locals() and path.exists():
+                            path.rename(path.with_suffix('.failed'))
+                    time.sleep(3)
+            finally:
+                self.stop_event.set()
 
 
 if __name__ == '__main__':

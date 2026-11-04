@@ -8,9 +8,154 @@ from unittest.mock import patch
 from site_updater import extract, validate_schedule, verify_source, Updater, write
 import hashlib
 import urllib.error
+from contextlib import contextmanager, ExitStack
+from unittest.mock import MagicMock
 
 
 class UpdateSafetyTests(unittest.TestCase):
+    @contextmanager
+    def recovery_fixture(self, failure, stop_fails=False):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as patches:
+            root = Path(temporary).resolve()
+            for kind in ('media', 'static'):
+                (root / 'data' / kind).mkdir(parents=True)
+                (root / 'data' / kind / 'preserved.txt').write_text('original')
+            (root / '.env').write_text('test-only')
+            (root / 'compose.yaml').write_text('image: test:old\n' * 3)
+            updater = Updater({'project': str(root), 'control': str(root / 'control'), 'compose_project': 'test', 'network': 'test'})
+            updater.state['current'] = 'b' * 40
+            events, starts = [], []
+            guards = [(MagicMock(), 'initial-guard'), (MagicMock(), 'rollback-guard')]
+            def run(args, **kwargs):
+                if args[-2:] == ['-aq', 'web']:
+                    return 'test-web'
+                if args[:2] == ['docker', 'inspect']:
+                    return json.dumps([{'Destination': '/app/media', 'Source': str(root / 'data/media')}, {'Destination': '/app/staticfiles', 'Source': str(root / 'data/static')}])
+                if args[-4:] == ['stop', 'beat', 'worker', 'web']:
+                    events.append('stop')
+                    if stop_fails and updater.state.get('recovery_required'):
+                        raise RuntimeError('stop failed')
+                if args[-4:] == ['kill', 'beat', 'worker', 'web']:
+                    events.append('kill')
+                    raise RuntimeError('kill failed')
+                if args[-2:] == ['worker', 'beat'] and 'up' in args:
+                    events.append('restart-workers')
+                    if failure == 'workers':
+                        raise RuntimeError('worker restart failed')
+                return ''
+            def start():
+                starts.append(True); events.append('start-web')
+                if len(starts) == 1:
+                    raise RuntimeError('forward validation failed')
+                if failure == 'web':
+                    raise RuntimeError('rollback validation failed')
+            def extract_archive(archive, source):
+                source.mkdir(); (source / 'Dockerfile').write_text('test')
+            response = MagicMock()
+            response.__enter__.return_value.read1.side_effect = [b'archive', b'']
+            patches.enter_context(patch.object(updater, 'run', side_effect=run))
+            patches.enter_context(patch.object(updater, 'check', return_value='a' * 40))
+            patches.enter_context(patch.object(updater, 'image', return_value='test:old'))
+            def acquire_guard(image):
+                events.append('acquire-guard')
+                return guards[0] if events.count('acquire-guard') == 1 else guards[1]
+            patches.enter_context(patch.object(updater, 'guard', side_effect=acquire_guard))
+            patches.enter_context(patch.object(updater, 'build_release'))
+            patches.enter_context(patch.object(updater, 'rehearsal'))
+            patches.enter_context(patch.object(updater, 'audit'))
+            patches.enter_context(patch.object(updater, 'dump', side_effect=lambda path: path.write_bytes(b'database')))
+            patches.enter_context(patch.object(updater, 'start_web', side_effect=start))
+            patches.enter_context(patch('site_updater.urllib.request.urlopen', return_value=response))
+            patches.enter_context(patch('site_updater.extract', side_effect=extract_archive))
+            patches.enter_context(patch('site_updater.verify_source'))
+            patches.enter_context(patch('site_updater.subprocess.run', side_effect=lambda *args, **kwargs: events.append('release-guard')))
+            yield updater, events, guards[1]
+
+    def test_failed_rollback_web_or_workers_stops_apps_before_guard_release(self):
+        for failure in ('web', 'workers'):
+            with self.subTest(failure=failure), self.recovery_fixture(failure) as (updater, events, guard):
+                with self.assertRaisesRegex(RuntimeError, '应用服务已停止'):
+                    updater.update('a' * 40)
+                self.assertEqual(events[-2:], ['stop', 'release-guard'])
+                self.assertTrue(updater.state['recovery_required'])
+                guard[0].stdin.close.assert_called_once()
+                self.assertEqual(events.count('acquire-guard'), 2)
+                self.assertEqual(events.count('release-guard'), 2)
+
+    def test_failed_stop_retains_guard_and_requires_manual_recovery(self):
+        with self.recovery_fixture('web', stop_fails=True) as (updater, events, guard):
+            with self.assertRaisesRegex(RuntimeError, 'kill failed'):
+                updater.update('a' * 40)
+            self.assertEqual(events[-2:], ['stop', 'kill'])
+            self.assertEqual(events.count('release-guard'), 1, 'only the terminated database session is released')
+            self.assertEqual(updater.retained_guard, guard)
+            self.assertTrue(updater.state['recovery_required'])
+            guard[0].stdin.close.assert_not_called()
+
+    def test_interrupted_manual_update_is_quarantined_even_if_image_is_current(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            updater = Updater({'project': temporary, 'control': temporary, 'compose_project': 'test'})
+            updater.status(state='running', action='update', operation='interrupted', current='a' * 40)
+            request = updater.control / 'request-interrupted.json'
+            write(request, {'id': 'interrupted', 'action': 'update', 'data': {'revision': 'a' * 40}})
+            restarted = Updater(updater.config)
+            restarted.quarantine_interrupted()
+            self.assertFalse(list(restarted.control.glob('request-*.json')))
+            self.assertTrue(request.with_suffix('.interrupted').exists())
+            self.assertTrue(restarted.state['recovery_required'])
+            with patch.object(restarted, 'check') as check:
+                with self.assertRaisesRegex(RuntimeError, '人工恢复'):
+                    restarted.process({'id': 'retry', 'action': 'update', 'data': {'revision': 'a' * 40}})
+                check.assert_not_called()
+            self.assertNotEqual(restarted.state['state'], 'succeeded')
+
+    def test_recovery_flag_survives_restart_and_harmless_settings_change(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            updater = Updater({'project': temporary, 'control': temporary, 'compose_project': 'test'})
+            updater.status(state='failed', recovery_required=True)
+            updater.process({'id': 'settings', 'action': 'schedule', 'data': {'mode': 'auto', 'time': '04:00'}})
+            restarted = Updater(updater.config)
+            request = restarted.control / 'request-pending.json'
+            write(request, {'id': 'pending', 'action': 'update', 'data': {'revision': 'a' * 40}})
+            restarted.quarantine_interrupted()
+            self.assertTrue(restarted.state['recovery_required'])
+            self.assertFalse(request.exists())
+
+    def test_legacy_failed_state_with_remaining_update_cannot_replay(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            updater = Updater({'project': temporary, 'control': temporary, 'compose_project': 'test'})
+            updater.status(state='failed', operation='legacy')
+            request = updater.control / 'request-legacy.json'
+            write(request, {'id': 'legacy', 'action': 'update', 'data': {'revision': 'a' * 40}})
+            updater.quarantine_interrupted()
+            self.assertFalse(request.exists())
+            self.assertTrue(updater.state['recovery_required'])
+
+    def test_interrupted_check_is_not_replayed_and_does_not_block_new_checks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            updater = Updater({'project': temporary, 'control': temporary, 'compose_project': 'test'})
+            updater.status(state='running', action='check', operation='check')
+            request = updater.control / 'request-check.json'
+            write(request, {'id': 'check', 'action': 'check'})
+            updater.quarantine_interrupted()
+            self.assertFalse(request.exists())
+            self.assertFalse(updater.state['recovery_required'])
+            with patch.object(updater, 'check') as check:
+                updater.process({'id': 'new-check', 'action': 'check'})
+                check.assert_called_once()
+
+    def test_daemon_restart_quarantines_before_queue_or_daily_update_processing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            updater = Updater({'project': temporary, 'control': temporary, 'compose_project': 'test'})
+            updater.status(state='running', action='update', operation='interrupted')
+            write(updater.control / 'request-interrupted.json', {'id': 'interrupted', 'action': 'update', 'data': {'revision': 'a' * 40}})
+            import sys
+            with patch.dict(sys.modules, {'fcntl': MagicMock()}), patch('site_updater.threading.Thread'), patch('site_updater.time.sleep', side_effect=SystemExit), patch.object(updater, 'process') as process, patch.object(updater, 'check') as check, patch.object(updater, 'update') as update:
+                with self.assertRaises(SystemExit):
+                    updater.serve()
+                process.assert_not_called(); check.assert_not_called(); update.assert_not_called()
+            self.assertTrue(updater.state['recovery_required'])
+
     def test_schedule_rejects_invalid_modes_hours_and_extra_commands(self):
         for value in ({'mode': 'auto', 'time': '24:00'}, {'mode': 'shell', 'time': '04:00'}, {'mode': 'auto', 'time': '04:00', 'run': 'id'}):
             with self.assertRaises(ValueError):

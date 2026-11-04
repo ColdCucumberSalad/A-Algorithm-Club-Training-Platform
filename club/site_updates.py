@@ -58,6 +58,8 @@ def enqueue(action, data, user_id):
     with (directory / 'queue.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         state = read(directory / 'status.json', {})
+        if action == 'update' and state.get('recovery_required'):
+            raise ValueError('上次更新需要人工恢复，暂不允许再次更新')
         if state.get('state') in ('queued', 'running') or any(directory.glob('request-*.json')):
             raise ValueError('已有更新操作进行中，请等待完成')
         identifier = str(uuid.uuid4())

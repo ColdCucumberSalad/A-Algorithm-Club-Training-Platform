@@ -312,9 +312,9 @@ async function loadSiteUpdates(preserveForm=false){
     form.querySelectorAll('input,select,button').forEach(node=>node.disabled=!value.available||busy);
     workbench$('#wbSiteCheck').disabled=!value.available||busy;
     siteUpdateRevision=value.latest||'';
-    workbench$('#wbSiteInstall').disabled=!value.available||busy||!value.latest||value.latest===value.current;
+    workbench$('#wbSiteInstall').disabled=!value.available||busy||value.recovery_required||!value.latest||value.latest===value.current;
     workbench$('#wbSiteUpdateVersion').textContent=value.current?'当前 '+value.current.slice(0,7):'';
-    workbench$('#wbSiteUpdateStatus').textContent=value.message||'尚未检查更新';
+    workbench$('#wbSiteUpdateStatus').textContent=value.recovery_required?'上次更新需要人工恢复，自动和手动更新已暂停，请核对备份与应用服务。':value.message||'尚未检查更新';
     workbench$('#wbSiteUpdateLast').textContent=[value.latest?'最新版本 '+value.latest.slice(0,7):'',value.checked_at?'上次检查 '+new Date(value.checked_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'',value.backup?'更新前完整备份已保存':''].filter(Boolean).join(' · ');
     workbench$('#wbSiteUpdateRoutes').innerHTML=(value.routes||[]).map(route=>`<li>${escapeHtml(route.name)}：${route.ok?'可用':'暂不可用'}${route.seconds?' · '+route.seconds+' 秒':''}</li>`).join('');
   }catch(error){workbench$('#wbSiteUpdateStatus').textContent=error.status===502||error.status===503?'网站正在切换版本，恢复后会自动刷新状态。':error.message;}

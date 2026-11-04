@@ -40,3 +40,11 @@
 ## 本地回归验证
 
 `python -m unittest discover -s deploy -p test_site_updater.py -v` 检查安全边界、代理刷新顺序与 Dockerfile 构建路径。设置环境变量 `RUN_SITE_UPDATE_DOCKER_TESTS=1` 后运行 `python -m unittest discover -s deploy -p test_site_updater_docker.py -v`，使用独立的本地临时容器实测仅 Dockerfile 变化时 ENV/CMD 生效、Web IP 改变导致旧 Nginx 502、正向刷新恢复和回退刷新恢复。测试只操作随机名称的测试项目，不连接生产服务器或现有业务数据。PR 由维护者审核合并，未经用户明确授权不部署或启用生产更新。
+
+## 中断与回退失败
+
+协调器重启会先将中断操作的请求改名为 `.interrupted`，更新请求不会作为新任务重放。中断更新或回退验证失败会持久化 `recovery_required`，暂停定时更新并拒绝新的手动更新；修改检查设置、只读检查或重启服务都不会清除此标记。页面显示需要人工恢复。
+
+回退中的 Web 验证或 worker/beat 启动失败时，协调器再次停止 web/worker/beat，并确认没有应用容器运行，然后才释放数据库锁。停止命令失败时尝试强制停止；仍无法确认停写时保留数据库锁容器，等待维护人员处理。
+
+恢复必须由维护人员明确操作：先停止更新协调器，核对备份、数据库、媒体、镜像、代理和所有应用服务，完成恢复并验证后，再清除状态文件中的 `recovery_required`。中断请求保留供审计，不改回待执行文件；恢复后重新发起检查和更新。不要仅因为 Web 镜像与目标版本相同就视为恢复完成。

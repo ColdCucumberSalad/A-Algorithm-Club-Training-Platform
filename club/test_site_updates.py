@@ -63,6 +63,13 @@ class SiteUpdateApiTests(TestCase):
         self.assertFalse(self.client.get('/api/management/site-updates').json()['available'])
         self.assertEqual(self.post({'action': 'check'}).status_code, 409)
 
+    def test_recovery_required_rejects_updates_but_allows_read_only_check(self):
+        (self.path / 'status.json').write_text(json.dumps({'state': 'failed', 'recovery_required': True}))
+        self.assertTrue(self.client.get('/api/management/site-updates').json()['recovery_required'])
+        self.assertEqual(self.post({'action': 'update', 'revision': 'a' * 40}).status_code, 409)
+        self.assertFalse(list(self.path.glob('request-*.json')))
+        self.assertEqual(self.post({'action': 'check'}).status_code, 202)
+
     def test_csrf_is_required_for_admin_update(self):
         from django.test import Client
         client = Client(enforce_csrf_checks=True)
