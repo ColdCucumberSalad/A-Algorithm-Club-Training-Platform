@@ -34,6 +34,10 @@
     } else avatar.textContent = (info.name || '').slice(0, 1);
     window.MemberTitles?.frameElement?.(avatar,info.avatar_frame);
   }
+  function updateFrame(frame) {
+    if (data) data.avatar_frame = frame;
+    window.MemberTitles?.frameElement?.(entry?.querySelector('.profile-avatar'),frame);
+  }
   function message(text, bad = false) {
     const target = page.querySelector('#profileMessage');
     target.textContent = text; target.classList.toggle('is-error', bad);
@@ -316,6 +320,6 @@
   });
   window.PersonalProfile = {
     init(me) { allowed = Boolean(me.account || me.name); entry.disabled = !allowed; updateHeader(me); if (location.hash === '#profile') open(false); },
-    updateHeader,
+    updateHeader,updateFrame,
   };
 })();

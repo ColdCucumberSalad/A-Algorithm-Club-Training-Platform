@@ -55,3 +55,13 @@ test('header avatar removes default text on success and restores it on error',()
   const stale=fixture();stale.render();const image=stale.holder.children[0];stale.render();image.onload();
   assert.notEqual(stale.holder.children[0],image);
 });
+
+test('shop frame updates preserve the existing header avatar and update the personal identity state',()=>{
+ const profile=fs.readFileSync(require.resolve('../profile.js'),'utf8'),avatar={image:{src:'/small?v=same'}},data={name:'Alice'},frames=[];
+ const context={data,entry:{querySelector:()=>avatar},window:{MemberTitles:{frameElement:(element,frame)=>frames.push({element,frame})}}};
+ vm.createContext(context);vm.runInContext(profile.slice(profile.indexOf('  function updateFrame('),profile.indexOf('  function message(')),context);
+ const frame={key:'taffy-goggles',expires_at:'2026-11-10T00:00:00Z'};
+ context.frame=frame;vm.runInContext('updateFrame(frame)',context);
+ assert.equal(frames[0].element,avatar);assert.equal(frames[0].frame,frame);assert.equal(data.avatar_frame,frame);assert.equal(avatar.image.src,'/small?v=same');
+ vm.runInContext('updateFrame(null)',context);assert.equal(frames[1].frame,null);assert.equal(data.avatar_frame,null);
+});

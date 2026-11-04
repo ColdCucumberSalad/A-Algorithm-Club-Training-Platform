@@ -5,7 +5,7 @@ const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture({skew=0,serverTime=Date.now(),realClock=false,delayed=false}={}){
  let serverNow=serverTime;
  class Clock extends Date{static now(){return serverNow+skew;}}
- let overlay,state={},fail=false,calls=[],listeners={},release;
+ let overlay,state={},fail=false,calls=[],headerFrames=[],listeners={},release;
  const pending=delayed?new Promise(resolve=>release=resolve):null;
  const element=kind=>({kind,focus(){document.activeElement=this},disabled:false,textContent:'',dataset:kind==='ranking'||kind==='profile'?{cosmeticContext:kind}:{}});
  const document={documentElement:{dataset:{}},activeElement:null,addEventListener(type,fn){listeners[type]=fn},removeEventListener(type){delete listeners[type]},
@@ -17,13 +17,13 @@ function fixture({skew=0,serverTime=Date.now(),realClock=false,delayed=false}={}
        querySelector(selector){return selector==='[data-cosmetic-action]'?this.controls[3]:selector==='[data-cosmetic-close]'?this.controls[0]:selector.includes('data-cosmetic-context=')?this.controls.find(c=>selector.includes(c.dataset.cosmeticContext)&&c.dataset.cosmeticContext):status},querySelectorAll(selector){return selector==='[data-cosmetic-context]'?this.controls.slice(1,3):selector==='button:not(:disabled)'?this.controls.filter(c=>!c.disabled):this.controls}};
      return overlay;
    },body:{append(el){el.isConnected=true}}};
- const context={document,Date:Clock,Event,setTimeout(){return 1},clearTimeout(){},window:{dispatchEvent(){},MemberTitles:{frameAvatar:x=>x,badgeMarkup:()=>'',markup:()=>''},SpecialThemes:{sync(){},async select(kind,key){state={...state,active_theme:kind==='theme'?key:state.active_theme,badge:kind==='badge'?{key}:state.badge,avatar_frame:kind==='frame'?{key}:state.avatar_frame};}},
+ const context={document,Date:Clock,Event,setTimeout(){return 1},clearTimeout(){},window:{dispatchEvent(){},PersonalProfile:{updateFrame:frame=>headerFrames.push(frame)},MemberTitles:{frameAvatar:x=>x,badgeMarkup:()=>'',markup:()=>''},SpecialThemes:{sync(){},async select(kind,key){state={...state,active_theme:kind==='theme'?key:state.active_theme,badge:kind==='badge'?{key}:state.badge,avatar_frame:kind==='frame'?{key}:state.avatar_frame};return state;}},
  clubApi:{async request(url,options){calls.push({url,options});if(pending)await pending;if(fail)throw Error('offline');if(options?.method==='POST')state={titles:[{text:JSON.parse(options.body).title}]};return {ok:true,json:async()=>state}}}}};
  vm.createContext(context);
  if(realClock)vm.runInContext(fs.readFileSync(require.resolve('../static/special-themes.js'),'utf8'),context);
  vm.runInContext(fs.readFileSync(require.resolve('../static/cosmetic-shop.js'),'utf8'),context);
- return {release:()=>release?.(),focus:()=>document.activeElement,blur(){document.activeElement={}},key(event){listeners.keydown(event)},advance(ms){serverNow+=ms},setState(value){state=value},fail(value){fail=value},calls,
-   open(item){context.window.CosmeticShop.openTitle({item,owned:true});return overlay},
+ return {release:()=>release?.(),focus:()=>document.activeElement,blur(){document.activeElement={}},key(event){listeners.keydown(event)},advance(ms){serverNow+=ms},setState(value){state=value},fail(value){fail=value},calls,headerFrames,
+   open(item,{owned=true,onPurchase}={}){context.window.CosmeticShop.openTitle({item,owned,onPurchase});return overlay},
    action:()=>overlay.querySelector('[data-cosmetic-action]'),html:()=>overlay.html};
 }
 const items=[
@@ -82,4 +82,24 @@ test('retrying a failed lookup restores focus when the action becomes disabled',
  const f=fixture();f.fail(true);f.open(items[0]);await settle();f.action().focus();
  f.fail(false);f.setState(items[0].selected);await f.action().onclick({currentTarget:f.action()});
  assert.equal(f.focus().kind,'close');assert.equal(f.action().disabled,true);
+});
+
+for(const purchased of [false,true])test('hidden preview yields Escape and Tab to nested purchase dialogs, purchase='+purchased,async()=>{
+ const f=fixture();let finish;
+ const overlay=f.open(items[0],{owned:false,onPurchase:()=>new Promise(resolve=>finish=resolve)});
+ const action=f.action().onclick({currentTarget:f.action()});assert.equal(overlay.hidden,true);
+ for(const key of ['Escape','Tab']){
+   let intercepted=false;
+   f.key({key,preventDefault(){intercepted=true},stopImmediatePropagation(){intercepted=true}});
+   assert.equal(intercepted,false);
+ }
+ finish(purchased);await action;assert.equal(overlay.hidden,false);
+ let intercepted=false;f.key({key:'Escape',preventDefault(){intercepted=true},stopImmediatePropagation(){}});
+ assert.equal(intercepted,true);assert.equal(overlay.isConnected,false);
+});
+test('equipping a backpack frame immediately publishes the returned frame to the header',async()=>{
+ const f=fixture();f.open(items[2]);await settle();
+ await f.action().onclick({currentTarget:f.action()});
+ assert.equal(f.headerFrames.length,1);assert.equal(f.headerFrames[0].key,'taffy-goggles');
+ assert.match(f.html(),/>已佩戴<\/button>/);
 });

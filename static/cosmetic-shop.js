@@ -27,7 +27,7 @@ window.CosmeticShop = (() => {
     }
     const close=()=>{if(busy)return;overlay.remove();document.removeEventListener('keydown',keydown,true);previous?.isConnected&&previous.focus();};
     const keydown=event=>{
-      if(!overlay.isConnected)return;
+      if(!overlay.isConnected||overlay.hidden)return;
       if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();close();}
       if(event.key==='Tab'){
         const controls=[...overlay.querySelectorAll('button:not(:disabled)')],first=controls[0],last=controls.at(-1);
@@ -58,7 +58,10 @@ window.CosmeticShop = (() => {
         try {
           if(!owned){overlay.hidden=true;try{if(await onPurchase()){owned=true;await onChange?.();}}finally{overlay.hidden=false;}}
           else {
-            if(cosmetic){await window.SpecialThemes.select(item.item_type,item.cosmetic_key,button);}
+            if(cosmetic){
+              const selection=await window.SpecialThemes.select(item.item_type,item.cosmetic_key,button);
+              if(item.item_type==='frame')window.PersonalProfile?.updateFrame?.(selection.avatar_frame);
+            }
             else {
             const response=await window.clubApi.request('/api/profile/titles/wear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:item.title_definition.text})});
             const data=await response.json();if(!response.ok)throw Error(data.error||'佩戴失败');}
