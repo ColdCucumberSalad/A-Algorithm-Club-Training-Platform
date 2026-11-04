@@ -1,3 +1,4 @@
+const {prepare}=require('./activity-fixture.cjs');
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),vm=require('node:vm');
@@ -8,8 +9,8 @@ test('a refreshed historical day replaces cached completed flags and reopens the
   const current={...old,submitted:false,hasSubmission:false,isMakeup:false,makeupOpen:true,canSubmit:true};
   const entry={classList:{toggle(){}}};
   const context={pulseDays:[old],pulseToday:'2026-11-01',adminTestMode:false,entry,current};
-  vm.createContext(context);
-  const merge=source.slice(source.indexOf('function updatePulseDay('),source.indexOf('\nfunction renderActivityDay'));
+  prepare(context);vm.createContext(context);
+  const merge=source.slice(source.indexOf('function updatePulseDay('),source.indexOf('\nasync function refreshActivityLayout'));
   const button=source.slice(source.indexOf('function updateSubmissionEntry('),source.indexOf('\nfunction selectPulseDay'));
   vm.runInContext(merge+button+'\nupdatePulseDay(current);updateSubmissionEntry(entry,pulseDays[0],current.date);',context);
   assert.match(entry.innerHTML,/补交当日记录/);assert.equal(entry.disabled,false);
@@ -21,7 +22,7 @@ test('a refreshed historical day replaces cached completed flags and reopens the
 test('today returns to its first-submission action after the final submission disappears',()=>{
   const entry={classList:{toggle(){}}};
   const context={entry,day:{submitted:false,hasSubmission:false,canSubmit:true},pulseToday:'2026-11-01',adminTestMode:false};
-  vm.createContext(context);
+  prepare(context);vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('function updateSubmissionEntry('),source.indexOf('\nfunction selectPulseDay'))+"\nupdateSubmissionEntry(entry,day,pulseToday);",context);
   assert.match(entry.innerHTML,/提交今日记录/);assert.equal(entry.disabled,false);
 });
@@ -31,7 +32,7 @@ test('a leaderboard request started before deletion cannot overwrite the new sol
   const context={rankingData:data,leaderboardInFlight:inflight,rankingKey:(a,b)=>a+':'+b,
     rankingSelection:()=>({scope:'solved',platform:'codeforces'}),renderLeaderboard(){},
     clubApi:{request:()=>new Promise(resolve=>pending.push(resolve))}};
-  vm.createContext(context);
+  prepare(context);vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('async function loadLeaderboard('),source.indexOf('\nasync function refreshAfterMutation')),context);
   const old=vm.runInContext("loadLeaderboard('solved')",context);
   const fresh=vm.runInContext("loadLeaderboard('solved','codeforces',{force:true})",context);
@@ -47,7 +48,7 @@ test('rejected corrections bypass overview day locks and never request a makeup 
     pulseDays:[{date:'2026-10-30',submitted:true,isMakeup:false,canSubmit:false,weekId:2}],
     adminTestMode:false,currentSubmissionWeekId:3,completeMakeup:async()=>{throw Error('must not spend ticket');},
     loadDailyChallenges(){},resetSubmissionForm(){},showSubmissionEditor(){},editingSubmission:null,resubmitting:null};
-  vm.createContext(context);
+  prepare(context);vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('async function openModal('),source.indexOf('\nlet submissionScrollState')),context);
   assert.equal(await vm.runInContext("openModal(false,{record_date:'2026-10-30',week_id:2})",context),true);
   assert.equal($('#submissionForm').dataset.recordDate,'2026-10-30');
@@ -62,7 +63,7 @@ test('the rejected-record action uses record eligibility rather than overview da
   const context={ownRecords:new Map([[8,record]]),$:key=>{if(!entries.has(key))entries.set(key,{dataset:{}});return entries.get(key);},
     openModal:async(...args)=>{calls.push(args);return true;},showToast(){},uiProblemTitle:x=>x,
     setSubmissionCodeDraft(){},renderSubmissionDraftBlog(){},startSubmissionDraft(){},resubmitting:null};
-  vm.createContext(context);
+  prepare(context);vm.createContext(context);
   vm.runInContext(community.slice(community.indexOf('async function beginResubmit('),community.indexOf("\ndocument.addEventListener('DOMContentLoaded'",community.indexOf('async function beginResubmit('))),context);
   assert.equal(await vm.runInContext('beginResubmit(8)',context),true);
   assert.equal(calls[0][0],false);assert.equal(calls[0][1],record);
@@ -84,7 +85,7 @@ test('normal editing uses can_edit while rejected resubmission keeps its separat
       openModal:async(...args)=>{calls.push(args);return true;},showToast:message=>messages.push(message),uiProblemTitle:x=>x,
       setSubmissionCodeDraft(){},renderSubmissionDraftBlog(){},startSubmissionDraft(){},resubmitting:null,editingSubmission:null,
       captureEditReturn:()=>({}),closeReview(){},restoreEditReturn(){},submissionEditReturnState:null};
-    vm.createContext(context);
+    prepare(context);vm.createContext(context);
     vm.runInContext(community.slice(community.indexOf('async function beginResubmit('),community.indexOf("\ndocument.addEventListener('DOMContentLoaded'",community.indexOf('async function beginResubmit('))),context);
     vm.runInContext(community.slice(community.indexOf('async function editOwnSubmission('),community.indexOf('\nfunction openTipDialog')),context);
     await vm.runInContext(scenario.edit?'editOwnSubmission(8)':'beginResubmit(8)',context);
