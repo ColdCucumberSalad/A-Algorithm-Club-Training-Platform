@@ -1726,4 +1726,9 @@ document.addEventListener('click', event => {
   if (member?.dataset.rankingMember && member.dataset.rankingMember !== 'undefined') openMemberHistory(member.dataset.rankingMember);
 });
 
-window.addEventListener('club:cosmetics-expired',()=>refreshCosmeticRankings());
+window.addEventListener('club:cosmetics-expired',()=>{
+  const tasks=[refreshCosmeticRankings()];
+  const shop=document.getElementById('rbcshopView');
+  if(currentView==='rbcshop'&&shop)tasks.push(window.CurrencyModule?.renderShopView(shop));
+  return Promise.allSettled(tasks);
+});
