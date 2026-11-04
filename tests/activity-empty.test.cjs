@@ -8,14 +8,13 @@ function render(record, day = record, today = '2026-11-01') {
     '#activityRecords':{}, '#pulseFocus':{},
     '#activitySubmit':{}, '#openSubmission':{hidden:false},
   };
-  const source = fs.readFileSync(require.resolve('../app.js'),'utf8');
-  const start = source.indexOf('function renderActivityDay(day)');
-  const end = source.indexOf('\nfunction renderActivityMonths',start);
-  vm.runInNewContext(source.slice(start,end)+'\nrenderActivityDay(day);', {
-    $:selector => elements[selector], $$:() => [],
-    activityPayload:{days:record?[record]:[]}, pulseToday:today, day,
-    document:{body:{classList:{contains:() => false}}},
+  const {prepare}=require('./activity-fixture.cjs');
+  const c=prepare({
+    $:selector=>elements[selector],$$:()=>[],pulseToday:today,loadActivitySelectedDay(){},
+    document:{body:{classList:{contains:()=>false}}}
   });
+  if(record)c.activityStore.merge([record]);
+  c.renderActivityDay(day);
   return elements['#activityRecords'].innerHTML;
 }
 

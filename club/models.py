@@ -63,7 +63,16 @@ class ContestCalendarSnapshot(models.Model):
     error = models.CharField(max_length=100, blank=True)
 
 
+EXTENSION_CATEGORIES = [("library", "资料库"), ("games", "小游戏")]
+
+
+class BuiltinExtensionCategory(models.Model):
+    key = models.CharField(max_length=40, primary_key=True)
+    category = models.CharField(max_length=16, choices=EXTENSION_CATEGORIES, default="games")
+
+
 class ExtensionResource(models.Model):
+    category = models.CharField(max_length=16, choices=EXTENSION_CATEGORIES, default="library")
     title = models.CharField(max_length=100)
     description = models.CharField(max_length=300, blank=True)
     url = models.URLField(max_length=2000, blank=True)

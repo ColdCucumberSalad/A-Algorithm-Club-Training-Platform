@@ -871,9 +871,9 @@ html[data-site-theme-active="true"] body .auth-story-stat span { background: var
 /* Monthly browsing sizes each month by its actual week columns. */
 #activityHeatmap[data-range="month"]:has(.activity-sliding-months){width:max-content;gap:0;}
 .activity-sliding-months{display:flex;flex:none;}
-.activity-slide-month{box-sizing:border-box;flex:none;width:max-content;padding-right:var(--activity-month-gap,12px);}
-.activity-slide-month:last-child{padding-right:0;}
-#activityHeatmap .activity-slide-month .activity-month-sections{gap:0;}
+#activityHeatmap .activity-slide-month{box-sizing:border-box;flex:none;width:max-content;margin-right:var(--activity-month-gap,12px);}
+#activityHeatmap .activity-slide-month:last-child{margin-right:0;}
+#activityHeatmap .activity-slide-month .activity-month-sections{gap:0;flex:none;}
 #activityHeatmap .activity-slide-month .activity-month-caption{text-align:center;}
 
 /* Week labels sit outside the clipped date viewport, never over scrolling cells. */
@@ -886,7 +886,7 @@ html[data-site-theme-active="true"] body .auth-story-stat span { background: var
 .activity-heat-layout #activityHeatmap[data-range="month"]{--activity-cell:inherit;--activity-gap:inherit;}
 @media(max-width:760px){.activity-heat-layout{--activity-gap:3px;}}
 
-.activity-heat-scroll.has-month-window{box-sizing:border-box;padding-left:0;padding-right:0;width:100%;}
+.activity-heat-scroll.has-month-window{box-sizing:border-box;padding-left:4px;padding-right:4px;width:100%;}
 
 
 #dashboardView .dashboard-platform-ranking{grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch;gap:20px;}
@@ -939,3 +939,5 @@ html[data-site-theme-active="true"] body .auth-story-stat span { background: var
 #activityMonthCalendar{min-width:44px;min-height:44px;padding:0;}
 
 html[data-site-theme-active="true"]{background:var(--site-page)!important}
+/* Include the entire continuous grid in scroll width, including the outline gutter. */
+#activityHeatmap[data-range="month"]:has(.activity-continuous-months){width:max-content;}

@@ -32,7 +32,7 @@
 
 ## 更新服务器
 
-本次包括 0059–0063 数据库迁移，不能只覆盖前端。先备份数据库、媒体和当前程序，执行 `python manage.py migrate` 与 `python manage.py collectstatic --noinput`，同步重启 Web、worker、beat，保留原配置和数据。
+本次包括 0059–0064 数据库迁移，不能只覆盖前端。0064 合并扩展分类与装扮功能的迁移分支，不增加额外数据变更。先备份数据库、媒体和当前程序，执行 `python manage.py migrate` 与 `python manage.py collectstatic --noinput`，同步重启 Web、worker、beat，保留原配置和数据。
 
 迁移新增全局外观归属、购买有效期快照与头像框字段。0063 给已有有效来源的塔菲主题持有者补发头像框，不扣币、不改变佩戴选择。历史兼容迁移会清理曾在本地预览中出现的重画版徽章权益、下架对应旧商品，保留购买及硬币流水。
 
