@@ -498,7 +498,8 @@ def members(request):
     roster = list(membership.team.memberships.filter(is_active=True,user__is_active=True,user__is_superuser=False).select_related('user'))
     from .avatar_images import member_urls
     avatars = member_urls(roster)
-    from .cosmetics import frame_data
+    from .cosmetics import frame_data, cache_equipped
+    cache_equipped(roster, kinds=('frame',))
     rows = [{'id': member.id, 'name': member.display_name, 'role': member.role, 'team_id': membership.team_id,
              'avatar': avatars.get(member.pk),'avatar_frame':frame_data(member),
              'account': member.user.username if request.user.is_superuser else '',

@@ -25,6 +25,24 @@ def available(user_id,kind):
     return [{**value,'expires_at':details[key].isoformat() if details[key] else None} for key,value in CATALOG[kind].items() if key in details]
 
 
+def cache_equipped(members, kinds=('badge', 'frame')):
+    """Load selected roster cosmetics once, keeping the longest active source."""
+    from collections import defaultdict
+    fields = {'badge': 'worn_badge', 'frame': 'worn_avatar_frame'}
+    selected = [member for member in members if any(getattr(member, fields[kind], '') for kind in kinds)]
+    if not selected:
+        return
+    cached = defaultdict(dict)
+    grants = CosmeticGrant.objects.filter(active_term(), user_id__in=[m.user_id for m in selected],
+        kind__in=kinds, inventory__quantity__gt=0).values_list('user_id', 'kind', 'key', 'expires_at')
+    for user_id, kind, key, end in grants:
+        slot = (kind, key)
+        if slot not in cached[user_id] or cached[user_id][slot] is not None and (end is None or end > cached[user_id][slot]):
+            cached[user_id][slot] = end
+    for member in selected:
+        member._cosmetic_owned = cached[member.user_id]
+
+
 def equipped(member,kind,field):
     key=getattr(member,field,'')
     if not key or key not in CATALOG[kind]:return None

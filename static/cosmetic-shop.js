@@ -27,17 +27,18 @@ window.CosmeticShop = (() => {
     }
     const close=()=>{if(busy)return;overlay.remove();document.removeEventListener('keydown',keydown,true);previous?.isConnected&&previous.focus();};
     const keydown=event=>{
-      if(!overlay.isConnected||busy)return;
+      if(!overlay.isConnected)return;
       if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();close();}
       if(event.key==='Tab'){
         const controls=[...overlay.querySelectorAll('button:not(:disabled)')],first=controls[0],last=controls.at(-1);
         if(event.shiftKey&&(document.activeElement===first||!overlay.contains(document.activeElement))){event.preventDefault();last?.focus();}
-        else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
+        else if(!event.shiftKey&&(document.activeElement===last||!overlay.contains(document.activeElement))){event.preventDefault();first?.focus();}
       }
     };
     const now=()=>window.SpecialThemes?.now?.()??Date.now();
     const term=()=>item.expires_at?(Date.parse(item.expires_at)<=now()?'已过期':'有效至 '+new Date(item.expires_at).toLocaleString('zh-CN')):item.cosmetic_duration_days?item.cosmetic_duration_days+' 天':'永久有效';
     function draw(){
+      const focusedIndex=overlay.isConnected?[...overlay.querySelectorAll('button')].indexOf(document.activeElement):-1;
       const isExpired=Boolean(owned&&item.expires_at&&Date.parse(item.expires_at)<=now());
       const blocked=!owned && (item.purchase_blocked||item.purchase_limit_reached||item.stock===0);
       overlay.innerHTML=`<section class="cosmetic-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="cosmeticProductTitle">
@@ -62,12 +63,16 @@ window.CosmeticShop = (() => {
             const response=await window.clubApi.request('/api/profile/titles/wear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:item.title_definition.text})});
             const data=await response.json();if(!response.ok)throw Error(data.error||'佩戴失败');}
             equipped=true;
-            if(typeof loadLeaderboard==='function')loadLeaderboard();
+            if(typeof refreshCosmeticRankings==='function')refreshCosmeticRankings();
           }
           draw();overlay.querySelector('[data-cosmetic-close]').focus();
         }catch(error){draw();overlay.querySelector('.cosmetic-status').textContent=error.message;}
         finally{busy=false;}
       };
+      if(focusedIndex>=0){
+        const control=overlay.querySelectorAll('button')[focusedIndex];
+        (control&&!control.disabled?control:overlay.querySelector('[data-cosmetic-close]')).focus();
+      }
     }
     draw();document.body.append(overlay);document.addEventListener('keydown',keydown,true);overlay.querySelector('[data-cosmetic-close]').focus();
     if(checking)refreshEquipped();

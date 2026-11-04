@@ -116,3 +116,46 @@ class CosmeticTests(TestCase):
         self.assertTrue(Purchase.objects.filter(pk=purchase.pk).exists());self.assertEqual(self.balance.balance,40)
         self.assertEqual([b['key'] for b in available(self.user.pk,'badge')],['taffy'])
         self.assertEqual(state(self.user)['active_theme'],'taffy')
+
+    def test_member_roster_batches_frame_queries_for_forty_members(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from .models import UserInventory
+        self.buy()
+        self.member.worn_avatar_frame='taffy-goggles';self.member.save()
+        session=self.client.session;session['team_id']=self.team.pk;session.save()
+        with CaptureQueriesContext(connection) as single:
+            response=self.client.get('/api/members')
+        self.assertEqual(response.status_code,200,response.content)
+        for i in range(39):
+            user=User.objects.create_user(f'frame-roster-{i}')
+            member=TeamMembership.objects.create(team=self.team,user=user,display_name=f'Frame {i}',worn_avatar_frame='taffy-goggles')
+            inv=UserInventory.objects.create(team=self.team,member=member,item=self.item,quantity=1)
+            CosmeticGrant.objects.create(user=user,inventory=inv,kind='frame',key='taffy-goggles')
+        with CaptureQueriesContext(connection) as many:
+            response=self.client.get('/api/members')
+        self.assertEqual(response.status_code,200,response.content)
+        rows=response.json()['members']
+        self.assertEqual(len(rows),40)
+        self.assertTrue(all(row['avatar_frame']['key']=='taffy-goggles' for row in rows))
+        self.assertEqual(len(single),len(many))
+        self.assertEqual(sum('club_cosmeticgrant' in q['sql'] for q in many),1)
+
+    def test_frame_batch_keeps_permanent_source_and_excludes_revoked_or_expired(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import UserInventory
+        from .cosmetics import cache_equipped,frame_data
+        self.buy()
+        self.member.worn_avatar_frame='taffy-goggles'
+        original=CosmeticGrant.objects.get(user=self.user,kind='frame')
+        inv=UserInventory.objects.create(team=self.other,member=self.second,item=self.item,quantity=1)
+        later=CosmeticGrant.objects.create(user=self.user,inventory=inv,kind='frame',key='taffy-goggles',expires_at=timezone.now()+timedelta(days=2))
+        cache_equipped([self.member],kinds=('frame',))
+        self.assertIsNone(frame_data(self.member)['expires_at'])
+        original.inventory.quantity=0;original.inventory.save()
+        cache_equipped([self.member],kinds=('frame',))
+        self.assertEqual(frame_data(self.member)['expires_at'],later.expires_at.isoformat())
+        later.expires_at=timezone.now()-timedelta(seconds=1);later.save()
+        cache_equipped([self.member],kinds=('frame',))
+        self.assertIsNone(frame_data(self.member))

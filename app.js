@@ -1396,6 +1396,15 @@ async function loadLeaderboard(scope = 'checkin', platform='codeforces', {force=
   return request;
 }
 
+function refreshCosmeticRankings(){
+  const selections=new Map(['#leaderboardList','#leaderboardRatingList','#leaderboardSolvedList','#leaderboardWealthList','#leaderboardListFull'].map(target=>{
+    const selected=rankingSelection(target);
+    return [rankingKey(selected.scope,selected.platform,selected.period),selected];
+  }));
+  return Promise.allSettled([...selections.values()].map(selected=>
+    loadLeaderboard(selected.scope,selected.platform,{force:true,period:selected.period})));
+}
+
 async function refreshAfterMutation({refreshAdmin = false} = {}) {
   const selections=new Map(['#leaderboardList','#leaderboardRatingList','#leaderboardSolvedList','#leaderboardWealthList','#leaderboardListFull'].map(target=>{
     const selected=rankingSelection(target);return [rankingKey(selected.scope,selected.platform,selected.period),selected];
@@ -1717,4 +1726,4 @@ document.addEventListener('click', event => {
   if (member?.dataset.rankingMember && member.dataset.rankingMember !== 'undefined') openMemberHistory(member.dataset.rankingMember);
 });
 
-window.addEventListener('club:cosmetics-expired',()=>{if(typeof loadLeaderboard==='function')loadLeaderboard();});
+window.addEventListener('club:cosmetics-expired',()=>refreshCosmeticRankings());

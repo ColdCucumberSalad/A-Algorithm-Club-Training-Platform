@@ -1,4 +1,4 @@
-from .cosmetics import badge_data,frame_data
+from .cosmetics import badge_data,frame_data,cache_equipped
 """Team-scoped rankings built solely from stored account and activity data."""
 import math
 from collections import defaultdict
@@ -26,15 +26,7 @@ def ranking_data(member, scope, platform='codeforces', period='semester'):
     if scope == 'wealth':
         from .grades import grade_on
         members = [m for m in members if grade_on(profiles.get(m.user_id)) != 4]
-    cosmetic_members=[m for m in members if m.worn_badge or m.worn_avatar_frame]
-    if cosmetic_members:
-        from .models import CosmeticGrant
-        from .cosmetic_terms import active_term
-        cached=defaultdict(dict)
-        for user_id,kind,key,end in CosmeticGrant.objects.filter(active_term(),user_id__in=[m.user_id for m in cosmetic_members],kind__in=['badge','frame'],inventory__quantity__gt=0).values_list('user_id','kind','key','expires_at'):
-            slot=(kind,key)
-            if slot not in cached[user_id] or cached[user_id][slot] is not None and (end is None or end>cached[user_id][slot]):cached[user_id][slot]=end
-        for m in cosmetic_members:m._cosmetic_owned=cached[m.user_id]
+    cache_equipped(members)
     title_members = [m for m in members if m.worn_titles]
     if title_members:
         from .models import OwnedTitle
