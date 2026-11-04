@@ -32,6 +32,7 @@
       image.onerror=()=>{if(image.parentElement===avatar)avatar.textContent=(info.name||'').slice(0,1);};
       avatar.append(image);
     } else avatar.textContent = (info.name || '').slice(0, 1);
+    window.MemberTitles?.frameElement?.(avatar,info.avatar_frame);
   }
   function message(text, bad = false) {
     const target = page.querySelector('#profileMessage');
@@ -48,13 +49,23 @@
     else target.textContent = (name || '').slice(0, 1);
   }
   function renderIdentity() {
+    window.MemberTitles?.frameElement?.(page.querySelector('#personalAvatar'),data.avatar_frame);
     page.querySelector('#personalGrade').textContent = data.cohort?.squad_label || (data.read_only ? '系统管理员' : '未分队');
-    page.querySelector('#personalMemberTitle').innerHTML=window.MemberTitles?.list(data.titles||data.title)||'';
+    page.querySelector('#personalMemberTitle').innerHTML=window.MemberTitles?.list(data.titles||data.title,data.badge)||'';
     let wardrobe=page.querySelector('#titleWardrobe');if(!wardrobe){wardrobe=document.createElement('section');wardrobe.id='titleWardrobe';wardrobe.className='personal-basics title-wardrobe';page.querySelector('.personal-password').before(wardrobe);}
     const awarded=data.awarded_titles||[];wardrobe.hidden=data.read_only||!awarded.length;
     const selected=data.titles?.length===1?data.titles[0].text:null;
     wardrobe.innerHTML='<h2>佩戴称号</h2><div class="title-wardrobe-options"><button type="button" class="secondary-button" data-wear-none aria-pressed="'+(!data.titles?.length)+'">不佩戴</button>'+awarded.map((title,i)=>'<button type="button" class="title-wear-choice" data-wear-index="'+i+'" aria-pressed="'+(selected===title.text)+'">'+MemberTitles.markup(title)+'</button>').join('')+'</div>';
     wardrobe.onclick=async event=>{const button=event.target.closest('button');if(!button)return;const title=button.hasAttribute('data-wear-none')?null:awarded[Number(button.dataset.wearIndex)]?.text;if(title===undefined)return;button.disabled=true;try{const result=await request('/api/profile/titles/wear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title})});data.titles=result.titles;renderIdentity();if(typeof loadLeaderboard==='function')loadLeaderboard();message('称号佩戴已更新');}catch(error){message(error.message,true);}finally{button.disabled=false;}};
+    let badgeWardrobe=page.querySelector('#badgeWardrobe');
+    if(!badgeWardrobe){badgeWardrobe=document.createElement('section');badgeWardrobe.id='badgeWardrobe';badgeWardrobe.className='personal-basics title-wardrobe';wardrobe.after(badgeWardrobe);}
+    const badges=data.cosmetics?.badges||[];badgeWardrobe.hidden=data.read_only||!badges.length;
+    badgeWardrobe.innerHTML='<h2>佩戴徽章</h2><div class="title-wardrobe-options"><button type="button" class="secondary-button" data-badge-key="" aria-pressed="'+(!data.badge)+'">不佩戴</button>'+badges.filter(b=>Object.hasOwn(MemberTitles.badgeAssets,b.key)).map(b=>'<button type="button" class="title-wear-choice" data-badge-key="'+escape(b.key)+'" aria-pressed="'+(data.badge?.key===b.key)+'">'+MemberTitles.badgeMarkup(b)+' '+escape(b.name)+'</button>').join('')+'</div>';
+    badgeWardrobe.querySelectorAll('[data-badge-key]').forEach(button=>button.onclick=async()=>{button.disabled=true;try{const result=await SpecialThemes.select('badge',button.dataset.badgeKey);data.badge=result.badge;data.cosmetics=result;renderIdentity();if(typeof loadLeaderboard==='function')loadLeaderboard();message('徽章佩戴已更新');}catch(error){message(error.message,true);}finally{button.disabled=false;}});
+    let frames=page.querySelector('#frameWardrobe');if(!frames){frames=document.createElement('section');frames.id='frameWardrobe';frames.className='personal-basics title-wardrobe';badgeWardrobe.after(frames);}
+    const ownedFrames=data.cosmetics?.frames||[];frames.hidden=data.read_only||!ownedFrames.length;
+    frames.innerHTML='<h2>佩戴头像框</h2><div class="title-wardrobe-options"><button type="button" class="secondary-button" data-frame-key="" aria-pressed="'+(!data.avatar_frame)+'">不佩戴</button>'+ownedFrames.map(frame=>'<button type="button" class="title-wear-choice" data-frame-key="'+escape(frame.key)+'" aria-pressed="'+(data.avatar_frame?.key===frame.key)+'">'+MemberTitles.frameAvatar('<span class="cosmetic-demo-avatar">'+escape((data.name||'').slice(0,1))+'</span>',frame)+' '+escape(frame.name)+'</button>').join('')+'</div>';
+    frames.querySelectorAll('[data-frame-key]').forEach(button=>button.onclick=async()=>{button.disabled=true;try{const result=await SpecialThemes.select('frame',button.dataset.frameKey);data.avatar_frame=result.avatar_frame;data.cosmetics=result;renderIdentity();updateHeader(data);if(typeof loadLeaderboard==='function')loadLeaderboard();message('头像框佩戴已更新');}catch(error){message(error.message,true);}finally{button.disabled=false;}});
   }
   function buildPage() {
     page = document.createElement('section'); page.id = 'personalPage'; page.className = 'personal-page';
@@ -300,6 +311,9 @@
   }
   addEventListener('popstate', () => { if (location.hash === '#profile') open(false); else close(); });
   entry?.addEventListener('click', () => open());
+  window.addEventListener('club:cosmetics-expired',async()=>{
+    try{const result=await request('/api/profile');if(data&&page){data=result;renderIdentity();}updateHeader(result);}catch{}
+  });
   window.PersonalProfile = {
     init(me) { allowed = Boolean(me.account || me.name); entry.disabled = !allowed; updateHeader(me); if (location.hash === '#profile') open(false); },
     updateHeader,

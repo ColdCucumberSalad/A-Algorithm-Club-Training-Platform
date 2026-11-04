@@ -34,7 +34,7 @@ window.AccountManagement=(()=>{
       try{let url=`/api/management/accounts/${id}`,method='PATCH',payload=Object.fromEntries(new FormData(form));
         if(action==='balance')payload={action:'balance',balance:Number(payload.balance),expected_balance:Number(form.dataset.balance)};
         if(action==='quantity'){url+='/inventory';method='POST';payload={action:'quantity',inventory_id:Number(form.dataset.inventory),item_id:Number(form.dataset.item),quantity:Number(payload.quantity),expected_quantity:Number(form.dataset.quantity)};}
-        if(action==='grant'){url+='/inventory';method='POST';form.dataset.requestId ||= crypto.randomUUID();payload={action:'grant',item_id:Number(payload.item),quantity:Number(payload.quantity),request_id:form.dataset.requestId};}
+        if(action==='grant'){url+='/inventory';method='POST';form.dataset.requestId ||= window.clubApi.requestId();payload={action:'grant',item_id:Number(payload.item),quantity:Number(payload.quantity),request_id:form.dataset.requestId};}
         await request(url,payload,method);if(id===selectedId)await selectAccount(id);notify('已保存');
       }catch(error){notify(error.message);}finally{button.disabled=false;}
     });

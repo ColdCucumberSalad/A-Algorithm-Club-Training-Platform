@@ -1,3 +1,4 @@
+from .cosmetic_terms import purchase_terms
 """
 Currency system business logic
 """
@@ -266,6 +267,14 @@ def purchase_item(member, item_id, quantity=1, request_id=None):
     if item.stock != -1 and item.stock < quantity:
         raise ValueError("库存不足")
 
+    if item.item_type == 'title':
+        from .shop_titles import ensure_available
+        ensure_available(member.user_id, item, quantity)
+
+    if item.item_type in ('badge','theme'):
+        from .cosmetics import ensure_available
+        ensure_available(member.user_id,item,quantity)
+
     from .shop_fulfillment import reserve_codes, create_fulfillments
     codes = reserve_codes(item, quantity)
     total_price = item.price * quantity
@@ -281,7 +290,7 @@ def purchase_item(member, item_id, quantity=1, request_id=None):
     # Create purchase record
     try:
         with transaction.atomic():
-            purchase = Purchase.objects.create(team=member.team,member=member,item=item,quantity=quantity,total_price=total_price,request_id=token)
+            purchase = Purchase.objects.create(team=member.team,member=member,item=item,quantity=quantity,total_price=total_price,request_id=token,**purchase_terms(item))
     except IntegrityError:
         raise ValueError('购买请求编号已被使用') from None
 
@@ -298,6 +307,12 @@ def purchase_item(member, item_id, quantity=1, request_id=None):
         inventory.quantity += quantity
         inventory.save()
 
+    if item.item_type == 'title':
+        from .shop_titles import award
+        award(member, item, quantity,purchase)
+    if item.item_type in ('badge','theme'):
+        from .cosmetics import award
+        award(member,item,quantity,purchase)
     create_fulfillments(purchase, codes)
     from .astrbot_notifications import notify_purchase
     notify_purchase(purchase)

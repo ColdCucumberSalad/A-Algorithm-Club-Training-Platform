@@ -53,17 +53,26 @@
   async function changePreset(button){
     const dot=button.querySelector('.theme-swatch-dot')||button,rect=dot.getBoundingClientRect();
     const preset={color:button.dataset.accent,x:rect.left+rect.width/2,y:rect.top+rect.height/2};
+    if(root.dataset.specialTheme){try{const data=await window.SpecialThemes.requestSelection('theme','');preset.beforeUpdate=()=>window.SpecialThemes.sync(data);}catch(error){feedback(error.message,true);return;}}
     if(radialChanging){pendingPreset=preset;return;}
     await runPreset(preset);
   }
   async function runPreset(preset){
-    const update=()=>{settings.accent=preset.color;settings.mode='custom';const current=mode();settings.paletteOverrides[current]=settings.paletteOverrides[current].filter(key=>key!=='accent');settings.palettes[current].accent=T.palettes[current].accent;save();renderSettings();};
+    const update=()=>{preset.beforeUpdate?.();settings.accent=preset.color;settings.mode='custom';const current=mode();settings.paletteOverrides[current]=settings.paletteOverrides[current].filter(key=>key!=='accent');settings.palettes[current].accent=T.palettes[current].accent;save();renderSettings();};
     if(!settings.animations||matchMedia('(prefers-reduced-motion:reduce)').matches){update();return;}
     radialChanging=true;delete root.dataset.siteColorTransition;root.dataset.siteRadial='true';
     root.dataset.themeTransitionState='opaque-cover';
     try{await ripplePreset(preset,update);}
     finally{radialChanging=false;delete root.dataset.siteRadial;const next=pendingPreset;pendingPreset=null;if(next)runPreset(next);}
   }
+  window.SiteAppearance={transition:async(button,update,color)=>{
+    if(radialChanging)return update();
+    if(!settings.animations||matchMedia('(prefers-reduced-motion:reduce)').matches)return update();
+    const target=button.querySelector('.theme-special-portrait')||button,rect=target.getBoundingClientRect();
+    const preset={color,x:rect.left+rect.width/2,y:rect.top+rect.height/2};
+    radialChanging=true;root.dataset.siteRadial='true';root.dataset.themeTransitionState='opaque-cover';
+    try{await ripplePreset(preset,update);}finally{radialChanging=false;delete root.dataset.siteRadial;const next=pendingPreset;pendingPreset=null;if(next)runPreset(next);}
+  }};
   function originalStyle(el){if(!styled.has(el))styled.set(el,Object.fromEntries(['box-shadow','--site-block-radius','background-color','background-image','border-color','color','border-radius','backdrop-filter','--panel','--canvas','--blue','--blue-soft','--ink','--ink-strong','--muted','--teal','--teal-dark','--coral','--line','--teal-soft'].map(k=>[k,[el.style.getPropertyValue(k),el.style.getPropertyPriority(k)]])));return styled.get(el);}
   function restoreSurface(el){
     const original=styled.get(el);if(original)for(const[k,[value,priority]]of Object.entries(original)){if(value)el.style.setProperty(k,value,priority);else el.style.removeProperty(k);}
@@ -118,7 +127,7 @@
     const heatmapLayoutChanged=root.dataset.heatmapMonthGap!==String(settings.heatmapMonthGap);
     root.dataset.heatmapMonthGap=String(settings.heatmapMonthGap);
     if(heatmapLayoutChanged)window.dispatchEvent(new Event('site-heatmap-layout-change'));
-    const active=settings.mode!=='original',current=mode(),palette=T.paletteOf(settings,current);
+    const current=mode(),effective=window.SpecialThemes?.adjust(settings,current)||settings,active=effective.mode!=='original',palette=T.paletteOf(effective,current);
     root.dataset.siteThemeActive=String(active);root.dataset.siteMode=current;root.dataset.siteMotion=settings.animations?'on':'off';root.dataset.siteGlass=settings.glass?'on':'off';root.dataset.siteAlign=settings.align;root.dataset.siteEditing=String(settings.editBlocks);root.dataset.siteDensity=String(active||settings.rowHeight!==52);root.dataset.siteFont=settings.font;
     root.style.setProperty('--site-ui-scale',settings.uiScale);root.style.setProperty('--site-radius',settings.radius+'px');root.style.setProperty('--site-row-height',settings.rowHeight+'px');
     root.style.setProperty('--site-companion',T.companionColor(palette.accent,current));
@@ -142,9 +151,10 @@
         const block=T.blocks[id];
         if(el.closest('#settingsView'))continue;
         el.dataset.themeBlock=id;
-        if(active||settings.blocks[current][id]?.enabled)paint(el,T.blockTokens(settings,current,id,palette),palette);else restoreSurface(el);
+        if(active||settings.blocks[current][id]?.enabled)paint(el,T.blockTokens(effective,current,id,palette),palette);else restoreSurface(el);
         if(!el.matches('button,a')&&!el.querySelector(':scope > .theme-card-edit')){const edit=document.createElement('a');edit.className='theme-card-edit';edit.href='/?view=settings&block='+id;edit.textContent='调节';edit.setAttribute('aria-label','调节'+block.name);el.append(edit);}
     }
+    document.querySelectorAll('#appearanceForm [data-accent]').forEach(button=>button.setAttribute('aria-pressed',String(!root.dataset.specialTheme&&settings.mode==='custom'&&settings.accent===button.dataset.accent)));
     scaleText();
     if(!settings.animations)document.getAnimations().forEach(a=>a.cancel());
     renderPreview();
@@ -154,7 +164,7 @@
   function ensureBlock(){return settings.blocks[editingMode][editingBlock] ||= {...T.blockDefaults(),background:editingMode==='dark'?'#1c1c1e':'#ffffff'};}
   function renderPreview(){
     const card=document.querySelector('#appearancePreview');if(!card)return;
-    const palette=T.paletteOf(settings,editingMode),tokens=T.blockTokens(settings,editingMode,editingBlock,palette);
+    const effective=window.SpecialThemes?.adjust(settings,editingMode)||settings,palette=T.paletteOf(effective,editingMode),tokens=T.blockTokens(effective,editingMode,editingBlock,palette);
     for(const[k,v]of Object.entries({text:tokens.text,secondary:tokens.secondary,accent:tokens.accent,soft:T.cssColor(tokens.accent,.12),'button-text':T.autoText(tokens.accent),scale:tokens.scale}))card.style.setProperty('--preview-'+k,v);
     card.style.background=tokens.background;card.style.borderRadius=tokens.radius+'px';card.style.fontSize=15*tokens.scale+'px';card.style.backdropFilter=settings.glass?`blur(${settings.blur}px)`:'none';card.parentElement.style.background=palette.pageBackground;
     const name=document.querySelector('#previewBlockName');if(name.textContent!==T.blocks[editingBlock].name)name.textContent=T.blocks[editingBlock].name;
@@ -164,7 +174,7 @@
   function slider(name,label,value,min,max,step=.01,hint=''){return `<label class="settings-slider"><span><span>${label}</span><output data-for="${name}">${Number(value).toFixed(step>=1?0:2)}</output></span><input type="range" name="${name}" aria-label="${label}" min="${min}" max="${max}" step="${step}" value="${value}">${hint?`<small>${hint}</small>`:''}</label>`;}
   function toggle(name,label,value,hint=''){return `<label class="settings-row settings-toggle"><span>${label}${hint?`<small>${hint}</small>`:''}</span><input type="checkbox" name="${name}" aria-label="${label}" ${value?'checked':''}></label>`;}
   function colorControl(name,label,value,reset=''){const rgba=T.rgba(value),rgb=value.slice(0,7);return `<div class="settings-color-row"><label for="${name}Color">${label}</label><input type="color" id="${name}Color" name="${name}" aria-label="${label}颜色" value="${rgb}"><input class="settings-hex" name="${name}Hex" aria-label="${label}十六进制颜色" value="${value}" maxlength="9" pattern="#[A-Fa-f0-9]{6}([A-Fa-f0-9]{2})?"><button type="button" class="settings-reset-role" data-reset="${reset}" ${reset?'':'hidden'} aria-label="重置${label}">重置</button><label class="settings-alpha">透明度<input type="range" name="${name}Alpha" aria-label="${label}透明度" min="0" max="1" step="0.01" value="${rgba[3]}"><output data-for="${name}Alpha">${Math.round(rgba[3]*100)}%</output></label></div>`;}
-  function section(id,title,copy,content){return `<section class="settings-section" id="${id}"><div class="settings-section-heading"><h2>${title}</h2>${copy?`<p>${copy}</p>`:''}</div><div class="settings-group">${content}</div></section>`;}
+  function section(id,title,copy,content){return `<section class="settings-section" id="${id}"><div class="settings-section-heading"><h2>${title}</h2></div><div class="settings-group">${content}</div></section>`;}
 
   function modeSwitch(kind,index){return `<div class="settings-mode-tabs" data-switch-kind="${kind}" style="--switch-index:${index}" role="group" aria-label="${kind==='palette'?'编辑色板':'自定义主题底色'}"><span class="settings-mode-indicator" aria-hidden="true"></span>${['light','dark'].map((mode,i)=>`<button type="button" ${kind==='palette'?'data-edit-mode':'data-surface-mode'}="${mode}" aria-pressed="${index===i}">${i?'深色':'浅色'}</button>`).join('')}</div>`;}
   function surfaceModeControl(dark){return `<div class="settings-surface-row"><span>自定义主题底色</span><input type="hidden" name="customDark" value="${dark}">${modeSwitch('surface',dark?1:0)}</div>`;}
@@ -181,7 +191,7 @@
     form.innerHTML=
       section('theme','主题与外观','',
         select('mode','主题模式',[['original','原站主题'],['system','跟随系统'],['light','浅色'],['dark','深色'],['custom','自定义主题']],d.mode)+
-        `<div class="settings-swatches">${swatches.map(([c,n])=>`<button type="button" aria-label="主题色：${n}" title="${n}" data-accent="${c}" style="--swatch:${c}" ${d.mode==='custom'&&d.accent===c?'aria-pressed="true"':'aria-pressed="false"'}><span class="theme-swatch-dot" aria-hidden="true"></span><span>${n}</span></button>`).join('')}</div>`+
+        `<div class="settings-swatches">${swatches.map(([c,n])=>`<button type="button" aria-label="主题色：${n}" title="${n}" data-accent="${c}" style="--swatch:${c}" ${!root.dataset.specialTheme&&d.mode==='custom'&&d.accent===c?'aria-pressed="true"':'aria-pressed="false"'}><span class="theme-swatch-dot" aria-hidden="true"></span><span>${n}</span></button>`).join('')}</div>`+
         colorControl('accent','自定义主题色',d.accent)+surfaceModeControl(d.customDark)+
         `<button class="settings-link" type="button" id="derivePalette">恢复按主题色自动派生</button>`)+
       section('typography','文字与排版','界面文字与内容卡片分别缩放，避免一处调大导致全部挤在一起。',
@@ -206,7 +216,8 @@
         slider('block-scale','板块文字缩放',b.scale,.8,1.4,.05)+slider('block-radius','板块圆角',b.radius??d.radius,6,26,1)+
         `<button class="settings-link" type="button" id="resetBlock">此板块恢复全局设置</button></div>`+
         toggle('editBlocks','页面上显示板块调节入口',d.editBlocks,'打开后，每个板块会显示“调节”，可直接跳到对应设置。'))+
-      section('backup','配置管理','外观配置只影响当前浏览器，不改账号、团队、积分和数据库。',`<div class="settings-wall-actions"><button type="button" class="secondary-button" id="exportAppearance">导出外观配置</button><label class="secondary-button settings-upload">导入配置<input type="file" id="importAppearance" accept="application/json,.json" aria-label="导入外观配置"></label><button type="button" class="settings-link" id="resetAppearance">恢复默认外观</button></div><p class="settings-caption">恢复默认将回到原站主题。导出的 JSON 只包含外观参数。</p>`);
+      section('backup','配置管理','外观配置只影响当前浏览器，不改账号、团队、积分和数据库。',`<div class="settings-wall-actions"><button type="button" class="secondary-button" id="exportAppearance">导出外观配置</button><label class="secondary-button settings-upload">导入配置<input type="file" id="importAppearance" accept="application/json,.json" aria-label="导入外观配置"></label><button type="button" class="settings-link" id="resetAppearance">恢复默认外观</button></div>`);
+    window.SpecialThemes?.render();
     renderPreview();
   }
 
@@ -255,6 +266,7 @@
   }
   system.addEventListener('change',schedule);window.addEventListener('resize',schedule);
   window.addEventListener('storage',event=>{if(event.key===KEY){try{settings=T.sanitize(JSON.parse(event.newValue||'{}'));apply();renderSettings();}catch(_) {}}});
+  window.addEventListener('site-special-theme-change',apply);
   apply();
   document.addEventListener('DOMContentLoaded',()=>{
     const requested=new URLSearchParams(location.search).get('block');if(Object.hasOwn(T.blocks,requested))editingBlock=requested;editingMode=mode();

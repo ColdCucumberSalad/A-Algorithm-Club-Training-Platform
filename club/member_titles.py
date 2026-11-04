@@ -1,7 +1,7 @@
 """Team-specific honorifics with a deliberately small, safe style vocabulary."""
 import re
 
-STYLES = {'plain':'简约','chroma':'炫彩','wings':'羽翼','captain':'先锋徽章','president':'冠冕徽章','deputy':'星盾徽章'}
+STYLES = {'plain':'简约','chroma':'炫彩','wings':'羽翼','captain':'先锋徽章','president':'冠冕徽章','deputy':'星盾徽章','neon':'霓虹描边','metal':'金属徽章','shimmer':'流光','orbit':'星环'}
 
 FONTS = {'system':'默认黑体','serif':'典雅宋体','kai':'手写楷体','mono':'等宽字体','rounded':'圆润字体'}
 
@@ -56,6 +56,27 @@ def awarded_titles_data(member):
 
 
 def titles_data(member):
-    awarded=awarded_titles_data(member)
     worn=getattr(member,'worn_titles',None)
-    return awarded if worn is None else [title for title in awarded if title['text'] in worn]
+    if worn is None:
+        return awarded_titles_data(member)
+    if not worn:
+        return []
+    return [title for title in available_titles_data(member) if title['text'] in worn]
+
+
+def available_titles_data(member):
+    """Team awards plus globally owned, active shop titles; no automatic wear."""
+    from .models import OwnedTitle
+    result = awarded_titles_data(member)
+    seen = {title['text'] for title in result}
+    from .cosmetic_terms import active_term
+    owned = OwnedTitle.objects.filter(active_term(),user_id=member.user_id, inventory__quantity__gt=0).order_by('acquired_at','pk')
+    for entry in owned:
+        try:
+            title = validate_title(entry.definition)
+        except ValueError:
+            continue
+        if title and title['text'] not in seen:
+            result.append({**title,**({'expires_at':entry.expires_at.isoformat()} if entry.expires_at else {})})
+            seen.add(title['text'])
+    return result

@@ -42,3 +42,27 @@ test('squad search accepts names, Chinese labels, squad numbers and admission ye
  const badge=context.window.MemberTitles.cohort({...row.cohort,label:'2026级 · 第十四分队'});
  assert.match(badge,/第十四分队/);assert.doesNotMatch(badge,/2026级/);
 });
+
+
+test('new title styles are allowed while unknown styles remain plain',()=>{
+ for(const style of ['neon','metal','shimmer','orbit'])assert.match(render({text:'Title',style}),new RegExp(`data-title-style="${style}"`));
+ assert.match(render({text:'Title',style:'arbitrary'}),/data-title-style="plain"/);
+});
+
+test('image badges are independent and precede titles',()=>{
+ const context={window:{}};vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../static/member-titles.js'),'utf8'),context);
+ const T=context.window.MemberTitles;
+ const only=T.list([],{key:'taffy'});assert.match(only,/member-icon-badge/);assert.doesNotMatch(only,/member-title-badge/);
+ const both=T.list([{text:'Title'}],{key:'taffy'});assert.ok(both.indexOf('member-icon-badge')<both.indexOf('member-title-badge'));
+ assert.equal(T.badgeMarkup({key:'<script>',icon:'javascript:evil'}),'');
+});
+
+test('expired titles and frames never render, while valid frames preserve the existing avatar',()=>{
+ const context={window:{}};vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../static/member-titles.js'),'utf8'),context);
+ const ui=context.window.MemberTitles,avatar='<span class="leader-avatar">C</span>';
+ assert.equal(ui.markup({text:'Expired',expires_at:'2000-01-01T00:00:00Z'}),'');
+ assert.equal(ui.frameAvatar(avatar,{key:'taffy-goggles',expires_at:'2000-01-01T00:00:00Z'}),avatar);
+ assert.equal(ui.frameAvatar(avatar,{key:'https://bad.example/frame'}),avatar);
+ assert.ok(ui.frameAvatar(avatar,{key:'taffy-goggles'}).includes(avatar));
+ assert.match(ui.frameAvatar(avatar,{key:'taffy-goggles'}),/taffy-goggles-frame.svg/);
+});

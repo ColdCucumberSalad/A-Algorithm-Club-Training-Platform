@@ -86,7 +86,7 @@ window.TeamManagement = (() => {
       } else if (kind === 'quantity') {
         await mutate(button,'inventory',{action:'quantity',inventory_id:Number(form.dataset.inventory),item_id:Number(form.dataset.item),quantity:Number(form.elements.quantity.value),expected_quantity:Number(form.dataset.quantity)});
       } else if (kind === 'grant') {
-        form.dataset.requestId ||= crypto.randomUUID();
+        form.dataset.requestId ||= window.clubApi.requestId();
         await mutate(button,'inventory',{action:'grant',item_id:Number(form.elements.item.value),quantity:Number(form.elements.quantity.value),request_id:form.dataset.requestId});
       }
     });
@@ -125,7 +125,7 @@ window.TeamManagement = (() => {
   }
   const statuses = {ready:'待核销',redeemed:'已核销',dispatching:'派发中',delivered:'派送成功',consumed:'已消耗',reclaimed:'已收回'};
   const titleFonts={system:'默认黑体',serif:'典雅宋体',kai:'手写楷体',mono:'等宽字体',rounded:'圆润字体'};
-  function titleRow(title,fonts=titleFonts){return `<div class="tm-title-edit-row" data-title-row><label>称号文字<input data-title-text maxlength="20" required value="${esc(title.text||'')}" placeholder="例如：算法新星"></label><label>字体<select data-title-font>${Object.entries(fonts).map(([key,label])=>`<option value="${esc(key)}" ${key===(title.font||'system')?'selected':''}>${esc(label)}</option>`).join('')}</select></label><label class="tm-title-color">颜色<input data-title-color type="color" value="${esc(title.color||'#c96c7a')}"></label><label>样式<select data-title-style>${Object.entries({plain:"简约",chroma:"炫彩",wings:"羽翼",captain:"先锋徽章",president:"冠冕徽章",deputy:"星盾徽章"}).map(([key,label])=>`<option value="${key}" ${key===(title.style||"plain")?"selected":""}>${label}</option>`).join("")}</select></label><button type="button" class="secondary-button" data-title-remove aria-label="移除此称号">移除</button></div>`;}
+  function titleRow(title,fonts=titleFonts){return `<div class="tm-title-edit-row" data-title-row><label>称号文字<input data-title-text maxlength="20" required value="${esc(title.text||'')}" placeholder="例如：算法新星"></label><label>字体<select data-title-font>${Object.entries(fonts).map(([key,label])=>`<option value="${esc(key)}" ${key===(title.font||'system')?'selected':''}>${esc(label)}</option>`).join('')}</select></label><label class="tm-title-color">颜色<input data-title-color type="color" value="${esc(title.color||'#c96c7a')}"></label><label>样式<select data-title-style>${Object.entries(MemberTitles.styles).map(([key,label])=>`<option value="${key}" ${key===(title.style||"plain")?"selected":""}>${label}</option>`).join("")}</select></label><button type="button" class="secondary-button" data-title-remove aria-label="移除此称号">移除</button></div>`;}
   function collectTitles(form){return [...form.querySelectorAll('[data-title-row]')].map(row=>({text:row.querySelector('[data-title-text]').value,color:row.querySelector('[data-title-color]').value,font:row.querySelector('[data-title-font]').value,style:row.querySelector('[data-title-style]').value}));}
   function previewTitles(form){$('#tmTitlePreview').innerHTML=MemberTitles.list(collectTitles(form))+'<strong>'+esc(rows.find(m=>m.id===memberId)?.name||'成员')+'</strong>';}
   function renderDetail(m) {

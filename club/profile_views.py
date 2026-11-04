@@ -1,3 +1,4 @@
+from .cosmetics import badge_data,frame_data, available, state as cosmetic_state
 """Own-account profile editing and explicitly requested platform synchronization."""
 import uuid
 from datetime import timedelta
@@ -16,7 +17,7 @@ from .models import AccountClosure, FileDeletion, PlatformBinding, UserProfile, 
 from .views import api_login_required, api_error, body, membership_for
 from .platform_sync import PLATFORMS, validate_account
 from . import avatar_images
-from .member_titles import title_data, titles_data, awarded_titles_data
+from .member_titles import title_data, titles_data, awarded_titles_data, available_titles_data
 from .grades import cohort_data
 
 
@@ -55,7 +56,7 @@ def profile_data(request):
     grade = grade_on(personal)
     from .platform_rewards import available_rewards
     rewards=available_rewards(member)
-    return {'name': member.display_name, 'account': request.user.username, 'title':title_data(member), 'titles':titles_data(member), 'awarded_titles':awarded_titles_data(member), 'worn_titles':member.worn_titles,
+    return {'name': member.display_name, 'account': request.user.username, 'title':title_data(member), 'titles':titles_data(member), 'awarded_titles':available_titles_data(member), 'worn_titles':member.worn_titles,'badge':badge_data(member),'avatar_frame':frame_data(member),'cosmetics':cosmetic_state(request.user),
             'cohort':cohort_data(personal), 'grade': grade, 'grade_label': GRADES[grade] if grade is not None else '注册资料缺失，请联系管理员',
             'grade_options': GRADES,
             'team_name': member.team.name, 'avatar': avatar_images.url_for(personal),
@@ -121,7 +122,7 @@ def member_profile(request, member_id):
         for part in record['parts']:
             part['note'] = ''
         records.append(record)
-    response = JsonResponse({'member':{'id':target.pk,'name':target.display_name,'role':target.role,'title':title_data(target),'titles':titles_data(target),'cohort':cohort_data(personal),
+    response = JsonResponse({'member':{'id':target.pk,'name':target.display_name,'role':target.role,'title':title_data(target),'titles':titles_data(target),'badge':badge_data(target),'avatar_frame':frame_data(target),'cohort':cohort_data(personal),
         'grade_label':GRADES[grade] if grade is not None else '',
         'avatar':avatar_images.url_for(personal,target.pk,'small')},
         'platforms':PLATFORMS,'bindings':bindings,'submissions':records,
@@ -340,7 +341,7 @@ def wear_title(request):
     selected=data.get('title')
     if selected is not None and not isinstance(selected,str): return api_error('称号选择无效')
     member=TeamMembership.objects.select_for_update().get(pk=member.pk,is_active=True)
-    if selected is not None and selected not in [t['text'] for t in awarded_titles_data(member)]:
+    if selected is not None and selected not in [t['text'] for t in available_titles_data(member)]:
         return api_error('该称号未授予或已被收回',409)
     member.worn_titles=[selected] if selected else []
     member.save(update_fields=['worn_titles'])

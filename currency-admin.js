@@ -293,9 +293,10 @@ const CurrencyAdminModule = (() => {
                   <td>${escape(item.name)}</td>
                   <td>${item.price} RBC</td>
                   <td>${item.stock === -1 ? '无限' : item.stock}</td>
-                  <td>${({general:'普通商品',makeup_ticket:'补签券',consumable:'消耗品',redeem_code:'核销类',physical:'实物类'})[item.item_type] || escape(item.item_type)}</td>
+                  <td>${({general:'普通商品',makeup_ticket:'补签券',consumable:'消耗品',redeem_code:'核销类',physical:'实物类',title:'称号',badge:'徽章',theme:'特殊主题'})[item.item_type] || escape(item.item_type)}</td>
                   <td>${item.is_active ? '上架' : '下架'}</td>
                   <td>
+                    <button type="button" class="toggle-item-btn secondary-button" data-item-id="${item.id}" data-active="${item.is_active}">${item.is_active?'下架':'上架'}</button>
                     <button type="button" class="edit-item-btn" data-item-id="${item.id}">编辑</button>
                     <button type="button" class="delete-item-btn" data-item-id="${item.id}">删除</button>
                   </td>
@@ -316,6 +317,10 @@ const CurrencyAdminModule = (() => {
         const item = items.find(i => i.id == itemId);
         showItemEditModal(item);
       });
+    });
+
+    container.querySelectorAll('.toggle-item-btn').forEach(button=>button.onclick=async()=>{
+      button.disabled=true;try{if(await updateShopItem({item_id:Number(button.dataset.itemId),is_active:button.dataset.active!=='true'}))await renderShopManagementPanel(container);}finally{button.disabled=false;}
     });
 
     container.querySelectorAll(".delete-item-btn").forEach(btn => {
@@ -370,6 +375,9 @@ const CurrencyAdminModule = (() => {
               <option value="consumable" ${item?.item_type === 'consumable' ? 'selected' : ''}>消耗品</option>
               <option value="redeem_code" ${item?.item_type === 'redeem_code' ? 'selected' : ''}>核销类（卡密）</option>
               <option value="physical" ${item?.item_type === 'physical' ? 'selected' : ''}>实物类</option>
+              <option value="theme" ${item?.item_type === 'theme' ? 'selected' : ''}>特殊主题（含附赠徽章）</option>
+              <option value="badge" ${item?.item_type === 'badge' ? 'selected' : ''}>独立徽章</option>
+              <option value="title" ${item?.item_type === 'title' ? 'selected' : ''}>称号（全局通用）</option>
             </select>
           </div>
           <div class="form-group" id="itemPurchaseLimitField" hidden>
@@ -377,6 +385,16 @@ const CurrencyAdminModule = (() => {
             <input type="number" id="itemPurchaseLimit" min="0" max="2147483647" step="1" value="${Number(item?.purchase_limit || 0)}" aria-describedby="itemPurchaseLimitHint" />
             <small id="itemPurchaseLimitHint">每个账号累计可购买的件数，0 表示不限购。已购买、已派送的数量均计入。</small>
           </div>
+          <section id="shopCosmeticFields" class="shop-title-fields" hidden><label>外观内容<select id="shopCosmeticKey"><option value="${escape(item?.cosmetic_key||'taffy')}">塔菲</option></select></label><div class="cosmetic-stock-preview"><img src="/static/cosmetics/taffy-original-head.svg" alt="小塔菲徽章"><p id="shopCosmeticHint"></p></div></section>
+          <section id="shopTitleFields" class="shop-title-fields" hidden>
+            <label for="shopTitleText">称号文字<input id="shopTitleText" maxlength="20" value="${escape(item?.title_definition?.text || '')}" placeholder="例如：算法新星"></label>
+            <div class="shop-title-options"><label>颜色<input id="shopTitleColor" type="color" value="${escape(item?.title_definition?.color || '#c96c7a')}"></label><label>字体<select id="shopTitleFont">${Object.entries({system:'默认黑体',serif:'典雅宋体',kai:'手写楷体',mono:'等宽字体',rounded:'圆润字体'}).map(([key,label])=>`<option value="${key}" ${item?.title_definition?.font===key?'selected':''}>${label}</option>`).join('')}</select></label><label>样式<select id="shopTitleStyle">${Object.entries(window.MemberTitles?.styles || {plain:'简约'}).map(([key,label])=>`<option value="${key}" ${(item?.title_definition?.style||'plain')===key?'selected':''}>${label}</option>`).join('')}</select></label></div>
+            <div id="shopTitlePreview" class="shop-title-preview" aria-live="polite"></div><small>所有已加入团队可选佩戴；有效期内不可重复购买。</small>
+          </section>
+          <section id="cosmeticDurationFields" class="shop-title-fields" hidden>
+            <label>有效时长<select id="cosmeticTermMode"><option value="permanent">永久</option><option value="days" ${item?.cosmetic_duration_days?'selected':''}>指定天数</option></select></label>
+            <label id="cosmeticDaysField">天数<input id="cosmeticDays" type="number" min="1" max="36500" step="1" value="${Number(item?.cosmetic_duration_days||30)}"></label>
+          </section>
           <div id="cardSourceFields" hidden>
             <div class="form-group"><label for="itemCardSource">卡密来源</label><select id="itemCardSource"><option value="inventory" ${!item?.card_source || item.card_source === 'inventory' ? 'selected' : ''}>库存类</option><option value="api" ${item?.card_source === 'api' ? 'selected' : ''}>API 类</option><option value="pro" ${item?.card_source === 'pro' ? 'selected' : ''}>内部 Pro 卡密</option></select></div>
             <div id="cardProFields" hidden><div class="form-group"><label for="itemProApp">Pro 应用</label><select id="itemProApp"><option value="">请选择应用</option><option value="rbc_helper" ${item?.pro_app === 'rbc_helper' ? 'selected' : ''}>RBC Helper</option></select></div><div class="form-group"><label for="itemProDays">每张卡密时长（天）</label><input id="itemProDays" type="number" min="1" max="36500" step="1" value="${Number(item?.pro_duration_days || 31)}"><small>背包领取后生成卡密；App 验证后占用卡密 30 秒，收到激活完成回执才作废；超时未确认则释放。购买时保存时长快照。库存仍按上方设置，0 表示暂不可购买。</small></div></div>
@@ -402,6 +420,15 @@ const CurrencyAdminModule = (() => {
     `;
 
     document.body.appendChild(modal);
+    const updateTerm=()=>{modal.querySelector('#cosmeticDurationFields').hidden=!['title','theme'].includes(modal.querySelector('#itemType').value);modal.querySelector('#cosmeticDaysField').hidden=modal.querySelector('#cosmeticTermMode').value!=='days';};
+    modal.querySelector('#itemType').addEventListener('change',updateTerm);modal.querySelector('#cosmeticTermMode').addEventListener('change',updateTerm);updateTerm();
+    const updateCosmeticFields=()=>{const kind=modal.querySelector('#itemType').value;modal.querySelector('#shopCosmeticFields').hidden=!['badge','theme'].includes(kind);const select=modal.querySelector('#shopCosmeticKey');const selected=select.value||item?.cosmetic_key||'taffy';select.innerHTML=kind==='badge'?'<option value="taffy">小塔菲 · 原版</option>':'<option value="taffy">塔菲 · 小菲滚轴</option>';select.value='taffy';modal.querySelector('#shopCosmeticHint').textContent=kind==='theme'?'塔菲主题 · 附赠小塔菲徽章与护目镜头像框':'独立徽章';};
+    modal.querySelector('#itemType').addEventListener('change',updateCosmeticFields);updateCosmeticFields();
+    const titleDefinition=()=>({text:modal.querySelector('#shopTitleText').value.trim(),color:modal.querySelector('#shopTitleColor').value,font:modal.querySelector('#shopTitleFont').value,style:modal.querySelector('#shopTitleStyle').value});
+    const updateTitlePreview=()=>{modal.querySelector('#shopTitleFields').hidden=modal.querySelector('#itemType').value!=='title';modal.querySelector('#shopTitlePreview').innerHTML=window.MemberTitles?.markup(titleDefinition())||'<span class="muted">预览称号</span>';};
+    modal.querySelector('#shopTitleFields').addEventListener('input',updateTitlePreview);
+    modal.querySelector('#shopTitleFields').addEventListener('change',updateTitlePreview);
+    modal.querySelector('#itemType').addEventListener('change',updateTitlePreview);updateTitlePreview();
     const updateLimitField=()=>{modal.querySelector('#itemPurchaseLimitField').hidden=modal.querySelector('#itemType').value!=='physical';};
     modal.querySelector('#itemType').addEventListener('change',updateLimitField);updateLimitField();
     const updateCardFields=()=>{const redeem=modal.querySelector('#itemType').value==='redeem_code';modal.querySelector('#cardSourceFields').hidden=!redeem;const source=modal.querySelector('#itemCardSource').value;modal.querySelector('#cardStockFields').hidden=source!=='inventory';modal.querySelector('#cardApiFields').hidden=source!=='api';modal.querySelector('#cardMultiplePurchaseField').hidden=!redeem||source!=='api';modal.querySelector('#cardProFields').hidden=source!=='pro';};
@@ -447,6 +474,10 @@ const CurrencyAdminModule = (() => {
       };
 
       if(!Number.isInteger(itemData.purchase_limit)||itemData.purchase_limit<0||itemData.purchase_limit>2147483647){alert('限购数量必须为0（不限购）或正整数');return;}
+      itemData.cosmetic_duration_days=['title','theme'].includes(itemData.item_type)&&modal.querySelector('#cosmeticTermMode').value==='days'?Number(modal.querySelector('#cosmeticDays').value):0;
+      if(!Number.isInteger(itemData.cosmetic_duration_days)||itemData.cosmetic_duration_days<0||itemData.cosmetic_duration_days>36500||(modal.querySelector('#cosmeticTermMode').value==='days'&&['title','theme'].includes(itemData.item_type)&&itemData.cosmetic_duration_days===0)){alert('请填写 1–36500 天的整数时长');return;}
+      if(['badge','theme'].includes(itemData.item_type))itemData.cosmetic_key=modal.querySelector('#shopCosmeticKey').value;
+      if(itemData.item_type==='title'){itemData.title_definition=titleDefinition();if(!itemData.title_definition.text){alert('请填写称号文字');return;}}
       if(itemData.item_type==='redeem_code'){
         itemData.card_source=modal.querySelector('#itemCardSource').value;
         if(itemData.card_source==='pro'){

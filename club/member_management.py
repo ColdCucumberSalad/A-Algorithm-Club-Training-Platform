@@ -1,3 +1,4 @@
+from .cosmetic_terms import purchase_terms
 """System administrator member maintenance; no password or card secrets in responses."""
 import json
 import uuid
@@ -205,12 +206,18 @@ def inventory_settings(request, team_id, member_id):
                         raise ValueError('商品库存不足')
                     codes = reserve_codes(item,quantity)
                     purchase = Purchase.objects.create(team_id=team_id,member=member,item=item,
-                        quantity=quantity,total_price=0,request_id=token)
+                        quantity=quantity,total_price=0,request_id=token,**purchase_terms(item))
                     if item.stock >= 0:
                         item.stock -= quantity
                         item.save(update_fields=['stock'])
+                    if item.item_type == 'title':
+                        from .shop_titles import award
+                        award(member,item,quantity,purchase)
+                    if item.item_type in ('badge','theme'):
+                        from .cosmetics import award
+                        award(member,item,quantity,purchase)
                     create_fulfillments(purchase,codes)
-                    if item.item_type not in ('physical','redeem_code'):
+                    if item.item_type not in ('physical','redeem_code','title','badge','theme'):
                         inv,_ = UserInventory.objects.get_or_create(team_id=team_id,member=member,item=item)
                         inv = UserInventory.objects.select_for_update().get(pk=inv.pk)
                         if inv.quantity + quantity > 100000:

@@ -105,6 +105,8 @@ class TeamMembership(models.Model):
     display_name = models.CharField(max_length=40)
     member_title = models.JSONField(default=list, blank=True)
     worn_titles = models.JSONField(default=None, null=True, blank=True)
+    worn_badge = models.CharField(max_length=40, blank=True)
+    worn_avatar_frame = models.CharField(max_length=40, blank=True)
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default=MEMBER)
     is_active = models.BooleanField(default=True)
     joined_at = models.DateTimeField(auto_now_add=True)
@@ -550,6 +552,9 @@ class ShopItem(models.Model):
     is_active = models.BooleanField(default=True, verbose_name="是否上架")
     item_type = models.CharField(max_length=50, default="general", verbose_name="商品类型")
     purchase_limit = models.PositiveIntegerField(default=0, verbose_name="单用户累计限购数量")
+    title_definition = models.JSONField(default=dict, blank=True, verbose_name='称号外观')
+    cosmetic_key = models.CharField(max_length=40, blank=True)
+    cosmetic_duration_days = models.PositiveIntegerField(default=0)
     card_source = models.CharField(max_length=16, default='inventory')
     allow_multiple_purchase = models.BooleanField(default=False, verbose_name='允许单次多购')
     encrypted_card_api = models.TextField(blank=True)
@@ -574,6 +579,8 @@ class Purchase(models.Model):
     item = models.ForeignKey(ShopItem, on_delete=models.PROTECT, related_name="purchases")
     quantity = models.PositiveIntegerField(default=1, verbose_name="数量")
     total_price = models.PositiveIntegerField(verbose_name="总价")
+    cosmetic_duration_days = models.PositiveIntegerField(default=0)
+    cosmetic_expires_at = models.DateTimeField(null=True, blank=True)
     purchased_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -602,6 +609,31 @@ class UserInventory(models.Model):
 
     def __str__(self):
         return f"{self.member.display_name} - {self.item.name} x{self.quantity}"
+
+
+class OwnedTitle(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='owned_titles')
+    item = models.ForeignKey(ShopItem, on_delete=models.PROTECT, related_name='title_owners')
+    inventory = models.OneToOneField(UserInventory, on_delete=models.CASCADE, related_name='owned_title')
+    text = models.CharField(max_length=20)
+    definition = models.JSONField(default=dict)
+    acquired_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user','text'], name='unique_user_owned_title')]
+
+
+class CosmeticGrant(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='cosmetic_grants')
+    inventory = models.ForeignKey(UserInventory, on_delete=models.CASCADE, related_name='cosmetic_grants')
+    kind = models.CharField(max_length=10)
+    key = models.CharField(max_length=40)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['inventory','kind','key'],name='unique_inventory_cosmetic')]
 
 
 class ShopFulfillment(models.Model):
@@ -642,6 +674,7 @@ from .pro_models import AppRateLimit, ProRedeemCode  # noqa: E402,F401
 
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='personal_profile')
+    active_theme = models.CharField(max_length=40, blank=True)
     admission_year = models.PositiveSmallIntegerField(null=True, blank=True)
     avatar = models.ImageField(upload_to='avatars/', blank=True)
     grade = models.PositiveSmallIntegerField(null=True, blank=True)
