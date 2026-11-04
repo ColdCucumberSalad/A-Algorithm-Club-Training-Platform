@@ -26,7 +26,7 @@ document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop" id="w
 function initWorkbench(me) {
   workbenchProfile = me;
   workbench$('#workbenchDescription').textContent = me.site_admin ? '管理题目解析、举报与团队配置。' : '处理当前管理团队的举报与题名。';
-  ['wbAccountsSection','wbParserSection','wbCreateSection','wbTeamsSection','wbUpdateBackupSection','wbPasswordSection'].forEach(id => { workbench$('#'+id).hidden = !me.site_admin; });
+  ['wbAccountsSection','wbParserSection','wbCreateSection','wbTeamsSection','wbBackupSection','wbPasswordSection'].forEach(id => { workbench$('#'+id).hidden = !me.site_admin; });
   if (!me.can_manage_current) workbench$('#wbPendingSection').hidden = true;
   workbench$('#wbManagedScope').hidden = me.site_admin || !me.is_team_manager;
   if (me.is_team_manager && !me.site_admin) {
@@ -51,7 +51,7 @@ async function loadWorkbench() {
       return;
     }
     const tasks = [loadAdminQueue(), loadPendingProblems(1, version), loadDispatchInbox()];
-    if (me.site_admin) tasks.push(loadWorkbenchTeams(version), loadParserConfig(version), loadSystemBackups(), loadSiteUpdates());
+    if (me.site_admin) tasks.push(loadWorkbenchTeams(version), loadParserConfig(version), loadSystemBackups());
     const results = await Promise.allSettled(tasks);
     for (const result of results) if (result.status === 'rejected') showToast(result.reason.message || '工作台加载失败');
   } catch(error) { showToast(error.message); }
@@ -281,62 +281,6 @@ workbench$('#adminView').insertAdjacentHTML('beforeend', `
   <p class="muted">密码保存并确认成功后，当前账号将强制退出，其他登录会话也会失效。请使用新密码重新登录。</p>
   <form id="wbAdminPasswordForm" class="workbench-form"><label>当前密码<input name="old_password" type="password" autocomplete="current-password" required></label><label>新密码<input name="new_password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label><label>确认新密码<input name="confirm_password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label><div><button class="primary-button" type="submit">保存密码并退出</button></div><p role="status" id="wbPasswordStatus"></p></form>
 </section>`);
-workbench$('#adminView').insertAdjacentHTML('beforeend', `
-<section class="panel workbench-panel" id="wbSiteUpdateSection" hidden>
-  <div class="panel-heading"><h2>网站更新</h2><span id="wbSiteUpdateVersion" class="muted"></span></div>
-  <p class="muted">从源仓库主分支检查新版本。更新前自动备份并演练数据库迁移，切换期间网站会短暂不可用。</p>
-  <form id="wbSiteUpdateForm" class="workbench-form">
-    <label>定时检查方式<select name="mode" disabled><option value="auto">有新版本自动更新</option><option value="notify">仅提醒新版本</option><option value="off">不定时检查</option></select></label>
-    <label>检查时间（北京时间）<input name="time" type="time" value="04:00" required disabled></label>
-    <div><button class="secondary-button" type="submit" disabled>保存设置</button></div>
-  </form>
-  <p id="wbSiteUpdateStatus" role="status" aria-live="polite"></p>
-  <div class="workbench-form-actions"><button type="button" class="secondary-button" id="wbSiteCheck" disabled>立即检查</button><button type="button" class="primary-button" id="wbSiteInstall" disabled>更新到最新版本</button></div>
-  <p id="wbSiteUpdateLast" class="muted"></p><ul id="wbSiteUpdateRoutes" class="muted"></ul>
-</section>`);
-const updateBackupGroup=document.createElement('section');
-updateBackupGroup.id='wbUpdateBackupSection';updateBackupGroup.hidden=true;
-updateBackupGroup.setAttribute('aria-label','更新与备份');
-workbench$('#wbSiteUpdateSection').before(updateBackupGroup);
-updateBackupGroup.append(workbench$('#wbSiteUpdateSection'),workbench$('#wbBackupSection'));
-workbench$('#wbSiteUpdateSection').hidden=false;workbench$('#wbBackupSection').hidden=false;
-let siteUpdateTimer=0,siteUpdateRevision='',siteUpdatePending=false,siteUpdateLoading=false;
-async function loadSiteUpdates(preserveForm=false){
-  if(!workbenchProfile?.site_admin||siteUpdateLoading)return;
-  siteUpdateLoading=true;
-  try{
-    const value=await communityRequest('/api/management/site-updates');
-    const form=workbench$('#wbSiteUpdateForm');
-    if(!preserveForm){form.elements.mode.value=value.schedule?.mode||'auto';form.elements.time.value=value.schedule?.time||'04:00';}
-    const busy=siteUpdatePending||['running','queued'].includes(value.state);
-    form.querySelectorAll('input,select,button').forEach(node=>node.disabled=!value.available||busy);
-    workbench$('#wbSiteCheck').disabled=!value.available||busy;
-    siteUpdateRevision=value.latest||'';
-    workbench$('#wbSiteInstall').disabled=!value.available||busy||!value.latest||value.latest===value.current;
-    workbench$('#wbSiteUpdateVersion').textContent=value.current?'当前 '+value.current.slice(0,7):'';
-    workbench$('#wbSiteUpdateStatus').textContent=value.message||'尚未检查更新';
-    workbench$('#wbSiteUpdateLast').textContent=[value.latest?'最新版本 '+value.latest.slice(0,7):'',value.checked_at?'上次检查 '+new Date(value.checked_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'',value.backup?'更新前完整备份已保存':''].filter(Boolean).join(' · ');
-    workbench$('#wbSiteUpdateRoutes').innerHTML=(value.routes||[]).map(route=>`<li>${escapeHtml(route.name)}：${route.ok?'可用':'暂不可用'}${route.seconds?' · '+route.seconds+' 秒':''}</li>`).join('');
-  }catch(error){workbench$('#wbSiteUpdateStatus').textContent=error.status===502||error.status===503?'网站正在切换版本，恢复后会自动刷新状态。':error.message;}
-  finally{siteUpdateLoading=false;clearTimeout(siteUpdateTimer);if(workbenchProfile?.site_admin)siteUpdateTimer=setTimeout(()=>loadSiteUpdates(true),5000);}
-}
-async function requestSiteUpdate(action,data={}){
-  if(siteUpdatePending)return;
-  siteUpdatePending=true;
-  workbench$('#wbSiteCheck').disabled=true;workbench$('#wbSiteInstall').disabled=true;
-  try{await communityRequest('/api/management/site-updates',workbenchJSON(action==='schedule'?'PUT':'POST',action==='schedule'?data:{action,...data}));workbench$('#wbSiteUpdateStatus').textContent='请求已提交，正在等待更新服务处理…';}
-  catch(error){showToast(error.message);}
-  finally{siteUpdatePending=false;await loadSiteUpdates(true);}
-}
-workbench$('#wbSiteCheck').onclick=()=>requestSiteUpdate('check');
-workbench$('#wbSiteUpdateForm').onsubmit=event=>{event.preventDefault();requestSiteUpdate('schedule',Object.fromEntries(new FormData(event.target)));};
-workbench$('#wbSiteInstall').onclick=async()=>{
-  const revision=siteUpdateRevision;
-  if(!revision)return;
-  const accepted=await clubDialog.confirm({text:'将更新到 '+revision.slice(0,7)+'。系统会备份现有数据并验证迁移，期间网站短暂不可用。',title:'更新网站',confirmText:'开始更新'});
-  if(accepted)await requestSiteUpdate('update',{revision});
-};
-
 document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop" id="wbRestoreModal" aria-hidden="true"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="wbRestoreTitle"><div class="modal-header"><h2 id="wbRestoreTitle">恢复全部数据</h2><button class="close-button" id="wbRestoreCancel" aria-label="取消恢复">×</button></div><p>恢复将覆盖当前全部业务数据、账号密码与上传文件。系统会先自动备份当前状态，执行期间暂停访问，完成后所有账号需重新登录。请使用备份时的账号密码登录。</p><form id="wbRestoreForm" class="workbench-form"><label>当前管理员密码<input type="password" name="password" autocomplete="current-password" required></label><label>输入“恢复全部数据”确认<input name="confirmation" autocomplete="off" required></label><p id="wbRestoreError" role="alert"></p><div><button class="primary-button" type="submit">确认恢复</button></div></form></section></div>`);
 let systemOperationWatching = false;
 let systemRestoreId = null;
@@ -424,7 +368,7 @@ async function loadDispatchInbox(){
     ['wbPendingSection', '题名待办', '<path d="M4 5h16v14H4zM8 9h8M8 13h5"/>'],
     ['wbTeamsSection', '团队配置', '<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0112 0v3M17 5a3 3 0 010 6M21 21v-3a6 6 0 00-4-5"/>'],
     ['wbParserSection', '题目解析', '<path d="M8 4L2 12l6 8M16 4l6 8-6 8M14 3l-4 18"/>'],
-    ['wbUpdateBackupSection', '更新与备份', '<path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-2l2 2M4 17l2 2a7 7 0 0 0 12-2"/>'],
+    ['wbBackupSection', '备份恢复', '<path d="M4 4h16v16H4zM8 4v6h8V4M8 20v-6h8v6"/>'],
     ['wbPasswordSection', '账号安全', '<rect x="4" y="10" width="16" height="11" rx="3"/><path d="M8 10V7a4 4 0 018 0v3M12 14v3"/>'],
   ];
   entries.forEach(([id]) => host.append(workbench$('#' + id)));

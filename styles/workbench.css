@@ -204,5 +204,3 @@ html[data-site-mode="dark"] :is(.team-management-dialog,.global-account-modal,.m
   :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-grant > button { grid-column: 1 / -1; }
   :is(.team-management-dialog,.global-account-modal,.moderation-modal) .tm-inventory-row { flex-wrap: wrap; }
 }
-
-#adminView #wbUpdateBackupSection{scroll-margin-top:100px;}
