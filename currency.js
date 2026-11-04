@@ -364,7 +364,7 @@ const CurrencyModule = (() => {
         return false;
       }
       const confirmed = await window.clubDialog.confirm({title:'确认购买', kind:'cart',
-        text:`${item.name} ×${quantity}${item.allow_multiple_purchase ? `（合为一张可用 ${quantity} 次的卡密）` : ''}\n需支付 ${Number(item.price) * quantity} RBC，当前余额 ${currencyData.balance} RBC。`,
+        text:`${item.name} ×${quantity}${['title','theme'].includes(item.item_type)?` · ${item.cosmetic_duration_days?item.cosmetic_duration_days+' 天（购买后起算）':'永久有效'}`:''}${item.allow_multiple_purchase ? `（合为一张可用 ${quantity} 次的卡密）` : ''}\n需支付 ${Number(item.price) * quantity} RBC，当前余额 ${currencyData.balance} RBC。`,
         confirmText:'确认购买'});
       if (!confirmed) return false;
       if(!purchaseRequests.has(requestKey)) {
@@ -389,7 +389,17 @@ const CurrencyModule = (() => {
         purchaseRequests.delete(requestKey);
         currencyData.balance = data.balance;
         updateCurrencyDisplay();
-        await window.clubDialog.notice({title:'购买成功', text:data.duplicate ? '已确认上次购买成功，本次未重复扣款' : `已放入背包，花费 ${data.total_price} RBC。`, kind:'cart'});
+        let cosmeticRefreshFailed=false;
+        if(['title','theme','badge','frame'].includes(item.item_type)){
+          try{
+            const version=window.SpecialThemes?.version?.();
+            const cosmetics=await window.clubApi.request('/api/profile/cosmetics');
+            if(!cosmetics.ok)throw Error('外观列表刷新失败');
+            const state=await cosmetics.json();
+            if(window.SpecialThemes?.isCurrent?.(version)!==false)window.SpecialThemes?.sync(state);
+          }catch{cosmeticRefreshFailed=true;}
+        }
+        await window.clubDialog.notice({title:'购买成功', text:(data.duplicate ? '已确认上次购买成功，本次未重复扣款' : `已放入背包，花费 ${data.total_price} RBC。`)+(cosmeticRefreshFailed?' 外观列表暂未刷新，请稍后重新打开详情。':''), kind:'cart'});
         return true;
       } else {
         if(response.status<500)purchaseRequests.delete(requestKey);
@@ -457,6 +467,17 @@ const CurrencyModule = (() => {
     } finally { consumableUsesInFlight.delete(inventoryId); }
   }
   let shopRenderVersion = 0;
+  function applyShopCategory(container,category=container.dataset.shopCategory||'all') {
+    container.dataset.shopCategory=category;
+    const decorations=new Set(['title','badge','theme','frame']);let visible=0;
+    container.querySelectorAll('[data-shop-kind]').forEach(card=>{card.hidden=category==='decorations'&&!decorations.has(card.dataset.shopKind);if(!card.hidden)visible++;});
+    container.querySelectorAll('[data-shop-category]').forEach(button=>{const selected=button.dataset.shopCategory===category;button.classList.toggle('active',selected);button.setAttribute('aria-pressed',String(selected));});
+    const empty=container.querySelector('[data-category-empty]');if(empty)empty.hidden=visible>0;
+  }
+  function bindShopCategories(container){
+    container.querySelectorAll('[data-shop-category]').forEach(button=>button.onclick=()=>applyShopCategory(container,button.dataset.shopCategory));
+    applyShopCategory(container);
+  }
   function bindShopTabs(container) {
     const tabs = container.querySelector('.shop-tabs');
     if (typeof syncSegmented === 'function') syncSegmented(tabs);
@@ -524,16 +545,18 @@ const CurrencyModule = (() => {
           <button class="segment ${!backpack ? 'active' : ''}" type="button" data-shop-tab="shop">商店</button>
           <button class="segment ${backpack ? 'active' : ''}" type="button" data-shop-tab="inventory">背包</button>
         </div>
+        <div class="shop-categories" role="group" aria-label="商品分类"><button type="button" data-shop-category="all">全部</button><button type="button" data-shop-category="decorations">装扮</button></div>
         <div class="shop-grid">
           ${backpack && inventoryResult.error ? `<div class="empty-state" role="alert">${escape(inventoryResult.error)}<button class="text-button" data-inventory-retry type="button">重试</button></div>` : displayItems.length === 0 ? `<div class="empty-state">${backpack ? '背包里还没有物品' : '暂无商品'}</div>` : displayItems.map(item => `
-            <div class="shop-item-card${!backpack && item.purchase_limit_reached ? ' is-limit-reached' : ''}${!backpack && item.purchase_blocked ? ' is-purchase-blocked' : ''}">
+            <div data-shop-kind="${escape(item.item_type)}" class="shop-item-card${item.item_type === 'title' ? ' shop-title-card' : ''}${!backpack && item.purchase_limit_reached ? ' is-limit-reached' : ''}${!backpack && item.purchase_blocked && !item.title_owned && !item.cosmetic_owned ? ' is-purchase-blocked' : ''}">
               ${!backpack && item.purchase_limit_reached ? '<img class="shop-limit-stamp" src="/static/images/purchase-limit-stamp.png" alt="已达购买上限" />' : ''}
               <div class="shop-item-icon${item.icon ? ' is-image-loading' : ''}" ${item.icon ? `data-shop-image="${escape(item.icon)}" data-image-alt="${escape(item.name)}" aria-busy="true"` : ''}>
-                ${item.icon ? '<span class="skeleton shop-image-placeholder" aria-hidden="true"></span>' : '<span class="placeholder-icon">📦</span>'}
+                ${item.icon ? '<span class="skeleton shop-image-placeholder" aria-hidden="true"></span>' : item.item_type==='theme'?'<img class="shop-cosmetic-cover" src="/static/cosmetics/taffy-scroll.jpg" alt="塔菲主题">':item.item_type==='badge'?`<span class="shop-cosmetic-badge">${window.MemberTitles.badgeMarkup({key:item.cosmetic_key})}</span>`:'<span class="placeholder-icon">📦</span>'}
               </div>
               <div class="shop-item-info">
-                <h3>${escape(item.name)}</h3>
-                <p>${escape(item.description)}</p>
+                ${item.item_type === 'title' ? `<div class="shop-title-preview">${window.MemberTitles?.markup(item.title_definition)||''}<span class="cosmetic-card-name">你的名字</span></div>` : ''}
+                <h3>${escape(item.name)}</h3>${['badge','theme','frame'].includes(item.item_type) ? `<button type="button" class="secondary-button cosmetic-preview-button" data-preview-cosmetic="${item.id}">${item.item_type==='theme'?(backpack||item.cosmetic_owned?'查看与启用':'预览主题'):(backpack||item.cosmetic_owned?'查看与佩戴':'预览与试戴')}</button>`:''}${item.item_type === 'title' ? `<button type="button" class="secondary-button cosmetic-preview-button" data-preview-title="${item.id}">${backpack||item.title_owned?'查看与佩戴':'预览与试戴'}</button>` : ''}
+                <p>${escape(item.description)}</p>${item.item_type==='theme'?'<small class="stock-info cosmetic-theme-gift"><img src="/static/cosmetics/taffy-original-head.svg" alt="">附赠小塔菲徽章与护目镜头像框</small>':''}${['title','theme','frame','badge'].includes(item.item_type) ? `<small class="stock-info">${backpack?(item.expires_at?(Date.parse(item.expires_at)<=Date.now()?'已过期':'有效至 '+new Date(item.expires_at).toLocaleString('zh-CN')):'永久有效'):(item.cosmetic_duration_days?item.cosmetic_duration_days+' 天':'永久有效')}</small>` : ''}
                 ${backpack && item.code ? `<div class="join fulfillment-code"><pre class="join-item"><code>${escape(item.code)}</code></pre><button class="join-item secondary-button" type="button" data-copy-card="${item.fulfillment_id}">复制</button></div>` : ''}
                 ${backpack && item.api_num ? `<small class="stock-info">一张卡密 · 可用 ${item.api_num} 次</small>` : ''}
                 ${!backpack && item.stock !== -1 ? `<small class="stock-info">库存: ${item.stock}</small>` : ''}
@@ -558,17 +581,29 @@ const CurrencyModule = (() => {
                     <circle cx="9.2" cy="19" r="1.2" />
                     <circle cx="17.2" cy="19" r="1.2" />
                   </svg>
-                  ${!currencyData.canPurchase ? '管理预览' : item.purchase_blocked ? '不可购买' : item.purchase_limit_reached ? '已达购买上限' : item.stock === 0 ? '已售罄' : '购买'}
+                  ${!currencyData.canPurchase ? '管理预览' : item.title_owned||item.cosmetic_owned ? '已拥有' : item.purchase_blocked ? '不可购买' : item.purchase_limit_reached ? '已达购买上限' : item.stock === 0 ? '已售罄' : '购买'}
                 </button>
                 </div>
                 `}
               </div>
             </div>
           `).join('')}
+          ${displayItems.length?'<div class="empty-state" data-category-empty hidden>暂无装扮</div>':''}
         </div>
       </section>
     `;
 
+    container.querySelectorAll('[data-preview-title]').forEach(button=>button.onclick=()=>{
+      const item=displayItems.find(entry=>String(entry.id)===button.dataset.previewTitle);if(!item)return;
+      window.CosmeticShop.openTitle({item,owned:backpack||item.title_owned,canPurchase:currencyData.canPurchase,
+        onPurchase:()=>purchaseItem(item.id,1,item),onChange:()=>renderShopView(container)});
+    });
+    container.querySelectorAll('[data-preview-cosmetic]').forEach(button=>button.onclick=()=>{
+      const item=displayItems.find(entry=>String(entry.id)===button.dataset.previewCosmetic);if(!item)return;
+      window.CosmeticShop.openTitle({item,owned:backpack||item.cosmetic_owned,canPurchase:currencyData.canPurchase,
+        onPurchase:()=>purchaseItem(item.id,1,item),onChange:()=>renderShopView(container)});
+    });
+    bindShopCategories(container);
     window.ShopImages.mount(container);
     bindShopTabs(container);
     container.querySelector('[data-inventory-retry]')?.addEventListener('click', () => renderShopView(container));

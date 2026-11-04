@@ -1,0 +1,96 @@
+/* Account-owned titles use semantic theme colors; appearance never injects CSS. */
+/* Matching score/submission statistics; keep the decorative orbit unobstructed. */
+#dashboardView .atlas-stage .stage-statistics{position:absolute;z-index:2;top:66px;left:28px;right:auto;display:grid;grid-template-columns:minmax(0,1fr);gap:20px;max-width:220px}
+#dashboardView .atlas-stage .stage-statistics .stage-title,#dashboardView .atlas-stage .stage-submission-value{position:static;display:flex;align-items:baseline;gap:8px;height:auto;margin:0;padding:0;line-height:1.15;white-space:nowrap;font-family:inherit;font-variant-numeric:tabular-nums;letter-spacing:normal}
+#dashboardView .atlas-stage .stage-statistics :is(#stageScore,#stageSubmissions){font-size:clamp(32px,12cqi,50px);line-height:1.15;font-weight:650;letter-spacing:-.06em;margin:0;color:var(--site-accent,var(--teal))}
+#dashboardView .atlas-stage .stage-statistics :is(.stage-title,.stage-submission-value)>span:last-child{font-size:clamp(16px,5cqi,22px);line-height:1.15;font-weight:400;font-family:inherit;letter-spacing:normal;margin:0;color:var(--site-secondary,var(--muted))!important}
+#dashboardView .atlas-stage .stage-statistics .stage-caption{position:static;margin:4px 0 0;padding:0;color:var(--site-secondary,var(--muted));font-size:10px;line-height:1.5}
+#dashboardView .atlas-stage .stage-statistics .stage-caption strong{color:var(--site-text,var(--ink));font-size:12px}
+#dashboardView .atlas-stage .stage-float-b{top:66px;bottom:auto;right:24px}
+@media(max-width:760px){#dashboardView .atlas-stage{min-height:340px}#dashboardView .atlas-stage .stage-statistics{top:66px;left:18px;right:auto;gap:18px}#dashboardView .atlas-stage .stage-float-b{top:66px;bottom:auto;right:18px}}
+.shop-title-fields{padding:16px;border:1px solid var(--site-border,var(--line));border-radius:18px;background:var(--site-fill,var(--canvas));margin-block:14px}
+.shop-title-fields[hidden]{display:none}
+.shop-title-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-block:14px}
+.shop-title-options label{display:grid;gap:7px;min-width:0}
+.shop-title-options :is(input,select){min-width:0;width:100%;border-radius:12px}
+#shopTitlePreview{padding:16px;min-height:66px;display:flex;align-items:center;justify-content:center;border-radius:14px;background:var(--site-block-background,var(--panel))}
+.shop-title-preview{min-height:42px;display:flex;justify-content:center;align-items:center;padding:8px;margin-bottom:8px}
+.member-title-badge[data-title-style=neon]{border-width:2px;box-shadow:0 0 0 3px color-mix(in srgb,var(--member-title-color) 12%,transparent),inset 0 0 10px color-mix(in srgb,var(--member-title-color) 12%,transparent)}
+.member-title-badge[data-title-style=metal]{border-width:2px;border-radius:7px 14px;background:linear-gradient(130deg,color-mix(in srgb,var(--member-title-color) 20%,var(--site-elevated,var(--panel))),var(--site-block-background,var(--panel)),color-mix(in srgb,var(--member-title-color) 24%,var(--site-elevated,var(--panel))))}
+.member-title-badge[data-title-style=metal]::before{content:'⬡';margin-right:5px}
+.member-title-badge[data-title-style=shimmer]{background-image:linear-gradient(110deg,transparent 25%,color-mix(in srgb,var(--member-title-color) 25%,transparent) 48%,transparent 70%);background-size:240% 100%;animation:title-shimmer 4s ease-in-out infinite}
+.member-title-badge[data-title-style=orbit]{border-radius:999px;padding-inline:12px;border-style:dashed}
+.member-title-badge[data-title-style=orbit]::before{content:'✧';margin-right:5px}
+@keyframes title-shimmer{0%,20%{background-position:180% 0}80%,100%{background-position:-80% 0}}
+@media(max-width:600px){.shop-title-options{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.member-title-badge[data-title-style=shimmer]{animation:none}}
+
+/* The official AtCoder icon is dark on transparent; invert only the logo in dark mode. */
+html[data-site-mode="dark"] .problem-platform-badge img[src$="/atcoder.png"]{filter:invert(.88) hue-rotate(180deg)}
+
+/* Cosmetic catalogue and focus-contained product preview. */
+.shop-title-card .shop-title-preview{min-height:86px;gap:10px;flex-wrap:wrap;background:var(--site-fill,var(--canvas));border-radius:16px}
+.shop-title-card .shop-item-icon:not([data-shop-image]){display:none}
+.cosmetic-card-name{font-size:12px;color:var(--site-secondary,var(--muted))}
+.shop-title-card:hover .member-title-badge{transform:translateY(-2px)}
+.cosmetic-preview-button{margin-block:10px;width:100%}
+.cosmetic-preview-overlay{position:fixed;inset:0;z-index:2300;display:grid;place-items:center;padding:20px;background:var(--site-overlay-dim,rgba(0,0,0,.55));backdrop-filter:blur(8px)}
+.cosmetic-preview-dialog{width:min(620px,100%);max-height:calc(100dvh - 40px);overflow:auto;overscroll-behavior:contain;border-radius:24px;border:1px solid var(--site-border,var(--line));padding:24px;background:var(--site-elevated,var(--panel));color:var(--site-text,var(--ink));box-shadow:0 24px 70px rgba(0,0,0,.24)}
+.cosmetic-preview-dialog header,.cosmetic-preview-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.cosmetic-preview-dialog h2{margin:4px 0 20px;font-size:24px}.cosmetic-preview-dialog header>[data-cosmetic-close]{position:relative;display:grid;place-items:center;align-self:flex-start;flex:none;width:40px;height:40px;min-height:40px;margin:0;padding:0;border-radius:50%;font-size:0;line-height:1;box-sizing:border-box;color:var(--site-secondary,var(--muted));background:var(--site-fill,var(--canvas))}
+.cosmetic-preview-dialog [data-cosmetic-close]::before,.cosmetic-preview-dialog [data-cosmetic-close]::after{content:"";position:absolute;top:50%;left:50%;width:14px;height:2px;border-radius:1px;background:currentColor;transform:translate(-50%,-50%) rotate(45deg)}
+.cosmetic-preview-dialog [data-cosmetic-close]::after{transform:translate(-50%,-50%) rotate(-45deg)}
+.cosmetic-preview-dialog header>[data-cosmetic-close]:hover{color:var(--site-text,var(--ink));background:var(--site-accent-soft,var(--teal-soft))}
+.cosmetic-preview-stage{position:relative;min-height:205px;display:grid;place-content:center;padding:64px 20px 42px;border-radius:18px;background:var(--site-fill,var(--canvas));border:1px solid var(--site-border,var(--line))}
+.cosmetic-preview-tabs{position:absolute;top:12px;left:12px;right:12px;display:flex;justify-content:center;gap:5px}.cosmetic-preview-tabs button{padding:8px 14px;border-radius:999px;color:var(--site-secondary,var(--muted))}.cosmetic-preview-tabs button[aria-selected=true]{color:var(--site-accent,var(--teal));background:var(--site-accent-soft,var(--teal-soft))}
+.cosmetic-live-person{display:flex;align-items:center;gap:12px;min-width:0}.cosmetic-demo-avatar{display:grid;place-items:center;flex:none;width:44px;height:44px;border-radius:14px;background:var(--site-accent-soft,var(--teal-soft));color:var(--site-accent,var(--teal));font-weight:700}.cosmetic-live-name{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:5px 0}.cosmetic-live-name strong{overflow-wrap:anywhere}.cosmetic-live-person small,.cosmetic-preview-note{color:var(--site-secondary,var(--muted));font-size:11px}.cosmetic-preview-note{position:absolute;bottom:12px;left:0;right:0;text-align:center}
+.cosmetic-product-description{line-height:1.7;color:var(--site-secondary,var(--muted))}.cosmetic-product-traits{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:18px 0 24px}
+.cosmetic-product-traits>span{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:32px;max-width:100%;box-sizing:border-box;border:1px solid var(--site-border,var(--line));border-radius:999px;padding:6px 12px;background:var(--site-fill,var(--canvas));color:var(--site-text,var(--ink));font-size:12px;font-weight:500;line-height:1.5;overflow-wrap:anywhere}
+.cosmetic-product-traits>.cosmetic-theme-gift{justify-content:flex-start;border-radius:14px;padding:8px 12px;background:var(--site-accent-soft,var(--teal-soft));border-color:color-mix(in srgb,var(--site-accent,var(--teal)) 18%,var(--site-border,var(--line)))}
+.cosmetic-product-traits>.cosmetic-theme-gift img{flex:none;width:26px;height:26px}
+.cosmetic-preview-dialog footer{border-top:1px solid var(--site-border,var(--line));padding-top:20px}.cosmetic-preview-dialog footer small{display:block;margin-top:5px;color:var(--site-secondary,var(--muted));font-size:11px}.cosmetic-status{color:var(--site-accent,var(--teal));font-size:12px;margin-bottom:0}.cosmetic-preview-dialog :focus-visible{outline:2px solid var(--site-accent,var(--teal));outline-offset:3px}
+@media(max-width:480px){.cosmetic-preview-overlay{padding:12px}.cosmetic-preview-dialog{padding:18px;border-radius:20px;max-height:calc(100dvh - 24px)}.cosmetic-preview-dialog footer{align-items:flex-start;flex-wrap:wrap}.cosmetic-preview-dialog footer button{flex:1}.cosmetic-live-name{font-size:13px}}
+
+.cosmetic-preview-overlay[hidden]{display:none}
+
+/* Independent image badges never replace title styling or avatar layout. */
+.member-icon-badge{display:inline-block;vertical-align:middle;flex:none;width:26px;height:26px;object-fit:contain;margin-right:5px;image-rendering:auto}
+.title-wear-choice .member-icon-badge{margin:0 5px 0 0}.leader-name>.member-icon-badge{width:24px;height:24px}
+.special-theme-library{margin:20px 0;padding:20px;border:1px solid var(--site-border,var(--line));border-radius:20px;background:var(--site-elevated,var(--panel));color:var(--site-text,var(--ink))}
+.special-theme-library h2{margin:0 0 14px;font-size:18px}.special-theme-choices{display:flex;align-items:stretch;gap:12px;flex-wrap:wrap}.special-theme-choice{display:grid;gap:9px;width:170px;padding:10px;border:1px solid var(--site-border,var(--line));border-radius:16px;background:var(--site-fill,var(--canvas));color:var(--site-text,var(--ink))}.special-theme-choice img{width:100%;height:72px;object-fit:cover;border-radius:10px}.special-theme-choice[aria-pressed=true]{border-color:var(--site-accent,var(--teal));box-shadow:0 0 0 2px var(--site-accent-soft,var(--teal-soft))}
+html[data-special-theme=taffy] body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;background:linear-gradient(#fff3f7b9,#fff3f7d6),url('/static/cosmetics/taffy-scroll.jpg') center top/cover}
+html[data-special-theme=taffy][data-site-mode=dark] body::before{background-image:linear-gradient(#24151fbf,#24151fdb),url('/static/cosmetics/taffy-scroll.jpg')}
+html[data-special-theme=taffy] .app-shell{position:relative;z-index:1}
+html[data-special-theme=taffy] body .main-content{background:transparent!important}
+html[data-special-theme=taffy] #settingsView{--settings-bg:var(--site-page);--settings-surface:var(--site-elevated);--settings-text:var(--site-text);--settings-secondary:var(--site-secondary);--settings-line:var(--site-border)}
+.shop-cosmetic-cover{width:100%;height:150px;object-fit:cover;border-radius:14px}.shop-cosmetic-badge{width:70px;height:70px;object-fit:contain}.cosmetic-stock-preview{display:flex;align-items:center;gap:12px;padding-top:14px}.cosmetic-stock-preview img{width:42px;height:42px;object-fit:contain}.cosmetic-stock-preview p{font-size:12px;line-height:1.7}
+.cosmetic-theme-gift{display:inline-flex;align-items:center;gap:6px}.cosmetic-theme-gift img{width:24px;height:24px;object-fit:contain}.cosmetic-theme-poster{width:100%;height:150px;object-fit:cover;border-radius:12px;margin-bottom:20px}.is-theme-preview{padding-top:58px}.is-theme-preview .cosmetic-live-person{justify-content:center}
+.shop-items-table .toggle-item-btn{padding:6px 10px;margin-right:6px}
+@media(max-width:600px){.member-icon-badge,.leader-name>.member-icon-badge{width:22px;height:22px}.special-theme-library{padding:16px}}
+
+html[data-site-theme-active=true][data-special-theme=taffy] body .app-shell{background:transparent!important}
+.settings-special-swatches{display:flex;align-items:start;gap:24px;flex-wrap:wrap;clear:both;margin:8px 0 22px;padding:18px 20px 0;border-top:1px solid var(--settings-line,var(--site-border))}
+.settings-special-swatches[hidden]{display:none}.theme-special-swatch{display:flex;flex-direction:column;align-items:center;gap:10px;width:76px;padding:0;border:0;background:transparent;color:var(--settings-text,var(--site-text));font:inherit}
+.theme-special-portrait{display:grid;place-items:center;width:56px;height:56px;border:0;border-radius:0;transition:transform .2s;}
+.theme-special-portrait img{width:48px;height:48px;object-fit:contain}.theme-special-swatch[aria-pressed=true]>span:last-child{color:var(--site-accent,var(--teal));font-weight:700}.theme-special-swatch:hover .theme-special-portrait{transform:translateY(-2px)}.theme-special-swatch:focus-visible{outline:2px solid var(--site-accent,var(--teal));outline-offset:6px;border-radius:10px}.special-theme-status{font-size:12px;color:var(--site-accent)}
+#rbcshopView .shop-categories{display:flex;align-items:center;gap:6px;margin-top:18px;padding:4px;width:fit-content;border:1px solid var(--site-border,var(--line));border-radius:999px;background:var(--site-fill,var(--canvas))}
+#rbcshopView .shop-categories button{border:0;border-radius:999px;padding:7px 18px;background:transparent;color:var(--site-secondary,var(--muted));font-size:12px}
+#rbcshopView .shop-categories button.active{background:var(--site-accent-soft,var(--teal-soft));color:var(--site-accent,var(--teal));font-weight:700}
+#rbcshopView .shop-grid{grid-template-columns:repeat(auto-fill,minmax(min(210px,100%),1fr));gap:14px;padding-block:16px}
+#rbcshopView .shop-item-card{border-radius:18px}#rbcshopView .shop-item-card[hidden]{display:none!important}
+#rbcshopView .shop-item-icon{height:108px}#rbcshopView .shop-cosmetic-cover{height:108px;max-width:100%;max-height:100%;border-radius:0;object-fit:cover}
+#rbcshopView .shop-item-info{padding:12px}#rbcshopView .shop-item-info h3{font-size:15px;line-height:1.4;margin-bottom:6px}
+#rbcshopView .shop-item-info p{font-size:12px;line-height:1.6;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+#rbcshopView .shop-item-footer{padding:11px 12px;gap:8px;flex-wrap:wrap}#rbcshopView .shop-item-footer button{font-size:12px;padding:8px 12px}
+#rbcshopView .shop-title-preview{min-height:65px;margin-bottom:8px}#rbcshopView .cosmetic-preview-button{font-size:12px;margin-block:6px;padding:7px 10px}
+#rbcshopView .shop-cosmetic-badge .member-icon-badge{width:54px;height:54px;margin:0}
+
+html[data-site-theme-active=true][data-special-theme=taffy] body :is(#dashboardView,#settingsView){background:transparent!important}
+
+html[data-special-theme=taffy]{--site-canvas-background:transparent}
+
+/* The frame wraps the existing square avatar; its image load lifecycle stays unchanged. */
+.avatar-frame-wrap{position:relative;display:inline-flex;flex:none;overflow:visible;vertical-align:middle;line-height:0}
+.avatar-frame-wrap>img.avatar-frame-art{position:absolute!important;width:125%!important;height:125%!important;left:-12.5%!important;top:-22.5%!important;max-width:none!important;border:0!important;border-radius:0!important;object-fit:contain!important;pointer-events:none;z-index:2;box-shadow:none!important;background:transparent!important}
+#frameWardrobe .title-wear-choice{gap:16px;padding:18px}
+#frameWardrobe .cosmetic-demo-avatar{width:42px;height:42px;line-height:42px;text-align:center}

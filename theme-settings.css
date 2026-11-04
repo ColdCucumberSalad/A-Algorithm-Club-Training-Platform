@@ -15,7 +15,7 @@
 .theme-card-edit{display:none;position:absolute;top:8px;right:10px;z-index:5;padding:3px 8px;border-radius:7px;background:var(--site-elevated,#fff);color:var(--site-accent,#245ec0);border:1px solid var(--site-border,#d5e5fb);font-size:12px;text-decoration:none;}
 html[data-site-editing="true"] .theme-card-edit{display:block;}
 html[data-site-editing="true"] [data-theme-block]{outline:1px dashed var(--site-accent,#245ec0);outline-offset:3px;}
-html[data-site-theme-active="true"],html[data-site-theme-active="true"] body,html[data-site-theme-active="true"] .main-content{background:var(--site-page)!important;color:var(--site-text);}
+html[data-site-theme-active="true"],html[data-site-theme-active="true"] body,html[data-site-theme-active="true"] .main-content{background:var(--site-canvas-background,var(--site-page))!important;color:var(--site-text);}
 [data-site-themed="true"] :is(h1,h2,h3,strong,.metric-value,.leader-name,.leader-score,.field-label){color:var(--site-text)!important;}
 [data-site-themed="true"] :is(.muted,small,.metric-top,.metric-foot,.section-label,.kicker,.pulse-copy,.float-label,.stage-caption,.leader-count,.member-card-head small){color:var(--site-secondary)!important;}
 [data-site-themed="true"] :is(.stage-float,.member-card-stats,.form-note,.history-summary,.upload-box,.blog-open-button,.personal-password){background:var(--site-fill)!important;color:var(--site-text)!important;border-color:var(--site-border)!important;}
@@ -125,7 +125,7 @@ html body #activityRecords>.activity-empty{font-weight:700;margin:0;padding:24px
 .activity-legend{display:flex;justify-content:flex-end;gap:4px;align-items:center;font-size:10px;color:var(--muted);margin-top:10px;}.activity-legend i{width:11px;height:11px;border-radius:3px;}
 .activity-note{font-size:10px;line-height:1.8;color:var(--muted);margin:12px 0 0;}
 /* Legacy styles contained fixed gradients/white surfaces and high-specificity text. */
-html[data-site-theme-active="true"] body .app-shell{background:var(--site-page)!important;}
+html[data-site-theme-active="true"] body .app-shell{background:var(--site-canvas-background,var(--site-page))!important;}
 html[data-site-theme-active="true"] body :is(#dashboardView,[data-site-themed="true"]) :is(h1,h2,h3,h4,strong,.metric-value,.attended-title,.leader-name,.field-label,.personal-form label,.contest-card-time,.pulse-detail){color:var(--site-text)!important;}
 html[data-site-theme-active="true"] body :is(#dashboardView,[data-site-themed="true"]) :is(.muted,small,.section-label,.kicker,.pulse-copy,.metric-top,.metric-foot,.queue-empty,.contest-card-bottom,.activity-note,.activity-empty,.activity-controls label,.activity-summary span){color:var(--site-secondary)!important;}
 html[data-site-theme-active="true"] body :is(#dashboardView,[data-site-themed="true"]) :is(.stage-float,.member-card-stats,.last-week-row,.leaderboard-footer,.leader-row.is-current,.review-quote,.screenshot-placeholder,.upload-box,.form-note,.platform-metrics,.platform-extra,.rating-details,.workbench-team-settings,.workbench-problem,.transaction-item,.calendar-day,.checkin-day){background:var(--site-fill)!important;background-image:none!important;color:var(--site-text)!important;border-color:var(--site-border)!important;}
@@ -769,7 +769,7 @@ html[data-site-radial="true"] *,html[data-site-radial="true"] *::before,html[dat
 
 html[data-site-theme-active="true"][data-site-mode="dark"]{--site-shadow-highlight-700:rgba(0,0,0,0.224);--site-shadow-highlight-1000:rgba(0,0,0,0.32);--site-shadow-highlight-271:rgba(0,0,0,0.0866);--site-shadow-highlight-800:rgba(0,0,0,0.256);--site-shadow-highlight-502:rgba(0,0,0,0.1606);--site-shadow-highlight-333:rgba(0,0,0,0.1067);}
 /* The overview must not keep its legacy radial background image. */
-html[data-site-theme-active="true"] body:has(#dashboardView.active),html[data-site-theme-active="true"] body:has(#dashboardView.active) .app-shell,html[data-site-theme-active="true"] body:has(#dashboardView.active) .main-content{background:var(--site-page)!important;background-image:none!important;}
+html[data-site-theme-active="true"] body:has(#dashboardView.active),html[data-site-theme-active="true"] body:has(#dashboardView.active) .app-shell,html[data-site-theme-active="true"] body:has(#dashboardView.active) .main-content{background:var(--site-canvas-background,var(--site-page))!important;background-image:none!important;}
 html[data-site-theme-active="true"] body #dashboardView{background:transparent!important;background-image:none!important;}
 html[data-site-theme-active="true"] body #membersView .member-search{background:var(--site-fill)!important;color:var(--site-text)!important;border-color:var(--site-border)!important;box-shadow:0 3px 12px #00000010!important;}
 html[data-site-theme-active="true"] body #membersView .member-search:is(:hover,:focus-within){border-color:var(--site-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--site-accent) 18%,transparent)!important;}
@@ -938,5 +938,6 @@ html[data-site-theme-active="true"] body .auth-story-stat span { background: var
 /* The calendar icon is the sole month-selection control. */
 #activityMonthCalendar{min-width:44px;min-height:44px;padding:0;}
 
+html[data-site-theme-active="true"]{background:var(--site-page)!important}
 /* Include the entire continuous grid in scroll width, including the outline gutter. */
 #activityHeatmap[data-range="month"]:has(.activity-continuous-months){width:max-content;}

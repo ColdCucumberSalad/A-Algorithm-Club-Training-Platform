@@ -5,7 +5,7 @@ const source=fs.readFileSync(require.resolve('../app.js'),'utf8');
 const helper=source.slice(source.indexOf('const memberAvatarSources ='),source.indexOf('\nfunction renderLeaderboard'));
 
 test('rank refreshes reuse stable small version URLs and skip absent avatars',()=>{
-  const context={escapeHtml:value=>String(value).replaceAll('&','&amp;')};
+  const context={window:{},escapeHtml:value=>String(value).replaceAll('&','&amp;')};
   vm.createContext(context);vm.runInContext(helper,context);
   const render=()=>vm.runInContext("memberAvatar(3,'Alice','leader-avatar','/api/members/3/avatar?size=small&v=one')",context);
   const initial=render();assert.equal(initial,render());assert.match(initial,/size=small/);assert.match(initial,/v=one/);
@@ -42,7 +42,7 @@ test('header avatar removes default text on success and restores it on error',()
     Object.defineProperty(holder,'textContent',{get:()=>holder.text,set:value=>{
       holder.children.forEach(image=>image.parentElement=null);holder.children=[];holder.text=value;
     }});
-    const context={entry:{querySelector:selector=>selector==='.profile-avatar'?holder:{}},
+    const context={window:{},entry:{querySelector:selector=>selector==='.profile-avatar'?holder:{}},
       document:{createElement:()=>({})}};
     vm.createContext(context);
     vm.runInContext(profile.slice(profile.indexOf('  function updateHeader('),profile.indexOf('  function message(')),context);
@@ -54,4 +54,14 @@ test('header avatar removes default text on success and restores it on error',()
   assert.equal(failed.holder.text,'A');assert.equal(failed.holder.children.length,0);
   const stale=fixture();stale.render();const image=stale.holder.children[0];stale.render();image.onload();
   assert.notEqual(stale.holder.children[0],image);
+});
+
+test('shop frame updates preserve the existing header avatar and update the personal identity state',()=>{
+ const profile=fs.readFileSync(require.resolve('../profile.js'),'utf8'),avatar={image:{src:'/small?v=same'}},data={name:'Alice'},frames=[];
+ const context={data,entry:{querySelector:()=>avatar},window:{MemberTitles:{frameElement:(element,frame)=>frames.push({element,frame})}}};
+ vm.createContext(context);vm.runInContext(profile.slice(profile.indexOf('  function updateFrame('),profile.indexOf('  function message(')),context);
+ const frame={key:'taffy-goggles',expires_at:'2026-11-10T00:00:00Z'};
+ context.frame=frame;vm.runInContext('updateFrame(frame)',context);
+ assert.equal(frames[0].element,avatar);assert.equal(frames[0].frame,frame);assert.equal(data.avatar_frame,frame);assert.equal(avatar.image.src,'/small?v=same');
+ vm.runInContext('updateFrame(null)',context);assert.equal(frames[1].frame,null);assert.equal(data.avatar_frame,null);
 });

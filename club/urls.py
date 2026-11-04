@@ -1,3 +1,4 @@
+from . import cosmetic_views
 from django.urls import path
 from . import poker_views
 from . import extension_views
@@ -28,6 +29,7 @@ urlpatterns = [
     path('app/cards/confirm', app_views.card_confirm),
     path('management/submissions/<int:submission_id>',admin_submission_views.edit_submission),
     path('profile/titles/wear', profile_views.wear_title),
+    path('profile/cosmetics', cosmetic_views.library),
     path('account',account_views.current_account),
     path('account/close',account_views.close_account),
     path('management/accounts',account_views.accounts),

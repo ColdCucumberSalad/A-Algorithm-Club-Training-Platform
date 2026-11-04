@@ -25,14 +25,16 @@
     <link rel="stylesheet" href="styles/atlas-enhanced.css?v=cohort-20261102e" />
   <link rel="stylesheet" href="styles/site-theme.css?v=ui-20261101l" />
   <link rel="stylesheet" href="styles/gallery-week-picker.css?v=1" />
-<link rel="stylesheet" href="static/club-dialog.css?v=1" /><link rel="stylesheet" href="static/team-join.css?v=1" /><link rel="stylesheet" href="static/glass-drag.css?v=1"><link rel="stylesheet" href="theme-settings.css?v=activity-review-fixes-20261104" />
-<script src="theme-model.js?v=poker-dialogs-20261104"></script><script src="theme-settings.js?v=cohort-20261102e" defer></script>
+<link rel="stylesheet" href="static/club-dialog.css?v=1" /><link rel="stylesheet" href="static/team-join.css?v=1" /><link rel="stylesheet" href="static/glass-drag.css?v=1"><link rel="stylesheet" href="theme-settings.css?v=cosmetics-activity-20261104" />
+<script src="static/special-themes.js?v=cosmetic-state-guards-20261105"></script>
+  <script src="theme-model.js?v=poker-dialogs-20261104"></script><script src="theme-settings.js?v=cosmetic-state-guards-20261105" defer></script>
   <link rel="stylesheet" href="styles/workbench.css?v=site-updates-20261104" />
   <link rel="stylesheet" href="/static/vendor/daisyui/notification-components.css?v=20261102" />
   <link rel="stylesheet" href="/static/team-notifications.css?v=20261102" />
   <link rel="stylesheet" href="styles/member-profile.css?v=20261102e" />
   <link rel="stylesheet" href="/static/account-management.css?v=20261102g" />
-</head>
+    <link rel="stylesheet" href="static/shop-titles.css?v=cosmetics-20261104f">
+  </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="主导航">
@@ -93,8 +95,8 @@
           <div class="appearance-layout">
             <aside class="appearance-preview-column" aria-label="外观预览">
               <p class="settings-overline">预览</p><div class="appearance-preview-canvas">
-                <article id="appearancePreview" class="appearance-sample"><span class="sample-eyebrow" id="previewBlockName">本周训练概览</span><h2>今天，也进步一点。</h2><p>主题色派生、卡片与文字的变化，在这里预览。</p><div class="sample-row"><span>内容预览</span><span class="sample-badge">默认</span></div><button type="button" class="sample-button" disabled>强调色预览</button></article>
-              </div><p id="contrastStatus" class="settings-contrast" role="status"></p><div class="appearance-tip"><h2>全局与独立卡片</h2><p>主题色派生整套配色；每张卡片还能单独设置背景、文字、强调色和字号。浅色与深色分别保存。</p></div>
+                <article id="appearancePreview" class="appearance-sample"><span class="sample-eyebrow" id="previewBlockName">本周训练概览</span><h2>今天，也进步一点。</h2><div class="sample-row"><span>内容预览</span><span class="sample-badge">默认</span></div><button type="button" class="sample-button" disabled>强调色预览</button></article>
+              </div><p id="contrastStatus" class="settings-contrast" role="status"></p>
             </aside>
             <div class="appearance-controls"><nav class="appearance-nav" aria-label="设置分类"><a href="#theme">主题</a><a href="#typography">文字</a><a href="#surfaces">卡片</a><a href="#palette">色板</a><a href="#blocks">独立卡片</a></nav><form id="appearanceForm"></form></div>
           </div>
@@ -147,8 +149,16 @@
             <div class="atlas-stage" aria-label="本周训练轨迹">
               <div class="stage-sheen"></div>
               <div class="stage-header"><span>TRAINING ATLAS</span><span id="stageWeek">WEEK -- / --</span></div>
-              <div class="stage-title"><span id="stageScore">07</span><span>/10</span></div>
-              <p class="stage-caption">本周积分<br><strong id="stageScoreCaption">还差 3 分达标</strong></p>
+              <div class="stage-statistics">
+                <div class="stage-statistic">
+                  <div class="stage-title"><span id="stageScore">0</span><span>/6</span></div>
+                  <p class="stage-caption">本周积分<br><strong id="stageScoreCaption">—</strong></p>
+                </div>
+                <div class="stage-statistic">
+                  <div class="stage-submission-value"><span id="stageSubmissions">0</span><span id="stageSubmissionTarget">/4</span></div>
+                  <p class="stage-caption">本周提交<br><strong id="stageSubmissionCaption">—</strong></p>
+                </div>
+              </div>
               <div class="stage-grid" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
               <div class="stage-path" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
               <div class="stage-float stage-float-b"><span class="float-label">连续达标</span><strong id="stageStreak">— 周</strong><small>保持你的训练节拍</small></div>
@@ -320,27 +330,28 @@
     <script src="static/club-dialog.js?v=1"></script><script src="static/team-join.js?v=1"></script>
     <script src="static/platform-select.js?v=1"></script>
     <script src="/static/code-colors.js"></script>
-    <script src="community.js?v=logic-score-label-20261103"></script>
-    <script src="/static/member-titles.js?v=title-style-20261102e"></script>
+    <script src="community.js?v=shop-titles-20261104"></script>
+    <script src="/static/member-titles.js?v=cosmetics-20261104f"></script>
     <script src="workbench.js?v=site-updates-20261104"></script>
-    <script src="/static/team-management.js?v=negative-balance-20261102"></script>
+    <script src="/static/team-management.js?v=shop-titles-20261104"></script>
     <script src="/static/team-notifications.js?v=20261102"></script>
     <script src="static/blog-editor.js?v=ui-20261101l"></script>
     <script src="contests.js"></script>
     <script src="tracker.js"></script>
     <script src="static/shop-images.js?v=shop-images-20261101b"></script>
-    <script src="currency.js?v=api-multiple-20261103"></script>
-    <script src="currency-admin.js?v=api-multiple-20261103"></script>
-    <script src="/static/account-management.js?v=negative-balance-20261102"></script>
+    <script src="static/cosmetic-shop.js?v=cosmetic-state-guards-20261105"></script>
+    <script src="currency.js?v=cosmetic-state-guards-20261105"></script>
+    <script src="currency-admin.js?v=cosmetics-20261104f"></script>
+    <script src="/static/account-management.js?v=shop-titles-20261104"></script>
     <script src="/static/reporting.js?v=20261102e"></script>
     <script src="/static/moderation.js?v=review-generation-20261102"></script>
-    <script src="profile.js?v=wardrobe-20261102e"></script>
+    <script src="profile.js?v=cosmetic-state-guards-20261105"></script>
     <script src="extensions.js?v=categories-3"></script>
     <script src="poker.js?v=ios-fullscreen-20261104"></script>
   <script src="activity-dates.js?v=activity-review-fixes-20261104"></script>
   <script src="activity-data.js?v=activity-review-fixes-20261104"></script>
   <script src="activity-view.js?v=activity-review-fixes-20261104"></script>
-  <script src="app.js?v=activity-review-fixes-20261104"></script>
+  <script src="app.js?v=cosmetic-roster-refresh-20261104"></script>
   <script src="static/glass-drag.js?v=ranking-20261101"></script>
   </body>
 </html>

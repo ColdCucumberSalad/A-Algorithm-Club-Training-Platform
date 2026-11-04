@@ -362,6 +362,7 @@ def select_team(request):
 @api_login_required
 def me(request):
     from .avatar_images import url_for
+    from .cosmetics import state as cosmetic_state,frame_data
     from .models import UserProfile
     personal = UserProfile.objects.filter(user=request.user).first()
     membership = membership_for(request)
@@ -379,7 +380,7 @@ def me(request):
         'can_submit': bool(membership and membership.pk and not request.user.is_superuser),
         'group': '管理员' if request.user.is_superuser else '团队管理用户组' if request.user.team_memberships.filter(role='admin', is_active=True).exists() else '普通用户组',
         'team': {'id': membership.team_id, 'name': membership.team.name, 'code': membership.team.code} if membership else None,
-        'teams': teams, 'csrfToken': get_token(request)})
+        'teams': teams, 'cosmetics':cosmetic_state(request.user),'avatar_frame':frame_data(membership) if membership else None, 'csrfToken': get_token(request)})
 
 
 @api_login_required
@@ -497,8 +498,10 @@ def members(request):
     roster = list(membership.team.memberships.filter(is_active=True,user__is_active=True,user__is_superuser=False).select_related('user'))
     from .avatar_images import member_urls
     avatars = member_urls(roster)
+    from .cosmetics import frame_data, cache_equipped
+    cache_equipped(roster, kinds=('frame',))
     rows = [{'id': member.id, 'name': member.display_name, 'role': member.role, 'team_id': membership.team_id,
-             'avatar': avatars.get(member.pk),
+             'avatar': avatars.get(member.pk),'avatar_frame':frame_data(member),
              'account': member.user.username if request.user.is_superuser else '',
              'is_system_admin': member.user.is_superuser,
              'can_kick': not member.user.is_superuser and member.user_id != request.user.pk and

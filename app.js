@@ -258,7 +258,8 @@ function memberAvatarSource(memberId) {
 function memberAvatar(memberId, name, className='leader-avatar', source=undefined) {
   if (source !== undefined) memberAvatarSources.set(Number(memberId), source);
   const url = memberAvatarSource(memberId);
-  return `<span class="${className} synced-member-avatar" data-avatar-member="${Number(memberId)}" data-avatar-fallback="${escapeHtml((name || '').slice(0,1))}">${escapeHtml((name || '').slice(0,1))}${url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" width="96" height="96" onload="this.parentElement.replaceChildren(this)" onerror="this.parentElement.textContent=this.parentElement.dataset.avatarFallback" />` : ''}</span>`;
+  const markup=`<span class="${className} synced-member-avatar" data-avatar-member="${Number(memberId)}" data-avatar-fallback="${escapeHtml((name || '').slice(0,1))}">${escapeHtml((name || '').slice(0,1))}${url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" decoding="async" width="96" height="96" onload="this.parentElement.replaceChildren(this)" onerror="this.parentElement.textContent=this.parentElement.dataset.avatarFallback" />` : ''}</span>`;
+  return window.MemberTitles?.frameAvatar?.(markup,window.MemberTitles.frameFor?.(memberId))||markup;
 }
 
 function renderLeaderboard(mode='checkin', target='#leaderboardList') {
@@ -266,6 +267,7 @@ function renderLeaderboard(mode='checkin', target='#leaderboardList') {
   if (!el) return;
   const selection = rankingSelection(target);
   const allRows = rankingData[rankingKey(selection.scope,selection.platform,selection.period)];
+  window.MemberTitles?.rememberFrames?.(allRows||[]);
   const query=selection.panel?.querySelector('[data-ranking-search]')?.value||'';
   const rows = target !== '#leaderboardListFull' ? allRows?.filter(row => row.isCurrent) : allRows?.filter(row=>window.MemberTitles.matchesMember(row,query));
   const filter = selection.panel?.querySelector('.rating-platform-filter:not(.solved-period-filter)');
@@ -283,7 +285,7 @@ function renderLeaderboard(mode='checkin', target='#leaderboardList') {
     : rows.map(row => `
       <button type="button" class="leader-row ${row.isCurrent ? 'you' : ''}" data-ranking-member="${row.memberId}" aria-label="查看${escapeHtml(uiMemberName(row.name))}的个人信息">
         <span class="leader-rank ${row.rank && row.rank <= 3 ? 'top' : ''}">${row.rank || '—'}</span>
-        <span class="leader-member"><span class="leader-avatar-stack">${memberAvatar(row.memberId,row.name,'leader-avatar',row.avatar)}${window.MemberTitles?.cohort(row.cohort,true)||''}</span><span class="leader-name">${window.MemberTitles?.list(row.titles||row.title)||''}${escapeHtml(uiMemberName(row.name))}${row.isCurrent ? '（你）' : ''}</span></span>
+        <span class="leader-member"><span class="leader-avatar-stack">${memberAvatar(row.memberId,row.name,'leader-avatar',row.avatar)}${window.MemberTitles?.cohort(row.cohort,true)||''}</span><span class="leader-name">${window.MemberTitles?.list(row.titles||row.title,row.badge)||''}${escapeHtml(uiMemberName(row.name))}${row.isCurrent ? '（你）' : ''}</span></span>
         <span class="leader-score">${row.value ?? '—'}<small> ${escapeHtml(row.unit)}</small></span>
         <span class="leader-count">${escapeHtml(row.detail)}${row.value === null ? ' · 暂无评级' : ''}</span>
       </button>`).join('');
@@ -550,7 +552,7 @@ function applyLiveDashboardState(dashboard, submissions = []) {
   const stageCaption = $('#stageScoreCaption');
   const stageFocus = $('#stageFocus');
   const stageFocusMeta = $('#stageFocusMeta');
-  if (stageScore) stageScore.textContent = String(score).padStart(2, '0');
+  if (stageScore) stageScore.textContent = String(score);
   if (stageScoreMax) stageScoreMax.textContent = `/${minScore}`;
   if (stageCaption) stageCaption.textContent = isComplete ? '本周已达标' : !requireBoth && submissionGap === 0 ? '提交次数已达标' : `还差 ${scoreGap} 分达标`;
   if (stageFocus) stageFocus.textContent = focus;
@@ -559,6 +561,9 @@ function applyLiveDashboardState(dashboard, submissions = []) {
   if (stageWeek) stageWeek.textContent = `WEEK ${String(week.number).padStart(2, '0')} / ${String(semester.totalWeeks || 0).padStart(2, '0')}`;
   const streak = Number(stats.streakWeeks || 0);
   if ($('#stageStreak')) $('#stageStreak').textContent = `${String(streak).padStart(2, '0')} 周`;
+  if ($('#stageSubmissions')) $('#stageSubmissions').textContent = String(submissionCount);
+  if ($('#stageSubmissionTarget')) $('#stageSubmissionTarget').textContent = `/${minSubmissions}`;
+  if ($('#stageSubmissionCaption')) $('#stageSubmissionCaption').textContent = submissionGap ? `还差 ${submissionGap} 次达标` : '本周提交已达标';
 
   if ($('#quickSubmissions')) $('#quickSubmissions').textContent = `${submissionCount} 次提交`;
   if ($('#quickPending')) $('#quickPending').textContent = '提交即计分';
@@ -1287,7 +1292,7 @@ function clearStaticPreview() {
     if (weekLabel) weekLabel.textContent = '当前周次加载中…';
     if (deadlineLabel) deadlineLabel.textContent = '截止时间加载中…';
   }
-  ['#quickSubmissions', '#quickPending', '#quickRank', '#stageWeek', '#stageStreak', '#rankValue', '#rankChange', '#rankGap', '#streakValue', '#yourRankValue', '#yourRankChange'].forEach((selector) => { const element = $(selector); if (element) element.textContent = '—'; });
+  ['#stageSubmissions', '#stageSubmissionTarget', '#stageSubmissionCaption', '#quickSubmissions', '#quickPending', '#quickRank', '#stageWeek', '#stageStreak', '#rankValue', '#rankChange', '#rankGap', '#streakValue', '#yourRankValue', '#yourRankChange'].forEach((selector) => { const element = $(selector); if (element) element.textContent = '—'; });
   if ($('#teamName')) $('#teamName').textContent = '正在加载…';
   const profile = $('.profile-chip');
   if (profile) { profile.querySelector('strong').textContent = '正在加载…'; profile.querySelector('small').textContent = '正在验证登录状态'; }
@@ -1391,6 +1396,17 @@ async function loadLeaderboard(scope = 'checkin', platform='codeforces', {force=
   return request;
 }
 
+function refreshCosmeticRankings(){
+  const selections=new Map(['#leaderboardList','#leaderboardRatingList','#leaderboardSolvedList','#leaderboardWealthList','#leaderboardListFull'].map(target=>{
+    const selected=rankingSelection(target);
+    return [rankingKey(selected.scope,selected.platform,selected.period),selected];
+  }));
+  const tasks=[...selections.values()].map(selected=>
+    loadLeaderboard(selected.scope,selected.platform,{force:true,period:selected.period}));
+  if(currentView==='members')tasks.push(loadMembersLive());
+  return Promise.allSettled(tasks);
+}
+
 async function refreshAfterMutation({refreshAdmin = false} = {}) {
   const selections=new Map(['#leaderboardList','#leaderboardRatingList','#leaderboardSolvedList','#leaderboardWealthList','#leaderboardListFull'].map(target=>{
     const selected=rankingSelection(target);return [rankingKey(selected.scope,selected.platform,selected.period),selected];
@@ -1439,6 +1455,7 @@ async function loadLiveData() {
       return;
     }
     const me = await meResponse.json();
+    window.SpecialThemes?.sync(me.cosmetics);
     submissionDraftOwner = me.account && (me.test_target_team?.id || me.team?.id)
       ? [me.account, me.test_target_team?.id || me.team.id, !!me.test_mode] : null;
     adminTestMode=!!me.test_mode;
@@ -1517,6 +1534,7 @@ async function loadMembersLive() {
       return;
     }
     const payload = await response.json();
+    window.MemberTitles?.rememberFrames?.(payload.members||[]);
     if (requestVersion !== membersRequestVersion) return;
     const members = payload.members || [];
     if (!members.length) {
@@ -1598,11 +1616,12 @@ async function openLiveMemberHistory(memberId, page = 1) {
     if (!response.ok) throw new Error(payload.error || '无法查看该成员个人信息');
     if (page===1) {
       $('#historyMember').textContent = payload.member.name;
-      $('#historyMemberTitle').innerHTML=MemberTitles.list(payload.member.titles||payload.member.title);
+      $('#historyMemberTitle').innerHTML=MemberTitles.list(payload.member.titles||payload.member.title,payload.member.badge);
       $('#historySquad').innerHTML=MemberTitles.cohort(payload.member.cohort);
       $('#historyMemberSummary').textContent=`已绑定 ${payload.bindings.length} / 5 个平台 · ${payload.total} 条提交`;
       $('#historyIdentity').textContent = payload.member.role==='admin'?'团队管理员':'普通成员';
       setDetailAvatar($('#historyAvatar'),memberId,payload.member.name,payload.member.avatar);
+      MemberTitles.frameElement($('#historyAvatar'),payload.member.avatar_frame);
       memberPlatformCards(payload);
     }
     renderMemberRecent(payload.submissions || [],page>1);
@@ -1707,4 +1726,11 @@ $('#deleteOwnSubmission').addEventListener('click', async () => {
 document.addEventListener('click', event => {
   const member = event.target.closest('[data-ranking-member]');
   if (member?.dataset.rankingMember && member.dataset.rankingMember !== 'undefined') openMemberHistory(member.dataset.rankingMember);
+});
+
+window.addEventListener('club:cosmetics-expired',()=>{
+  const tasks=[refreshCosmeticRankings()];
+  const shop=document.getElementById('rbcshopView');
+  if(currentView==='rbcshop'&&shop)tasks.push(window.CurrencyModule?.renderShopView(shop));
+  return Promise.allSettled(tasks);
 });

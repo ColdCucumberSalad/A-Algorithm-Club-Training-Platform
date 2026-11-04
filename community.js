@@ -7,8 +7,8 @@ function problemPlatformMarkup(url){
   if(matches('leetcode.cn')||matches('leetcode.com')){label='力扣';icon='leetcode.ico';}
   else if(matches('nowcoder.com')){label='牛客';icon='nowcoder.ico';}
   else if(matches('codeforces.com')){label='Codeforces';short='CF';}
-  else if(matches('luogu.com.cn')){label='洛谷';short='洛';}
-  else if(matches('atcoder.jp')){label='AtCoder';short='At';}
+  else if(matches('luogu.com.cn')){label='洛谷';icon='luogu.ico';}
+  else if(matches('atcoder.jp')){label='AtCoder';icon='atcoder.png';}
   else if(matches('acwing.com')){label='AcWing';short='Ac';}
   else if(matches('qoj.ac')){label='QOJ';short='Q';}
   return `<span class="problem-platform-badge" title="${label}" aria-label="题目平台：${label}">${icon?`<img src="/static/platforms/${icon}" alt="${label}" width="26" height="26">`:`<span>${short}</span>`}</span>`;
@@ -43,7 +43,7 @@ function cancelSubmissionEdit(){
 function setDetailAvatar(holder,id,name,explicitSource=undefined){
  holder.textContent=(name||'').slice(0,1);holder.classList.add('synced-member-avatar');
   delete holder.dataset.avatarMember;
- if(!id)return;holder.dataset.avatarMember=String(id);
+ if(!id)return;holder.dataset.avatarMember=String(id);window.MemberTitles?.frameElement?.(holder,window.MemberTitles.frameFor?.(id));
  const source=explicitSource===undefined?memberAvatarSource(id):explicitSource;if(!source)return;
  holder.dataset.avatarFallback=(name||'').slice(0,1);
  const image=document.createElement('img');image.src=source;image.alt='';image.decoding='async';
