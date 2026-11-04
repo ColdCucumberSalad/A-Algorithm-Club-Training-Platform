@@ -25,6 +25,8 @@
 
 这是宿主机服务，不在 Django/Celery 内执行 Docker，不向网站挂载 Docker socket。安装需由维护人员在宿主机完成一次：
 
+针对当前线上 `/opt/club-platform` 部署，可直接运行 `sudo python3 deploy/install_site_updater.py`，安装前会保留 Compose 副本。该命令只安装协调器和控制目录挂载，网站应用新镜像重建后才会出现已连接状态。其他部署按以下步骤安装。
+
 1. 将本目录的 `site_updater.py`、`site_update_audit.py` 安装至 `/opt/club-platform/site-updater/`，权限仅 root 可写。安装 Python 3.10+、git、Docker Compose。宿主机要能验证 GitHub HTTPS 证书。
 2. 创建 `config.json`，字段为 `project`（部署目录）、`control`（状态队列目录）、`compose_project`、`network`、`health_url`（正式网站 HTTPS 健康页面）。这些设置仅宿主机维护人员可改。当前实现要求部署目录下存在 `compose.yaml`、`.env`、`data/media`、`data/static`，三个应用服务使用同一镜像；服务名为 web/worker/beat/db。
 3. 仅为 web 增加控制目录绑定，例如 `/opt/club-platform/data/site-updater:/app/site-updater`；给 web 设置 `SITE_UPDATE_DIR=/app/site-updater`。源代码镜像无需包含线上环境配置。
