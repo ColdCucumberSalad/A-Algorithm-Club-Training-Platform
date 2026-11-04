@@ -131,3 +131,9 @@ test('a lookup from a replaced preview cannot synchronize its stale state',async
  f.sync({themes:[{key:'taffy'}],active_theme:'taffy'});f.release();await settle();
  assert.equal(previous.isConnected,false);assert.equal(f.theme(),'taffy');assert.equal(f.synced.length,1);
 });
+
+test('a still-open preview retries a stale lookup without reverting a newer selection',async()=>{
+ const f=fixture({delayed:true,realClock:true});f.setState({themes:[{key:'taffy'}],active_theme:''});f.open(items[0]);
+ const active={themes:[{key:'taffy'}],active_theme:'taffy'};f.setState(active);f.sync(active);f.release();await settle();
+ assert.equal(f.calls.length,2);assert.equal(f.theme(),'taffy');assert.equal(f.synced.length,2);assert.match(f.html(),/>已启用<\/button>/);
+});

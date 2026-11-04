@@ -3,18 +3,19 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function setup({confirmed = false, tickets = 2, cosmeticFailure = false, duplicate = false} = {}) {
-  const calls = [], dialogs = [], synced = [];
+function setup({confirmed = false, tickets = 2, cosmeticFailure = false, duplicate = false, cosmeticGate} = {}) {
+  const calls = [], dialogs = [], synced = [];let revision=0;
   const context = {
     console, document: {querySelector: () => null, getElementById: () => null},
     window: {
-      SpecialThemes:{sync:data=>synced.push(data)},
+      SpecialThemes:{sync:data=>synced.push(data),version:()=>revision,isCurrent:value=>value===revision},
       clubDialog: {confirm: async options => {dialogs.push(options); return confirmed;}, notice: async options => dialogs.push(options)},
       clubApi: {
         requestId: () => 'test-request',
         request: async (url, options = {}) => {
           calls.push({url, options});
           if(url==='/api/profile/cosmetics'){
+            if(cosmeticGate)await cosmeticGate;
             if(cosmeticFailure)throw Error('offline');
             return {ok:true,json:async()=>({themes:[{key:'taffy'}],badges:[{key:'taffy'}],frames:[{key:'taffy-goggles'}]})};
           }
@@ -28,7 +29,7 @@ function setup({confirmed = false, tickets = 2, cosmeticFailure = false, duplica
   };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(require.resolve('../currency.js'), 'utf8'), context);
-  return {module:context.window.CurrencyModule, calls, dialogs, synced};
+  return {module:context.window.CurrencyModule, calls, dialogs, synced,newSelection:()=>revision++};
 }
 
 test('canceling ticket use never spends a ticket or opens permission', async () => {
@@ -92,4 +93,11 @@ test('cosmetic refresh failure preserves the confirmed purchase result and does 
  assert.equal(await state.module.purchaseItem(5,1,{name:'Theme',price:3,item_type:'theme'}),true);
  assert.equal(state.calls.filter(call=>call.options.method==='POST').length,1);
  assert.equal(state.dialogs.at(-1).title,'购买成功');assert.match(state.dialogs.at(-1).text,/外观列表暂未刷新/);
+});
+
+test('a delayed post-purchase library read cannot override a newer selection',async()=>{
+ let finish;const gate=new Promise(resolve=>finish=resolve),state=setup({confirmed:true,cosmeticGate:gate});
+ const purchase=state.module.purchaseItem(5,1,{name:'Theme',price:3,item_type:'theme'});
+ await new Promise(resolve=>setImmediate(resolve));state.newSelection();finish();
+ assert.equal(await purchase,true);assert.equal(state.synced.length,0);assert.equal(state.dialogs.at(-1).title,'购买成功');
 });

@@ -1,6 +1,8 @@
 /* A purchased preset feeds the existing theme tokens; custom settings stay saved. */
 window.SpecialThemes=(()=>{
-  let library={themes:[],active_theme:'',badges:[],frames:[]},expiryTimer,clockOffset=0,stateVersion=0;
+  let library={themes:[],active_theme:'',badges:[],frames:[]},expiryTimer,clockOffset=0,stateVersion=0,selectionVersion=0;
+  const selectionVersions=new WeakMap();
+  let selectionQueue=Promise.resolve();
   const displayedEnds=new Set();
   function registerExpiry(end){
     if(Number.isFinite(end)&&end>Date.now()+clockOffset&&!displayedEnds.has(end)){displayedEnds.add(end);schedule();}
@@ -46,17 +48,25 @@ window.SpecialThemes=(()=>{
     const result=window.SiteTheme.clone(settings);result.mode='custom';result.accent=palette[mode].accent;
     result.palettes[mode]={...result.palettes[mode],...palette[mode]};result.paletteOverrides[mode]=Object.keys(palette[mode]);result.blocks[mode]={};return result;
   }
-  async function requestSelection(kind,key){
-    const response=await window.clubApi.request('/api/profile/cosmetics',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,key})});
-    const data=await response.json();if(!response.ok)throw Error(data.error||'设置失败');
-    // Invalidate reads immediately on success, before an optional transition commits the selection.
-    stateVersion++;return data;
+  function requestSelection(kind,key){
+    const task=selectionQueue.then(async()=>{
+      const response=await window.clubApi.request('/api/profile/cosmetics',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,key})});
+      const data=await response.json();if(!response.ok)throw Error(data.error||'设置失败');
+      // Invalidate reads immediately on success, before an optional transition commits the selection.
+      stateVersion++;selectionVersions.set(data,++selectionVersion);return data;
+    });
+    selectionQueue=task.catch(()=>{});
+    return task;
+  }
+  function applySelection(data){
+    if(selectionVersions.get(data)!==selectionVersion)return false;
+    sync(data);return true;
   }
   async function select(kind,key,button){
     const data=await requestSelection(kind,key);
     if(kind==='theme'&&button&&window.SiteAppearance?.transition){
-      await window.SiteAppearance.transition(button,()=>sync(data),palette[document.documentElement.dataset.siteMode==='dark'?'dark':'light'].accent);
-    }else sync(data);
+      await window.SiteAppearance.transition(button,()=>applySelection(data),palette[document.documentElement.dataset.siteMode==='dark'?'dark':'light'].accent);
+    }else applySelection(data);
     return data;
   }
   function render(){
@@ -70,5 +80,5 @@ window.SpecialThemes=(()=>{
     button.onclick=async()=>{if(library.active_theme==='taffy')return;button.disabled=true;try{await select('theme','taffy',button);}catch(error){row.querySelector('[role=status]').textContent=error.message;}finally{button.disabled=false;}};
   }
   document.addEventListener('DOMContentLoaded',render);
-  return {sync,adjust,select,requestSelection,render,registerExpiry,now:()=>Date.now()+clockOffset};
+  return {sync,adjust,select,requestSelection,applySelection,version:()=>stateVersion,invalidate:()=>++stateVersion,isCurrent:version=>version===stateVersion,render,registerExpiry,now:()=>Date.now()+clockOffset};
 })();

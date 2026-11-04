@@ -53,7 +53,7 @@
   async function changePreset(button){
     const dot=button.querySelector('.theme-swatch-dot')||button,rect=dot.getBoundingClientRect();
     const preset={color:button.dataset.accent,x:rect.left+rect.width/2,y:rect.top+rect.height/2};
-    if(root.dataset.specialTheme){try{const data=await window.SpecialThemes.requestSelection('theme','');preset.beforeUpdate=()=>window.SpecialThemes.sync(data);}catch(error){feedback(error.message,true);return;}}
+    if(root.dataset.specialTheme){try{const data=await window.SpecialThemes.requestSelection('theme','');preset.beforeUpdate=()=>window.SpecialThemes.applySelection(data);}catch(error){feedback(error.message,true);return;}}
     if(radialChanging){pendingPreset=preset;return;}
     await runPreset(preset);
   }

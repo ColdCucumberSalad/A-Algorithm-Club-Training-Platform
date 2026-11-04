@@ -60,7 +60,7 @@
     const awarded=data.awarded_titles||[];wardrobe.hidden=data.read_only||!awarded.length;
     const selected=data.titles?.length===1?data.titles[0].text:null;
     wardrobe.innerHTML='<h2>佩戴称号</h2><div class="title-wardrobe-options"><button type="button" class="secondary-button" data-wear-none aria-pressed="'+(!data.titles?.length)+'">不佩戴</button>'+awarded.map((title,i)=>'<button type="button" class="title-wear-choice" data-wear-index="'+i+'" aria-pressed="'+(selected===title.text)+'">'+MemberTitles.markup(title)+'</button>').join('')+'</div>';
-    wardrobe.onclick=async event=>{const button=event.target.closest('button');if(!button)return;const title=button.hasAttribute('data-wear-none')?null:awarded[Number(button.dataset.wearIndex)]?.text;if(title===undefined)return;button.disabled=true;try{const result=await request('/api/profile/titles/wear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title})});data.titles=result.titles;renderIdentity();if(typeof refreshCosmeticRankings==='function')refreshCosmeticRankings();message('称号佩戴已更新');}catch(error){message(error.message,true);}finally{button.disabled=false;}};
+    wardrobe.onclick=async event=>{const button=event.target.closest('button');if(!button)return;const title=button.hasAttribute('data-wear-none')?null:awarded[Number(button.dataset.wearIndex)]?.text;if(title===undefined)return;button.disabled=true;try{const result=await request('/api/profile/titles/wear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title})});window.SpecialThemes?.invalidate?.();data.titles=result.titles;renderIdentity();if(typeof refreshCosmeticRankings==='function')refreshCosmeticRankings();message('称号佩戴已更新');}catch(error){message(error.message,true);}finally{button.disabled=false;}};
     let badgeWardrobe=page.querySelector('#badgeWardrobe');
     if(!badgeWardrobe){badgeWardrobe=document.createElement('section');badgeWardrobe.id='badgeWardrobe';badgeWardrobe.className='personal-basics title-wardrobe';wardrobe.after(badgeWardrobe);}
     const badges=data.cosmetics?.badges||[];badgeWardrobe.hidden=data.read_only||!badges.length;
@@ -316,7 +316,13 @@
   addEventListener('popstate', () => { if (location.hash === '#profile') open(false); else close(); });
   entry?.addEventListener('click', () => open());
   window.addEventListener('club:cosmetics-expired',async()=>{
-    try{const result=await request('/api/profile');if(data&&page){data=result;renderIdentity();}updateHeader(result);}catch{}
+    const version=window.SpecialThemes?.version?.();
+    try{
+      const result=await request('/api/profile');
+      if(window.SpecialThemes?.isCurrent?.(version)===false)return;
+      if(data&&page){data=result;renderIdentity();}
+      updateHeader(result);
+    }catch{}
   });
   window.PersonalProfile = {
     init(me) { allowed = Boolean(me.account || me.name); entry.disabled = !allowed; updateHeader(me); if (location.hash === '#profile') open(false); },

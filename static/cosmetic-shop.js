@@ -12,12 +12,15 @@ window.CosmeticShop = (() => {
     let context='ranking',busy=false,equipped=false,checking=owned&&!item.preview_only,stateFailed=false;
     async function refreshEquipped(){
       checking=true;stateFailed=false;
+      let retry=false;
+      const version=window.SpecialThemes?.version?.();
       if(overlay.isConnected)draw();
       try{
         const response=await window.clubApi.request(cosmetic?'/api/profile/cosmetics':'/api/profile');
         if(!response.ok)throw Error('读取佩戴状态失败');
         const data=await response.json();
         if(!overlay.isConnected)return;
+        if(window.SpecialThemes?.isCurrent?.(version)===false){retry=true;return;}
         if(cosmetic){
           window.SpecialThemes?.sync(data);
           equipped=isTheme?data.active_theme===item.cosmetic_key:(item.item_type==='frame'?data.avatar_frame:data.badge)?.key===item.cosmetic_key;
@@ -26,7 +29,7 @@ window.CosmeticShop = (() => {
           equipped=(data.titles||[]).some(title=>title.text===item.title_definition?.text);
         }
       }catch{stateFailed=true;}
-      finally{checking=false;if(overlay.isConnected)draw();}
+      finally{checking=false;if(overlay.isConnected){if(retry)refreshEquipped();else draw();}}
     }
     const close=()=>{if(busy)return;overlay.remove();document.removeEventListener('keydown',keydown,true);previous?.isConnected&&previous.focus();};
     const keydown=event=>{
@@ -67,7 +70,7 @@ window.CosmeticShop = (() => {
             }
             else {
             const response=await window.clubApi.request('/api/profile/titles/wear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:item.title_definition.text})});
-            const data=await response.json();if(!response.ok)throw Error(data.error||'佩戴失败');}
+            const data=await response.json();if(!response.ok)throw Error(data.error||'佩戴失败');window.SpecialThemes?.invalidate?.();}
             equipped=true;
             if(typeof refreshCosmeticRankings==='function')refreshCosmeticRankings();
           }

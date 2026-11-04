@@ -123,3 +123,26 @@ test('a newer library synchronization also invalidates the pending expiry snapsh
  const f=expiryRace(),refresh=f.start();f.themes.sync({themes:[{key:'taffy'}],active_theme:'taffy'});
  f.read({themes:[{key:'taffy'}],active_theme:''});await refresh;assert.equal(f.root.dataset.specialTheme,'taffy');
 });
+
+test('a delayed theme transition cannot undo a newer selection',async()=>{
+ const f=expiryRace({transition:true});
+ const older=f.themes.select('theme','taffy',{});await new Promise(resolve=>setImmediate(resolve));
+ await f.themes.select('theme','');assert.equal(f.root.dataset.specialTheme,undefined);
+ f.finish();await older;assert.equal(f.root.dataset.specialTheme,undefined);
+});
+test('a deferred ordinary-palette callback cannot disable a newer special theme',async()=>{
+ const f=expiryRace({initial:'taffy'}),older=await f.themes.requestSelection('theme','');
+ await f.themes.select('theme','taffy');assert.equal(f.themes.applySelection(older),false);
+ assert.equal(f.root.dataset.specialTheme,'taffy');
+});
+
+for(const failed of [false,true])test('selection requests stay ordered and recover after errors='+failed,async()=>{
+ let finish;const calls=[],root={dataset:{}};
+ const context={Event,document:{documentElement:root,addEventListener(){},querySelector(){return null}},
+ window:{dispatchEvent(){},clubApi:{request(url,options){const key=JSON.parse(options.body).key;calls.push(key);if(calls.length===1)return new Promise(resolve=>finish=()=>resolve({ok:!failed,json:async()=>({themes:[{key:'taffy'}],active_theme:key,error:'Failed'})}));return Promise.resolve({ok:true,json:async()=>({themes:[{key:'taffy'}],active_theme:key})});}}}};
+ vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../static/special-themes.js'),'utf8'),context);
+ const themes=context.window.SpecialThemes,first=themes.select('theme','taffy').then(()=>true,()=>false),second=themes.select('theme','');
+ await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(calls,['taffy']);
+ finish();assert.equal(await first,!failed);await second;
+ assert.deepEqual(calls,['taffy','']);assert.equal(root.dataset.specialTheme,undefined);
+});
