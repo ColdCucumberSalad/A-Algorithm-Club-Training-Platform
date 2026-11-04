@@ -54,6 +54,7 @@ urlpatterns = [
     path("currency/admin/dispatch", shop_fulfillment.dispatch_inbox),
     path("admin-test-mode", toggle_test_mode),
     path('training-activity', training_activity),
+    path('management/site-updates', system_management.site_updates),
     path('management/password', system_management.change_admin_password),
     path('management/backups', system_management.backup_collection),
     path('management/backups/import', system_management.import_backup),

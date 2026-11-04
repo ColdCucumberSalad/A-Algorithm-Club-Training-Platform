@@ -25,6 +25,7 @@ from .models import (
     Team,
     TeamMembership,
     TeamNotificationSettings,
+    UserProfile,
 )
 from .problem_parser import key_cipher
 from .services import build_weeks
@@ -133,6 +134,7 @@ class NotificationTests(TestCase):
             self.assertIsNone(row.delivered_at)
 
     def test_sunday_time_thresholds_zero_submissions_and_deduplication(self):
+        UserProfile.objects.create(user=self.user, admission_year=2026)
         now = datetime(2026, 11, 8, 21, tzinfo=ZoneInfo("Asia/Shanghai"))
         semester = Semester.objects.create(
             team=self.team,
@@ -145,6 +147,7 @@ class NotificationTests(TestCase):
         week = semester.weeks.get(starts_at__lte=now, ends_at__gt=now)
         for name, count, score in [("合格", 4, 6), ("积分低", 4, 5), ("次数少", 3, 6)]:
             user = User.objects.create_user(name)
+            UserProfile.objects.create(user=user, admission_year=2025)
             member = TeamMembership.objects.create(
                 team=self.team, user=user, display_name=name
             )
@@ -178,6 +181,83 @@ class NotificationTests(TestCase):
         self.assertEqual(
             {r["name"] for r in row.payload["data"]["members"]},
             {"小明", "积分低", "次数少"},
+        )
+
+    def cohort_member(self, name, year, **user_fields):
+        user = User.objects.create_user(name, **user_fields)
+        UserProfile.objects.create(user=user, admission_year=year)
+        return TeamMembership.objects.create(
+            team=self.team, user=user, display_name=name
+        )
+
+    def weekly_time(self):
+        now = datetime(2026, 11, 8, 21, tzinfo=ZoneInfo("Asia/Shanghai"))
+        Semester.objects.create(
+            team=self.team, name="Fall", starts_on=now.date() - timedelta(days=6),
+            ends_on=now.date() + timedelta(days=7),
+        )
+        return now
+
+    def test_latest_registered_cohort_moves_window_across_the_site(self):
+        now = self.weekly_time()
+        for year in (2024, 2025, 2026):
+            self.cohort_member(str(year), year)
+        self.cohort_member("停用账号", 2026, is_active=False)
+        inactive = self.cohort_member("停用成员", 2026)
+        inactive.is_active = False
+        inactive.save()
+        UserProfile.objects.update_or_create(
+            user=User.objects.get(username="admin"), defaults={"admission_year": 2099}
+        )
+        self.assertEqual(queue_weekly_reminders(now), 1)
+        self.assertEqual(
+            {r["name"] for r in AstrBotNotification.objects.get().payload["data"]["members"]},
+            {"2025", "2026"},
+        )
+        # A registered user without any team still advances the global window.
+        newest = User.objects.create_user("newest-unjoined")
+        UserProfile.objects.create(user=newest, admission_year=2027)
+        AstrBotNotification.objects.all().delete()
+        self.assertEqual(queue_weekly_reminders(now), 1)
+        self.assertEqual(
+            {r["name"] for r in AstrBotNotification.objects.get().payload["data"]["members"]},
+            {"2026"},
+        )
+        self.cohort_member("2027", 2027)
+        AstrBotNotification.objects.all().delete()
+        queue_weekly_reminders(now)
+        self.assertEqual(
+            {r["name"] for r in AstrBotNotification.objects.get().payload["data"]["members"]},
+            {"2026", "2027"},
+        )
+
+    def test_cohort_gap_does_not_include_older_registered_cohort(self):
+        now = self.weekly_time()
+        self.cohort_member("十二分队", 2024)
+        self.cohort_member("十四分队", 2026)
+        queue_weekly_reminders(now)
+        self.assertEqual(
+            [r["name"] for r in AstrBotNotification.objects.get().payload["data"]["members"]],
+            ["十四分队"],
+        )
+
+    def test_missing_or_invalid_cohorts_do_not_enter_reminders(self):
+        now = self.weekly_time()
+        self.cohort_member("未填写", None)
+        self.cohort_member("无效分队", 2012)
+        queue_weekly_reminders(now)
+        payload = AstrBotNotification.objects.get().payload
+        self.assertEqual(payload["data"]["members"], [])
+        self.assertIn("最近两个分队", payload["text"])
+
+    def test_first_cohort_does_not_include_invalid_previous_year(self):
+        now = self.weekly_time()
+        self.cohort_member("第一分队", 2013)
+        self.cohort_member("无效分队", 2012)
+        queue_weekly_reminders(now)
+        self.assertEqual(
+            [r["name"] for r in AstrBotNotification.objects.get().payload["data"]["members"]],
+            ["第一分队"],
         )
 
 

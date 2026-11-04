@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import requests
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 
 from .models import (
@@ -13,10 +14,11 @@ from .models import (
     Semester,
     TeamMembership,
     TeamNotificationSettings,
+    UserProfile,
 )
 from .notification_config import EVENT_FLAGS
 from .problem_parser import key_cipher
-from .services import build_weeks, submission_stats
+from .services import build_weeks, progress_rows
 
 
 def enabled():
@@ -97,6 +99,13 @@ def queue_weekly_reminders(now=None):
         return 0
     now = now or timezone.now()
     local = now.astimezone(ZoneInfo("Asia/Shanghai"))
+    # Use registered cohorts across the site, even before they join a team.
+    latest_year = UserProfile.objects.filter(
+        user__is_superuser=False, admission_year__gte=2013
+    ).aggregate(latest=Max("admission_year"))["latest"]
+    admission_years = (
+        list(range(max(2013, latest_year - 1), latest_year + 1)) if latest_year else []
+    )
     created = 0
     for semester in Semester.objects.filter(
         is_active=True,
@@ -123,22 +132,27 @@ def queue_weekly_reminders(now=None):
             key = f"weekly:{semester.pk}:week:{week.pk}"
             if AstrBotNotification.objects.filter(event_key=key).exists():
                 continue
-            scores, counts = submission_stats(week)
-            members = TeamMembership.objects.filter(
-                team=semester.team,
-                is_active=True,
-                user__is_active=True,
-                user__is_superuser=False,
-            ).order_by("display_name", "pk")
+            members = list(
+                TeamMembership.objects.filter(
+                    team=semester.team,
+                    is_active=True,
+                    user__is_active=True,
+                    user__is_superuser=False,
+                    user__personal_profile__admission_year__in=admission_years,
+                ).order_by("display_name", "pk")
+            )
+            scores, counts = progress_rows(
+                semester, week, member_ids=[m.pk for m in members]
+            )
             rows = [
                 {
                     "member_id": m.pk,
                     "name": m.display_name,
-                    "score": scores[m.pk],
-                    "valid_submissions": counts[m.pk],
+                    "score": scores.get(m.pk, 0),
+                    "valid_submissions": counts.get(m.pk, 0),
                 }
                 for m in members
-                if scores[m.pk] < 6 or counts[m.pk] < 4
+                if scores.get(m.pk, 0) < 6 or counts.get(m.pk, 0) < 4
             ]
             text = "本周尚未达标的同学有：\n" + (
                 "\n".join(
@@ -146,7 +160,7 @@ def queue_weekly_reminders(now=None):
                     for r in rows
                 )
                 if rows
-                else "无，本周所有同学均已达标。"
+                else "无，最近两个分队本周没有未达标同学。"
             )
             queue_notification(
                 key,
