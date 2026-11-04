@@ -127,6 +127,24 @@ class Updater:
         if len(set(revisions)) != 1:
             raise RuntimeError('仓库版本在检查期间发生变化，请稍后重试')
         current, latest = self.revision(), revisions[0]
+        if re.fullmatch('[0-9a-f]{40}', current or '') and current != latest:
+            # Only fast-forward releases: never silently replace a hotfix or
+            # roll a live feature branch back to an older main revision.
+            request = urllib.request.Request('https://api.github.com/repos/' + REPOSITORY + '/compare/' + current + '...' + latest, headers={'User-Agent': 'club-site-updater'})
+            try:
+                with urllib.request.urlopen(request, timeout=25) as response:
+                    comparison = json.load(response)
+                if comparison.get('status') != 'ahead':
+                    raise ValueError('线上版本不在最新主分支之前，请人工核对，自动更新已中止')
+            except ValueError:
+                raise
+            except Exception:
+                # Git provides an independent fallback for the ancestry check.
+                cache = self.project / 'site-updater' / 'git-cache'
+                if not cache.exists():
+                    self.run(['git', 'init', '--bare', str(cache)])
+                self.run(['git', '-C', str(cache), 'fetch', '--filter=blob:none', '--no-tags', 'https://github.com/' + REPOSITORY + '.git', current, latest], timeout=180)
+                self.run(['git', '-C', str(cache), 'merge-base', '--is-ancestor', current, latest])
         self.status(current=current, latest=latest, routes=routes, checked_at=dt.datetime.now(dt.timezone.utc).isoformat(), message='发现新版本 ' + latest[:7] if current != latest else '已是最新版本')
         return latest
 
