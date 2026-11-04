@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Host-only release coordinator. Never mount the Docker socket into the website."""
 import argparse
-import contextlib
 import datetime as dt
 import fcntl
 import hashlib
@@ -37,6 +36,14 @@ def write(path, value):
     os.replace(temporary, path)
 
 
+def file_digest(path):
+    value = hashlib.sha256()
+    with path.open('rb') as stream:
+        while chunk := stream.read(1024 * 1024):
+            value.update(chunk)
+    return value.hexdigest()
+
+
 def validate_schedule(value):
     if not isinstance(value, dict) or set(value) != {'mode', 'time'} or value['mode'] not in ('auto', 'notify', 'off') or not isinstance(value['time'], str) or not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', value['time']):
         raise ValueError('无效的检查设置')
@@ -65,6 +72,30 @@ def extract(archive, destination):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with stream.extractfile(member) as src, target.open('wb') as dst:
                     shutil.copyfileobj(src, dst)
+                target.chmod(0o755 if member.mode & 0o111 else 0o644)
+
+
+def github_json(path):
+    request = urllib.request.Request('https://api.github.com/repos/' + REPOSITORY + path, headers={'User-Agent': 'club-site-updater', 'Accept': 'application/vnd.github+json'})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)
+
+
+def verify_source(source, revision):
+    commit = github_json('/git/commits/' + revision)
+    if commit.get('sha') != revision:
+        raise ValueError('官方提交编号校验失败')
+    tree = github_json('/git/trees/' + commit['tree']['sha'] + '?recursive=1')
+    if tree.get('truncated') or any(item['type'] not in ('blob', 'tree') for item in tree['tree']):
+        raise ValueError('源码树不完整或包含不支持的子模块')
+    expected = {item['path']: item['sha'] for item in tree['tree'] if item['type'] == 'blob'}
+    actual = {}
+    for path in source.rglob('*'):
+        if path.is_file():
+            content = path.read_bytes()
+            actual[path.relative_to(source).as_posix()] = hashlib.sha1(b'blob ' + str(len(content)).encode() + b'\0' + content).hexdigest()
+    if expected != actual:
+        raise ValueError('源码与 GitHub 官方提交的文件哈希不一致，更新已中止')
 
 
 class Updater:
@@ -160,17 +191,19 @@ class Updater:
         # The shared application lock also excludes backup/restore and rejects
         # API writes while the new Web is publicly reachable during validation.
         code = "import os,sys,psycopg; c=psycopg.connect(dbname=os.environ['POSTGRES_DB'],user=os.environ['POSTGRES_USER'],password=os.environ['POSTGRES_PASSWORD'],host=os.environ.get('POSTGRES_HOST','db')); q=c.cursor(); q.execute('SELECT pg_try_advisory_lock(739184206)'); ok=q.fetchone()[0]; print('LOCKED' if ok else 'BUSY',flush=True); sys.stdin.read() if ok else sys.exit(2)"
-        process = subprocess.Popen(['docker', 'run', '--rm', '-i', '--network', self.config['network'], '--env-file', str(self.project / '.env'), image, 'python', '-u', '-c', code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        name = 'club-update-guard-' + uuid.uuid4().hex[:12]
+        process = subprocess.Popen(['docker', 'run', '--rm', '-i', '--name', name, '--network', self.config['network'], '--env-file', str(self.project / '.env'), image, 'python', '-u', '-c', code], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         import selectors
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ)
         try:
             if not selector.select(20) or process.stdout.readline().strip() != b'LOCKED':
+                subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
                 process.stdin.close(); process.wait(timeout=20)
                 raise RuntimeError('系统正在备份或处理业务，请稍后重试更新')
         finally:
             selector.close()
-        return process
+        return process, name
 
     def audit(self, image, backup, mode, host=None):
         args = ['docker', 'run', '--rm', '--network', host or self.config['network'], '--env-file', str(self.project / '.env'), '-v', str(Path(__file__).with_name('site_update_audit.py')) + ':/audit.py:ro', '-v', str(backup) + ':/audit']
@@ -228,7 +261,9 @@ class Updater:
                 raise RuntimeError('磁盘剩余空间不足，暂不更新')
             self.status(message='正在下载并校验最新源码')
             urls = ['https://codeload.github.com/' + REPOSITORY + '/tar.gz/' + revision,
-                    'https://api.github.com/repos/' + REPOSITORY + '/tarball/' + revision]
+                    'https://api.github.com/repos/' + REPOSITORY + '/tarball/' + revision,
+                    'https://gh-proxy.com/https://github.com/' + REPOSITORY + '/archive/' + revision + '.tar.gz',
+                    'https://ghfast.top/https://github.com/' + REPOSITORY + '/archive/' + revision + '.tar.gz']
             archive = release / 'source.tar.gz'
             for url in urls:
                 started = time.monotonic()
@@ -236,13 +271,15 @@ class Updater:
                     request = urllib.request.Request(url, headers={'User-Agent': 'club-site-updater'})
                     with urllib.request.urlopen(request, timeout=60) as source, archive.open('wb') as target:
                         size = 0
-                        while chunk := source.read(1024 * 1024):
+                        deadline = time.monotonic() + 120
+                        while chunk := source.read1(1024 * 1024):
                             size += len(chunk)
-                            if size > 100 * 1024 * 1024:
-                                raise ValueError('下载文件过大')
+                            if size > 100 * 1024 * 1024 or time.monotonic() > deadline:
+                                raise ValueError('源码下载过大或超时')
                             target.write(chunk)
                     extract(archive, release / 'source')
-                    self.state.setdefault('routes', []).append({'name': 'GitHub 源码归档', 'ok': True, 'seconds': round(time.monotonic() - started, 2)})
+                    verify_source(release / 'source', revision)
+                    self.state.setdefault('routes', []).append({'name': url.split('/')[2], 'ok': True, 'seconds': round(time.monotonic() - started, 2)})
                     break
                 except Exception:
                     if (release / 'source').exists():
@@ -250,9 +287,10 @@ class Updater:
             else:
                 raise RuntimeError('官方源码下载线路不可用，已保留当前版本')
             source = release / 'source'
-            old_requirements = self.run(['docker', 'run', '--rm', '--network', 'none', old_image, 'sha256sum', '/app/requirements.txt']).split()[0]
+            hash_requirements = "import hashlib;from pathlib import Path;print(hashlib.sha256(Path('/app/requirements.txt').read_bytes().replace(bytes([13,10]),bytes([10]))).hexdigest())"
+            old_requirements = self.run(['docker', 'run', '--rm', '--network', 'none', old_image, 'python', '-c', hash_requirements])
             image = 'club-platform:managed-' + revision[:12]
-            if hashlib.sha256((source / 'requirements.txt').read_bytes()).hexdigest() == old_requirements:
+            if hashlib.sha256((source / 'requirements.txt').read_bytes().replace(b'\r\n', b'\n')).hexdigest() == old_requirements:
                 # Clean the old source layer so deleted files cannot survive a release.
                 dockerfile = 'FROM ' + old_image + '\nWORKDIR /app\nRUN find /app -mindepth 1 -maxdepth 1 -exec rm -rf {} +\nCOPY source/ /app/\n'
                 (release / 'Dockerfile').write_text(dockerfile + 'LABEL org.opencontainers.image.revision=' + revision + '\n')
@@ -276,6 +314,8 @@ class Updater:
             for kind in ('media', 'static'):
                 with tarfile.open(backup / (kind + '.tar.gz'), 'w:gz') as output:
                     output.add(self.project / 'data' / kind, arcname=kind)
+            checksums = {name: file_digest(backup / name) for name in ('database.dump', 'media.tar.gz', 'static.tar.gz', '.env', 'compose.yaml')}
+            write(backup / 'checksums.json', checksums)
             self.audit(old_image, backup, 'capture')
             compose = old_compose.decode()
             if compose.count(old_image) != 3:
@@ -292,6 +332,8 @@ class Updater:
             with urllib.request.urlopen(self.config['health_url'], timeout=30) as response:
                 if response.status != 200:
                     raise RuntimeError('公网检查失败')
+            if (self.project / '.env').read_bytes() != (backup / '.env').read_bytes():
+                raise RuntimeError('环境配置发生变化，更新已中止')
             self.run(self.compose + ['up', '-d', '--no-deps', '--force-recreate', 'worker', 'beat'])
             self.status(current=revision, message='更新完成，数据校验通过', last_success=dt.datetime.now(dt.timezone.utc).isoformat())
         except Exception:
@@ -300,6 +342,9 @@ class Updater:
                 self.run(self.compose + ['stop', 'beat', 'worker', 'web'], timeout=180)
                 (self.project / 'compose.yaml').write_bytes(old_compose)
                 if migrated:
+                    for name, digest in checksums.items():
+                        if file_digest(backup / name) != digest:
+                            raise RuntimeError('备份校验失败，已保持停写，请人工恢复')
                     self.run(self.compose + ['exec', '-T', 'db', 'sh', '-c', 'dropdb --force -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'])
                     with (backup / 'database.dump').open('rb') as data:
                         self.run(self.compose + ['exec', '-T', 'db', 'sh', '-c', 'pg_restore --no-owner --no-acl -U "$POSTGRES_USER" -d "$POSTGRES_DB"'], stdin=data, timeout=600)
@@ -316,8 +361,10 @@ class Updater:
             raise
         finally:
             if guard is not None:
-                guard.stdin.close()
-                guard.wait(timeout=30)
+                process, name = guard
+                subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+                process.stdin.close()
+                process.wait(timeout=20)
             self.log.close(); self.log = None
 
     def process(self, request):

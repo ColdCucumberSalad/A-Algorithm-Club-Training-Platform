@@ -5,7 +5,8 @@ import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
-from site_updater import extract, validate_schedule, Updater, write
+from site_updater import extract, validate_schedule, verify_source, Updater, write
+import hashlib
 
 
 class UpdateSafetyTests(unittest.TestCase):
@@ -26,7 +27,7 @@ class UpdateSafetyTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     extract(root / 'source.tar', root / 'out')
 
-    def test_old_columns_can_be_preserved_without_accepting_modified_values(self):
+    def test_regular_archive_extracts_source_without_root_wrapper(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             with tarfile.open(root / 'source.tar', 'w') as stream:
@@ -42,6 +43,22 @@ class UpdateSafetyTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     updater.update('a' * 40)
                 run.assert_not_called()
+
+    def test_mirror_archive_must_match_official_blob_hashes_with_no_extra_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'app.js').write_bytes(b'hello')
+            blob = hashlib.sha1(b'blob 5\0hello').hexdigest()
+            commit = {'sha': 'a' * 40, 'tree': {'sha': 'b' * 40}}
+            tree = {'tree': [{'path': 'app.js', 'type': 'blob', 'sha': blob}], 'truncated': False}
+            with patch('site_updater.github_json', side_effect=[commit, tree]):
+                verify_source(root, 'a' * 40)
+            (root / 'app.js').write_bytes(b'evil!')
+            with patch('site_updater.github_json', side_effect=[commit, tree]), self.assertRaises(ValueError):
+                verify_source(root, 'a' * 40)
+            (root / 'app.js').write_bytes(b'hello'); (root / 'extra.py').write_bytes(b'extra')
+            with patch('site_updater.github_json', side_effect=[commit, tree]), self.assertRaises(ValueError):
+                verify_source(root, 'a' * 40)
 
     def test_notify_checks_but_does_not_install_and_schedule_is_persistent(self):
         with tempfile.TemporaryDirectory() as temporary:

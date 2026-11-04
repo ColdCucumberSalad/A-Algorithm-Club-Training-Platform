@@ -3,9 +3,7 @@ import json
 import os
 import time
 import uuid
-from contextlib import contextmanager
 from pathlib import Path
-from django.conf import settings
 
 DEFAULT_SCHEDULE = {'mode': 'auto', 'time': '04:00'}
 

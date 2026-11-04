@@ -286,12 +286,12 @@ workbench$('#adminView').insertAdjacentHTML('beforeend', `
   <div class="panel-heading"><h2>网站更新</h2><span id="wbSiteUpdateVersion" class="muted"></span></div>
   <p class="muted">从源仓库主分支检查新版本。更新前自动备份并演练数据库迁移，切换期间网站会短暂不可用。</p>
   <form id="wbSiteUpdateForm" class="workbench-form">
-    <label>定时检查方式<select name="mode"><option value="auto">有新版本自动更新</option><option value="notify">仅提醒新版本</option><option value="off">不定时检查</option></select></label>
-    <label>检查时间（北京时间）<input name="time" type="time" value="04:00" required></label>
-    <div><button class="secondary-button" type="submit">保存设置</button></div>
+    <label>定时检查方式<select name="mode" disabled><option value="auto">有新版本自动更新</option><option value="notify">仅提醒新版本</option><option value="off">不定时检查</option></select></label>
+    <label>检查时间（北京时间）<input name="time" type="time" value="04:00" required disabled></label>
+    <div><button class="secondary-button" type="submit" disabled>保存设置</button></div>
   </form>
   <p id="wbSiteUpdateStatus" role="status" aria-live="polite"></p>
-  <div class="workbench-form-actions"><button type="button" class="secondary-button" id="wbSiteCheck">立即检查</button><button type="button" class="primary-button" id="wbSiteInstall" disabled>更新到最新版本</button></div>
+  <div class="workbench-form-actions"><button type="button" class="secondary-button" id="wbSiteCheck" disabled>立即检查</button><button type="button" class="primary-button" id="wbSiteInstall" disabled>更新到最新版本</button></div>
   <p id="wbSiteUpdateLast" class="muted"></p><ul id="wbSiteUpdateRoutes" class="muted"></ul>
 </section>`);
 const updateBackupGroup=document.createElement('section');
@@ -315,7 +315,7 @@ async function loadSiteUpdates(preserveForm=false){
     workbench$('#wbSiteInstall').disabled=!value.available||busy||!value.latest||value.latest===value.current;
     workbench$('#wbSiteUpdateVersion').textContent=value.current?'当前 '+value.current.slice(0,7):'';
     workbench$('#wbSiteUpdateStatus').textContent=value.message||'尚未检查更新';
-    workbench$('#wbSiteUpdateLast').textContent=[value.latest?'最新版本 '+value.latest.slice(0,7):'',value.checked_at?'上次检查 '+new Date(value.checked_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'',value.backup?'最近备份 '+value.backup:''].filter(Boolean).join(' · ');
+    workbench$('#wbSiteUpdateLast').textContent=[value.latest?'最新版本 '+value.latest.slice(0,7):'',value.checked_at?'上次检查 '+new Date(value.checked_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'',value.backup?'更新前完整备份已保存':''].filter(Boolean).join(' · ');
     workbench$('#wbSiteUpdateRoutes').innerHTML=(value.routes||[]).map(route=>`<li>${escapeHtml(route.name)}：${route.ok?'可用':'暂不可用'}${route.seconds?' · '+route.seconds+' 秒':''}</li>`).join('');
   }catch(error){workbench$('#wbSiteUpdateStatus').textContent=error.status===502||error.status===503?'网站正在切换版本，恢复后会自动刷新状态。':error.message;}
   finally{siteUpdateLoading=false;clearTimeout(siteUpdateTimer);if(workbenchProfile?.site_admin)siteUpdateTimer=setTimeout(()=>loadSiteUpdates(true),5000);}
