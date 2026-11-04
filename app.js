@@ -1401,8 +1401,10 @@ function refreshCosmeticRankings(){
     const selected=rankingSelection(target);
     return [rankingKey(selected.scope,selected.platform,selected.period),selected];
   }));
-  return Promise.allSettled([...selections.values()].map(selected=>
-    loadLeaderboard(selected.scope,selected.platform,{force:true,period:selected.period})));
+  const tasks=[...selections.values()].map(selected=>
+    loadLeaderboard(selected.scope,selected.platform,{force:true,period:selected.period}));
+  if(currentView==='members')tasks.push(loadMembersLive());
+  return Promise.allSettled(tasks);
 }
 
 async function refreshAfterMutation({refreshAdmin = false} = {}) {
