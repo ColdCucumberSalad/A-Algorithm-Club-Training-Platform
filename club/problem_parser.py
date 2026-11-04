@@ -151,7 +151,7 @@ def valid_title(value):
     value = value.strip()
     if re.search(r'https?://|验证码|登录|登录注册|请稍候|访问受限|安全验证|Just a moment|Access denied|Sign in|Log in|404|403|not found|error|captcha', value, re.I):
         raise ValueError('页面或返回结果不是有效题名')
-    if value.lower() in {'牛客网', '牛客', '洛谷', '力扣', 'leetcode', 'codeforces', 'atcoder', 'luogu'}:
+    if value.lower() in {'牛客网', '牛客', '洛谷', '力扣', 'leetcode', 'codeforces', 'atcoder', 'luogu', 'qoj', 'qoj.ac'}:
         raise ValueError('返回结果只有平台名称')
     return value
 
@@ -159,7 +159,15 @@ def valid_title(value):
 def auto_title(url):
     parser = TitleParser()
     parser.feed(http_fetch(url))
+    is_qoj = urlsplit(url).hostname == 'qoj.ac'
+    # QOJ's header contains two site-name h1s before the actual problem h1.
+    # A challenge/login page must not contribute a heading as a problem title.
+    if is_qoj and re.search(r'Just a moment|Sign in|Log in|登录', parser.title, re.I):
+        raise ValueError('QOJ 返回访问验证或登录页面')
     for title in [*parser.headings, parser.meta, parser.title]:
+        if is_qoj:
+            title = re.sub(r'\s*[-_|—]\s*(?:Problem\s*[-_|—]\s*)?QOJ(?:\.ac)?\s*$', '', title, flags=re.I)
+            title = re.sub(r'^\s*#\d+\.\s*', '', title)
         title = re.sub(r'\s*[-_|—]\s*(?:牛客.*|洛谷.*|力扣.*|LeetCode.*|Codeforces.*|AtCoder.*)$', '', title, flags=re.I)
         title = re.sub(r'^Problem\s*[-—|:]\s*', '', title, flags=re.I)
         try:
