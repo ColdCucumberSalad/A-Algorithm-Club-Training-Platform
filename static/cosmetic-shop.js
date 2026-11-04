@@ -6,6 +6,8 @@ window.CosmeticShop = (() => {
     const previous=document.activeElement, overlay=document.createElement('div');
     overlay.className='cosmetic-preview-overlay';
     const cosmetic=['badge','theme','frame'].includes(item.item_type),isTheme=item.item_type==='theme';
+    // A missing expiry on existing ownership means permanent; sale terms apply to new purchases.
+    const durationDays=owned?0:item.cosmetic_duration_days;
     const name=document.querySelector('#openProfile strong')?.textContent || '你的名字';
     let context='ranking',busy=false,equipped=false,checking=owned&&!item.preview_only,stateFailed=false;
     async function refreshEquipped(){
@@ -15,6 +17,7 @@ window.CosmeticShop = (() => {
         const response=await window.clubApi.request(cosmetic?'/api/profile/cosmetics':'/api/profile');
         if(!response.ok)throw Error('读取佩戴状态失败');
         const data=await response.json();
+        if(!overlay.isConnected)return;
         if(cosmetic){
           window.SpecialThemes?.sync(data);
           equipped=isTheme?data.active_theme===item.cosmetic_key:(item.item_type==='frame'?data.avatar_frame:data.badge)?.key===item.cosmetic_key;
@@ -36,7 +39,7 @@ window.CosmeticShop = (() => {
       }
     };
     const now=()=>window.SpecialThemes?.now?.()??Date.now();
-    const term=()=>item.expires_at?(Date.parse(item.expires_at)<=now()?'已过期':'有效至 '+new Date(item.expires_at).toLocaleString('zh-CN')):item.cosmetic_duration_days?item.cosmetic_duration_days+' 天':'永久有效';
+    const term=()=>item.expires_at?(Date.parse(item.expires_at)<=now()?'已过期':'有效至 '+new Date(item.expires_at).toLocaleString('zh-CN')):durationDays?durationDays+' 天':'永久有效';
     function draw(){
       const focusedIndex=overlay.isConnected?[...overlay.querySelectorAll('button')].indexOf(document.activeElement):-1;
       const isExpired=Boolean(owned&&item.expires_at&&Date.parse(item.expires_at)<=now());

@@ -5,7 +5,7 @@ const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture({skew=0,serverTime=Date.now(),realClock=false,delayed=false}={}){
  let serverNow=serverTime;
  class Clock extends Date{static now(){return serverNow+skew;}}
- let overlay,state={},fail=false,calls=[],headerFrames=[],listeners={},release;
+ let overlay,state={},fail=false,calls=[],synced=[],headerFrames=[],listeners={},release;
  const pending=delayed?new Promise(resolve=>release=resolve):null;
  const element=kind=>({kind,focus(){document.activeElement=this},disabled:false,textContent:'',dataset:kind==='ranking'||kind==='profile'?{cosmeticContext:kind}:{}});
  const document={documentElement:{dataset:{}},activeElement:null,addEventListener(type,fn){listeners[type]=fn},removeEventListener(type){delete listeners[type]},
@@ -18,11 +18,12 @@ function fixture({skew=0,serverTime=Date.now(),realClock=false,delayed=false}={}
      return overlay;
    },body:{append(el){el.isConnected=true}}};
  const context={document,Date:Clock,Event,setTimeout(){return 1},clearTimeout(){},window:{dispatchEvent(){},PersonalProfile:{updateFrame:frame=>headerFrames.push(frame)},MemberTitles:{frameAvatar:x=>x,badgeMarkup:()=>'',markup:()=>''},SpecialThemes:{sync(){},async select(kind,key){state={...state,active_theme:kind==='theme'?key:state.active_theme,badge:kind==='badge'?{key}:state.badge,avatar_frame:kind==='frame'?{key}:state.avatar_frame};return state;}},
- clubApi:{async request(url,options){calls.push({url,options});if(pending)await pending;if(fail)throw Error('offline');if(options?.method==='POST')state={titles:[{text:JSON.parse(options.body).title}]};return {ok:true,json:async()=>state}}}}};
+ clubApi:{async request(url,options){calls.push({url,options});const snapshot=state;if(pending)await pending;if(fail)throw Error('offline');if(options?.method==='POST')state={titles:[{text:JSON.parse(options.body).title}]};return {ok:true,json:async()=>options?.method==='POST'?state:snapshot}}}}};
  vm.createContext(context);
  if(realClock)vm.runInContext(fs.readFileSync(require.resolve('../static/special-themes.js'),'utf8'),context);
+ const sync=context.window.SpecialThemes.sync;context.window.SpecialThemes.sync=data=>{synced.push(data);return sync(data)};
  vm.runInContext(fs.readFileSync(require.resolve('../static/cosmetic-shop.js'),'utf8'),context);
- return {release:()=>release?.(),focus:()=>document.activeElement,blur(){document.activeElement={}},key(event){listeners.keydown(event)},advance(ms){serverNow+=ms},setState(value){state=value},fail(value){fail=value},calls,headerFrames,
+ return {release:()=>release?.(),focus:()=>document.activeElement,blur(){document.activeElement={}},key(event){listeners.keydown(event)},advance(ms){serverNow+=ms},setState(value){state=value},fail(value){fail=value},calls,synced,headerFrames,sync:value=>context.window.SpecialThemes.sync(value),theme:()=>document.documentElement.dataset.specialTheme,
    open(item,{owned=true,onPurchase}={}){context.window.CosmeticShop.openTitle({item,owned,onPurchase});return overlay},
    action:()=>overlay.querySelector('[data-cosmetic-action]'),html:()=>overlay.html};
 }
@@ -102,4 +103,31 @@ test('equipping a backpack frame immediately publishes the returned frame to the
  await f.action().onclick({currentTarget:f.action()});
  assert.equal(f.headerFrames.length,1);assert.equal(f.headerFrames[0].key,'taffy-goggles');
  assert.match(f.html(),/>已佩戴<\/button>/);
+});
+
+for(const item of [items[0],items[3]]){
+ test(item.item_type+' keeps permanent owned terms after the catalog changes to 30 days',async()=>{
+   const f=fixture();f.open({...item,expires_at:null,cosmetic_duration_days:30});await settle();
+   assert.match(f.html(),/永久有效/);assert.doesNotMatch(f.html(),/30 天/);
+   f.open({...item,expires_at:new Date(Date.now()+86400000).toISOString(),cosmetic_duration_days:30});await settle();
+   assert.match(f.html(),/有效至/);assert.doesNotMatch(f.html(),/永久有效/);
+ });
+ test(item.item_type+' new purchases retain their advertised finite term after purchase',async()=>{
+   const f=fixture();f.open({...item,expires_at:null,cosmetic_duration_days:30},{owned:false,onPurchase:async()=>true});
+   assert.match(f.html(),/30 天/);await f.action().onclick({currentTarget:f.action()});
+   assert.match(f.html(),/30 天/);assert.doesNotMatch(f.html(),/永久有效/);
+ });
+ test(item.item_type+' ignores an old lookup after closing so a newer global selection survives',async()=>{
+   const f=fixture({delayed:true,realClock:true}),inactive={themes:[{key:'taffy'}],active_theme:''};
+   f.setState(item.item_type==='title'?{titles:[],cosmetics:inactive}:inactive);
+   const overlay=f.open(item);overlay.querySelector('[data-cosmetic-close]').onclick();
+   f.sync({themes:[{key:'taffy'}],active_theme:'taffy'});assert.equal(f.theme(),'taffy');
+   f.release();await settle();assert.equal(f.theme(),'taffy');assert.equal(f.synced.length,1);assert.equal(overlay.isConnected,false);
+ });
+}
+test('a lookup from a replaced preview cannot synchronize its stale state',async()=>{
+ const f=fixture({delayed:true,realClock:true});f.setState({themes:[{key:'taffy'}],active_theme:''});
+ const previous=f.open(items[0]);f.open(items[0],{owned:false});
+ f.sync({themes:[{key:'taffy'}],active_theme:'taffy'});f.release();await settle();
+ assert.equal(previous.isConnected,false);assert.equal(f.theme(),'taffy');assert.equal(f.synced.length,1);
 });
