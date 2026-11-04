@@ -2,7 +2,6 @@
 """Host-only release coordinator. Never mount the Docker socket into the website."""
 import argparse
 import datetime as dt
-import fcntl
 import hashlib
 import json
 import os
@@ -13,6 +12,7 @@ import subprocess
 import tarfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 from zoneinfo import ZoneInfo
@@ -133,6 +133,37 @@ class Updater:
     def revision(self):
         image = self.image()
         return self.run(['docker', 'image', 'inspect', image, '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}'])
+
+    def build_release(self, source, image, revision):
+        # The release's Dockerfile owns its base, OS packages, ENV and CMD.
+        # Docker's own layer cache can reuse unchanged inputs safely.
+        self.run(['docker', 'build', '--pull', '--label', 'org.opencontainers.image.revision=' + revision,
+                  '-f', str(source / 'Dockerfile'), '-t', image, str(source)], timeout=1200)
+
+    def refresh_proxy(self):
+        services = self.run(self.compose + ['config', '--services']).splitlines()
+        if 'nginx' in services:
+            # Static proxy_pass resolves Web at Nginx startup. Restart also
+            # recovers a previously failed proxy after a container IP change.
+            self.run(self.compose + ['restart', 'nginx'], timeout=120)
+
+    def verify_public(self):
+        for attempt in range(6):
+            try:
+                with urllib.request.urlopen(self.config['health_url'], timeout=5) as response:
+                    if response.status == 200:
+                        return
+            except (OSError, urllib.error.URLError):
+                pass
+            if attempt < 5:
+                time.sleep(1)
+        raise RuntimeError('公网检查失败')
+
+    def start_web(self):
+        self.run(self.compose + ['up', '-d', '--no-deps', '--force-recreate', '--wait', '--wait-timeout', '180', 'web'], timeout=240)
+        self.refresh_proxy()
+        self.run(self.compose + ['exec', '-T', 'web', 'python', 'manage.py', 'migrate', '--check'])
+        self.verify_public()
 
     def check(self):
         routes, revisions = [], []
@@ -287,18 +318,9 @@ class Updater:
             else:
                 raise RuntimeError('官方源码下载线路不可用，已保留当前版本')
             source = release / 'source'
-            hash_requirements = "import hashlib;from pathlib import Path;print(hashlib.sha256(Path('/app/requirements.txt').read_bytes().replace(bytes([13,10]),bytes([10]))).hexdigest())"
-            old_requirements = self.run(['docker', 'run', '--rm', '--network', 'none', old_image, 'python', '-c', hash_requirements])
             image = 'club-platform:managed-' + revision[:12]
-            if hashlib.sha256((source / 'requirements.txt').read_bytes().replace(b'\r\n', b'\n')).hexdigest() == old_requirements:
-                # Clean the old source layer so deleted files cannot survive a release.
-                dockerfile = 'FROM ' + old_image + '\nWORKDIR /app\nRUN find /app -mindepth 1 -maxdepth 1 -exec rm -rf {} +\nCOPY source/ /app/\n'
-                (release / 'Dockerfile').write_text(dockerfile + 'LABEL org.opencontainers.image.revision=' + revision + '\n')
-                build = ['docker', 'build', '--network', 'none', '-t', image, str(release)]
-            else:
-                build = ['docker', 'build', '--label', 'org.opencontainers.image.revision=' + revision, '-t', image, str(source)]
             self.status(message='正在构建新版本，网站仍可使用')
-            self.run(build, timeout=1200)
+            self.build_release(source, image, revision)
             self.run(['docker', 'run', '--rm', '--network', 'none', image, 'python', 'manage.py', 'check'])
             self.rehearsal(image, release / 'rehearsal')
             if shutil.disk_usage(self.project).free < 2 * 1024 ** 3:
@@ -326,12 +348,7 @@ class Updater:
             self.run(self.compose + ['run', '--rm', '--no-deps', '-T', 'web', 'python', 'manage.py', 'migrate', '--noinput'], timeout=600)
             self.audit(image, backup, 'verify')
             self.run(self.compose + ['run', '--rm', '--no-deps', '-T', 'web', 'python', 'manage.py', 'collectstatic', '--clear', '--noinput'], timeout=300)
-            self.run(self.compose + ['up', '-d', '--no-deps', '--force-recreate', '--wait', '--wait-timeout', '180', 'web'], timeout=240)
-            self.run(self.compose + ['exec', '-T', 'web', 'python', 'manage.py', 'migrate', '--check'])
-            # Verify the public entry before starting any background writers.
-            with urllib.request.urlopen(self.config['health_url'], timeout=30) as response:
-                if response.status != 200:
-                    raise RuntimeError('公网检查失败')
+            self.start_web()
             if (self.project / '.env').read_bytes() != (backup / '.env').read_bytes():
                 raise RuntimeError('环境配置发生变化，更新已中止')
             self.run(self.compose + ['up', '-d', '--no-deps', '--force-recreate', 'worker', 'beat'])
@@ -356,7 +373,7 @@ class Updater:
                         with tarfile.open(backup / (kind + '.tar.gz')) as archive:
                             archive.extractall(self.project / 'data', filter='data')
                     self.audit(old_image, backup, 'verify')
-                self.run(self.compose + ['up', '-d', '--no-deps', '--force-recreate', '--wait', '--wait-timeout', '180', 'web'], timeout=240)
+                self.start_web()
                 self.run(self.compose + ['up', '-d', '--no-deps', '--force-recreate', 'worker', 'beat'])
             raise
         finally:
@@ -384,6 +401,7 @@ class Updater:
         self.status(state='succeeded')
 
     def serve(self):
+        import fcntl
         lock = (self.control / 'daemon.lock').open('a')
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         threading.Thread(target=self.heartbeat, daemon=True).start()
