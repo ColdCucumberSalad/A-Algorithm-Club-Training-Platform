@@ -70,6 +70,28 @@ class UniversalCosmeticTests(TestCase):
         response=self.owner.get('/api/currency/shop/items');self.assertEqual(response.status_code,200,response.content)
         self.assertFalse(response.json()['items'][0]['purchase_blocked'])
 
+    def test_repurchase_does_not_restore_revoked_finite_or_permanent_rights(self):
+        for original_days in (5,0):
+            with self.subTest(original_days=original_days):
+                key=f'revoked-{original_days}'
+                self.asset('badge',key,original_days)
+                item=ShopItem.objects.create(team=self.team,name=key,item_type='cosmetic',price=1,
+                    cosmetic_bundle=[{'kind':'badge','key':key,'days':original_days}])
+                start=timezone.now()
+                with patch('django.utils.timezone.now',return_value=start):purchase_item(self.member,item.pk)
+                grant=CosmeticGrant.objects.get(user=self.user,key=key)
+                grant.inventory.quantity=0;grant.inventory.save(update_fields=['quantity'])
+                item.cosmetic_bundle=[{'kind':'badge','key':key,'days':1}]
+                item.save(update_fields=['cosmetic_bundle'])
+                with patch('django.utils.timezone.now',return_value=start+timedelta(days=1)):
+                    purchase_item(self.member,item.pk)
+                grant.refresh_from_db()
+                self.assertEqual(grant.expires_at,start+timedelta(days=2))
+                self.assertEqual(Purchase.objects.filter(item=item).count(),2)
+                snapshot=Purchase.objects.filter(item=item).latest('pk').cosmetic_snapshot[0]
+                self.assertEqual(snapshot['expires_at'],grant.expires_at.isoformat())
+                self.assertFalse(snapshot.get('already_permanent',False))
+
     def package(self,manifest,extras=None):
         stream=io.BytesIO()
         with zipfile.ZipFile(stream,'w') as archive:

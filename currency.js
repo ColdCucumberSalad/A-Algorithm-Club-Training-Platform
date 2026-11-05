@@ -390,7 +390,7 @@ const CurrencyModule = (() => {
         currencyData.balance = data.balance;
         updateCurrencyDisplay();
         let cosmeticRefreshFailed=false;
-        if(['title','theme','badge','frame'].includes(item.item_type)){
+        if(['title','theme','badge','frame','cosmetic'].includes(item.item_type)){
           try{
             const version=window.SpecialThemes?.version?.();
             const cosmetics=await window.clubApi.request('/api/profile/cosmetics');

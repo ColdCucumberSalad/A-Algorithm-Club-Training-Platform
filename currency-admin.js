@@ -420,6 +420,7 @@ const CurrencyAdminModule = (() => {
     window.CosmeticStudio.mountShop(modal,item);
     const updateTerm=()=>{modal.querySelector('#cosmeticDurationFields').hidden=!['title','theme'].includes(modal.querySelector('#itemType').value);modal.querySelector('#cosmeticDaysField').hidden=modal.querySelector('#cosmeticTermMode').value!=='days';};
     modal.querySelector('#itemType').addEventListener('change',updateTerm);modal.querySelector('#cosmeticTermMode').addEventListener('change',updateTerm);updateTerm();
+    let giftOptionsLoaded=false;
     const updateCosmeticFields=()=>{
       const kind=modal.querySelector('#itemType').value;modal.querySelector('#shopCosmeticFields').hidden=!['badge','theme','frame'].includes(kind);
       const select=modal.querySelector('#shopCosmeticKey'),current=select.value||item?.cosmetic_key||'';
@@ -429,7 +430,7 @@ const CurrencyAdminModule = (() => {
       const resource=choices.find(a=>a.key===select.value),picture=modal.querySelector('.cosmetic-stock-preview img');
       const image=resource?.poster||resource?.icon;picture.hidden=!window.CosmeticMedia.safe(image);if(!picture.hidden){picture.src=image;picture.alt=resource.name;}
       select.onchange=updateCosmeticFields;
-      const gift=modal.querySelector('#itemGiftBadge');if(modal.assetCatalog){const value=gift.value;gift.innerHTML='<option value="">不赠送</option>'+modal.assetCatalog.filter(a=>a.kind==='badge'&&a.is_active).map(a=>`<option value="${escape(a.key)}">${escape(a.name)}</option>`).join('');gift.value=value;}
+      const gift=modal.querySelector('#itemGiftBadge');if(modal.assetCatalog){const value=giftOptionsLoaded?gift.value:(item?.gift_badge_key||gift.value);gift.innerHTML='<option value="">不赠送</option>'+modal.assetCatalog.filter(a=>a.kind==='badge'&&(a.is_active||a.key===value)).map(a=>`<option value="${escape(a.key)}">${escape(a.name)}</option>`).join('');gift.value=value;giftOptionsLoaded=true;}
     };
     modal.querySelector('#itemType').addEventListener('change',updateCosmeticFields);updateCosmeticFields();
     const titleDefinition=()=>({text:modal.querySelector('#shopTitleText').value.trim(),color:modal.querySelector('#shopTitleColor').value,font:modal.querySelector('#shopTitleFont').value,style:modal.querySelector('#shopTitleStyle').value});

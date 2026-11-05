@@ -139,12 +139,13 @@ def ensure_available(user_id,item,quantity):
 def award(member,item,quantity,purchase=None):
     from datetime import timedelta
     entries=ensure_available(member.user_id,item,quantity)
+    prior={kind:owned_records(member.user_id,kind) for kind in {c['kind'] for c in entries}}
     inventory,_=UserInventory.objects.get_or_create(team=item.team,member=member,item=item)
     inventory.quantity=1;inventory.save(update_fields=['quantity'])
     now=timezone.now();snapshots=[]
     for definition in entries:
         key,kind=definition['key'],definition['kind'];days=definition['duration_days']
-        previous=owned_records(member.user_id,kind).get(key)
+        previous=prior[kind].get(key)
         if previous and previous[0] is None:
             CosmeticGrant.objects.update_or_create(user_id=member.user_id,inventory=inventory,kind=kind,key=key,defaults={'expires_at':None,'definition':previous[1]})
             snapshots.append({**previous[1],'duration_days':days,'expires_at':None,'already_permanent':True});continue

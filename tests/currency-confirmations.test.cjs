@@ -77,7 +77,7 @@ test('multi-use card confirms the combined benefit and sends the selected quanti
   assert.match(state.dialogs[0].text, /需支付 12 RBC/);
 });
 
-for(const kind of ['title','theme','badge','frame'])test('ordinary '+kind+' purchase refreshes the shared cosmetic library',async()=>{
+for(const kind of ['title','theme','badge','frame','cosmetic'])test('ordinary '+kind+' purchase refreshes the shared cosmetic library',async()=>{
  const state=setup({confirmed:true});
  assert.equal(await state.module.purchaseItem(5,1,{name:'Cosmetic',price:3,item_type:kind}),true);
  assert.deepEqual(state.calls.map(call=>call.url),['/api/currency/shop/purchase','/api/profile/cosmetics']);
