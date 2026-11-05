@@ -586,8 +586,11 @@ def api_admin_shop_items(request):
     else:item.cosmetic_key=''
     from .cosmetic_assets import validate_components
     if values['item_type']=='cosmetic':
-        try:item.cosmetic_bundle=validate_components(data.get('cosmetic_bundle',item.cosmetic_bundle))
-        except ValueError as exc:return api_error(str(exc))
+        bundle=data.get('cosmetic_bundle',item.cosmetic_bundle)
+        unlisting_unchanged=item.pk and item.item_type=='cosmetic' and not values['is_active'] and bundle==item.cosmetic_bundle
+        if not unlisting_unchanged:
+            try:item.cosmetic_bundle=validate_components(bundle)
+            except ValueError as exc:return api_error(str(exc))
     else:item.cosmetic_bundle=[]
     icon=None
     if data.get('icon'):

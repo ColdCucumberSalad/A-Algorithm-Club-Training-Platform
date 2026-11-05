@@ -193,6 +193,21 @@ class UniversalCosmeticTests(TestCase):
         self.assertEqual(response.status_code,200,response.content)
         self.assertEqual(available(self.user.pk,'badge')[0]['name'],original['name'])
 
+    def test_unlist_unchanged_bundle_with_inactive_resource_but_reject_relisting_or_changed_contents(self):
+        item=self.shop();purchase_item(self.member,item.pk)
+        snapshot=Purchase.objects.get(item=item).cosmetic_snapshot
+        CosmeticAsset.objects.filter(kind='theme',key='garden').update(is_active=False)
+        def update(data):return self.client.put('/api/currency/admin/shop',json.dumps({'item_id':item.pk,**data}),content_type='application/json')
+        response=update({'is_active':False});self.assertEqual(response.status_code,200,response.content)
+        item.refresh_from_db();self.assertFalse(item.is_active)
+        self.assertNotIn(item.pk,[row['id'] for row in self.owner.get('/api/currency/shop/items').json()['items']])
+        self.assertEqual(Purchase.objects.get(item=item).cosmetic_snapshot,snapshot)
+        for data in ({'is_active':True},{'is_active':False,'cosmetic_bundle':[{'kind':'theme','key':'garden','days':10}]}):
+            response=update(data);self.assertEqual(response.status_code,400,response.content)
+            item.refresh_from_db();self.assertFalse(item.is_active)
+        response=self.post('/api/currency/admin/shop',{'name':'New inactive','price':1,'item_type':'cosmetic','is_active':False,'cosmetic_bundle':item.cosmetic_bundle})
+        self.assertEqual(response.status_code,400,response.content)
+
     def test_many_products_share_request_scoped_catalog_reads(self):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext

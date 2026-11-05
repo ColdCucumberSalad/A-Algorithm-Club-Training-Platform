@@ -15,7 +15,23 @@ async page => {
  });
  await page.addScriptTag({path:'static/cosmetic-studio.js'});
  await page.evaluate(()=>CosmeticStudio.open());
+ await page.locator('[data-close]').last().focus();
+ await page.evaluate(()=>finishCatalog());
+ await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,50)));
+ if(!await page.evaluate(()=>document.activeElement?.textContent==='完成'))throw Error('Initial catalog redraw lost close focus');
+ await page.locator('[data-close]').first().click();
+ await page.evaluate(()=>{loadCount=0;CosmeticStudio.open()});
  await page.locator('[data-tab="editor"]').click();
+ if(!await page.evaluate(()=>document.activeElement?.dataset.tab==='editor'))throw Error('Tab redraw lost selected tab focus');
+ for(const mode of ['dark','light']){
+  await page.locator(`[data-mode="${mode}"]`).click();
+  if(!await page.evaluate(mode=>document.activeElement?.dataset.mode===mode,mode))throw Error('Preview mode redraw lost focus');
+ }
+ for(const shiftKey of [false,true]){
+  await page.locator('body > button').focus();
+  const trapped=await page.evaluate(shiftKey=>{const event=new KeyboardEvent('keydown',{key:'Tab',shiftKey,bubbles:true,cancelable:true});document.dispatchEvent(event);return event.defaultPrevented&&document.querySelector('.studio-overlay').contains(document.activeElement)},shiftKey);
+  if(!trapped)throw Error('Studio did not recapture escaped keyboard focus');
+ }
  await page.locator('[name="key"]').fill('new-garden');await page.locator('[name="name"]').fill('我的花园主题');
  await page.locator('[data-color="accent"]').fill('#445566');
  await page.evaluate(()=>{window.nameField=document.querySelector('[name="name"]');finishCatalog()});
