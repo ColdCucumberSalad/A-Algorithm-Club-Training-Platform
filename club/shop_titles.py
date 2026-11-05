@@ -18,15 +18,17 @@ def ensure_available(user_id, item, quantity):
 
 def award(member, item, quantity, purchase=None):
     definition = ensure_available(member.user_id, item, quantity)
+    from django.utils import timezone
+    from datetime import timedelta
+    now=timezone.now()
+    prior=OwnedTitle.objects.select_related('inventory').filter(user_id=member.user_id,text=definition['text']).first()
+    prior_valid=prior and prior.inventory.quantity>0 and (prior.expires_at is None or prior.expires_at>now)
     inventory, _ = UserInventory.objects.get_or_create(team=item.team, member=member, item=item)
     inventory.quantity = 1
     inventory.save(update_fields=['quantity'])
-    prior=OwnedTitle.objects.filter(user_id=member.user_id,text=definition['text']).first()
     if prior and prior.inventory_id!=inventory.pk:UserInventory.objects.filter(pk=prior.inventory_id).update(quantity=0)
-    from django.utils import timezone
-    from datetime import timedelta
     days=item.cosmetic_duration_days
-    expires=max(timezone.now(),prior.expires_at if prior and prior.expires_at else timezone.now())+timedelta(days=days) if days else None
+    expires=max(now,prior.expires_at if prior_valid and prior.expires_at else now)+timedelta(days=days) if days else None
     if purchase:
         purchase.cosmetic_expires_at=expires;purchase.save(update_fields=['cosmetic_expires_at'])
     OwnedTitle.objects.update_or_create(user_id=member.user_id, text=definition['text'],

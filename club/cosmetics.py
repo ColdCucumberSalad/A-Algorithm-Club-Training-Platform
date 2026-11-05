@@ -141,8 +141,11 @@ def award(member,item,quantity,purchase=None):
     entries=ensure_available(member.user_id,item,quantity)
     prior={kind:owned_records(member.user_id,kind) for kind in {c['kind'] for c in entries}}
     inventory,_=UserInventory.objects.get_or_create(team=item.team,member=member,item=item)
+    now=timezone.now()
+    if inventory.quantity<=0:
+        CosmeticGrant.objects.filter(active_term(now),inventory=inventory).update(expires_at=now)
     inventory.quantity=1;inventory.save(update_fields=['quantity'])
-    now=timezone.now();snapshots=[]
+    snapshots=[]
     for definition in entries:
         key,kind=definition['key'],definition['kind'];days=definition['duration_days']
         previous=prior[kind].get(key)

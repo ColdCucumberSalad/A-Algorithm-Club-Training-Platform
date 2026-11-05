@@ -10,3 +10,4 @@
 .shop-management-panel .shop-items-table{overflow-x:auto}.shop-management-panel table{min-width:560px;width:100%}.shop-management-panel :is(.edit-item-btn,.delete-item-btn){border:1px solid var(--site-border,var(--line));border-radius:10px;background:var(--site-fill,var(--canvas));color:var(--site-text,var(--ink));padding:8px 12px;margin:3px;font:inherit}.shop-management-panel .panel-header{flex-wrap:wrap;gap:10px}.shop-categories{flex-wrap:wrap}.studio-form .primary-button{margin-top:12px}
 
 .shop-cosmetic-cover.is-decoration-icon{object-fit:contain}.cosmetic-bundle-grid>article>div>.member-icon-badge{width:64px;height:64px;margin:0}
+.studio-upload-hint{display:block;margin-top:4px;font-size:12px;line-height:1.5;color:var(--site-secondary,var(--muted))}

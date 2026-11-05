@@ -70,6 +70,38 @@ class UniversalCosmeticTests(TestCase):
         response=self.owner.get('/api/currency/shop/items');self.assertEqual(response.status_code,200,response.content)
         self.assertFalse(response.json()['items'][0]['purchase_blocked'])
 
+    def test_revoked_bundle_does_not_restore_omitted_grants_after_contents_change(self):
+        for days in (5,0):
+            with self.subTest(original_days=days):
+                old,new=f'old-{days}',f'new-{days}'
+                self.asset('badge',old,days);self.asset('badge',new,1)
+                item=ShopItem.objects.create(team=self.team,name=old,item_type='cosmetic',price=1,
+                    cosmetic_bundle=[{'kind':'badge','key':old,'days':days}])
+                start=timezone.now()
+                with patch('django.utils.timezone.now',return_value=start):purchase_item(self.member,item.pk)
+                grant=CosmeticGrant.objects.get(user=self.user,key=old)
+                grant.inventory.quantity=0;grant.inventory.save(update_fields=['quantity'])
+                item.cosmetic_bundle=[{'kind':'badge','key':new,'days':1}];item.save(update_fields=['cosmetic_bundle'])
+                with patch('django.utils.timezone.now',return_value=start+timedelta(days=1)):
+                    purchase_item(self.member,item.pk)
+                    keys={row['key'] for row in available(self.user.pk,'badge')}
+                self.assertNotIn(old,keys);self.assertIn(new,keys)
+                grant.refresh_from_db();self.assertEqual(grant.expires_at,start+timedelta(days=1))
+                self.assertEqual(Purchase.objects.filter(item=item).count(),2)
+
+    def test_revoked_title_renewal_starts_from_the_new_purchase(self):
+        item=ShopItem.objects.create(team=self.team,name='Revoked title',price=1,item_type='title',
+            cosmetic_duration_days=7,title_definition={'text':'Revoked','font':'system','style':'plain','color':'#aa7788'})
+        from .models import OwnedTitle
+        start=timezone.now()
+        with patch('django.utils.timezone.now',return_value=start):purchase_item(self.member,item.pk)
+        owned=OwnedTitle.objects.get(user=self.user,text='Revoked')
+        owned.inventory.quantity=0;owned.inventory.save(update_fields=['quantity'])
+        item.cosmetic_duration_days=1;item.save(update_fields=['cosmetic_duration_days'])
+        with patch('django.utils.timezone.now',return_value=start+timedelta(days=1)):purchase_item(self.member,item.pk)
+        owned.refresh_from_db();self.assertEqual(owned.expires_at,start+timedelta(days=2))
+        self.assertEqual(Purchase.objects.filter(item=item).latest('pk').cosmetic_expires_at,owned.expires_at)
+
     def test_repurchase_does_not_restore_revoked_finite_or_permanent_rights(self):
         for original_days in (5,0):
             with self.subTest(original_days=original_days):
