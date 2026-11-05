@@ -218,3 +218,25 @@ class UniversalCosmeticTests(TestCase):
         self.assertEqual(len(response.json()['items']),25)
         self.assertLessEqual(sum('FROM "club_cosmeticasset"' in q['sql'] for q in queries),3)
         self.assertLessEqual(sum('FROM "club_cosmeticgrant"' in q['sql'] for q in queries),3)
+
+    def test_unlist_inactive_physical_gifts_and_legacy_cosmetics_without_replacing_references(self):
+        for kind in ('physical','theme','badge','frame'):
+            with self.subTest(item_type=kind):
+                asset_kind='badge' if kind=='physical' else kind
+                key=f'unlist-{kind}';other=f'replacement-{kind}'
+                self.asset(asset_kind,key,1);self.asset(asset_kind,other,1)
+                field='gift_badge_key' if kind=='physical' else 'cosmetic_key'
+                item=ShopItem.objects.create(team=self.team,name=key,item_type=kind,price=1,**{field:key})
+                purchase_item(self.member,item.pk)
+                purchase=Purchase.objects.get(item=item);snapshot=purchase.cosmetic_snapshot
+                CosmeticAsset.objects.filter(kind=asset_kind,key__in=[key,other]).update(is_active=False)
+                def update(data):return self.client.put('/api/currency/admin/shop',json.dumps({'item_id':item.pk,**data}),content_type='application/json')
+                response=update({'is_active':False});self.assertEqual(response.status_code,200,response.content)
+                item.refresh_from_db();self.assertFalse(item.is_active);self.assertEqual(getattr(item,field),key)
+                self.assertNotIn(item.pk,[row['id'] for row in self.owner.get('/api/currency/shop/items').json()['items']])
+                purchase.refresh_from_db();self.assertEqual(purchase.cosmetic_snapshot,snapshot)
+                for data in ({'is_active':True},{'is_active':False,field:other}):
+                    response=update(data);self.assertEqual(response.status_code,400,response.content)
+                    item.refresh_from_db();self.assertFalse(item.is_active);self.assertEqual(getattr(item,field),key)
+                response=self.post('/api/currency/admin/shop',{'name':other,'price':1,'item_type':kind,'is_active':False,field:key})
+                self.assertEqual(response.status_code,400,response.content)

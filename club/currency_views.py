@@ -543,9 +543,10 @@ def api_admin_shop_items(request):
     if type(values['price']) is not int or not 1<=values['price']<=2147483647:return api_error('商品价格必须为正整数')
     if type(values['stock']) is not int or not -1<=values['stock']<=2147483647:return api_error('库存必须为-1（无限）或非负整数')
     if type(values['is_active']) is not bool:return api_error('上架状态格式无效')
+    disabling_existing=bool(item.pk and values['item_type']==item.item_type and not values['is_active'])
     gift=values['gift_badge_key']
     from .cosmetics import catalog
-    if not isinstance(gift,str) or gift and gift not in catalog('badge'):return api_error('赠品徽章无效')
+    if not isinstance(gift,str) or gift and gift not in catalog('badge') and not (disabling_existing and gift==item.gift_badge_key):return api_error('赠品徽章无效')
     if values['item_type']!='physical':
         if data.get('gift_badge_key'):return api_error('仅实物类商品可配置该赠品')
         values['gift_badge_key']=''
@@ -580,14 +581,14 @@ def api_admin_shop_items(request):
     if values['item_type'] in ('badge','theme','frame'):
         from .cosmetics import catalog
         key=data.get('cosmetic_key',item.cosmetic_key)
-        if not isinstance(key,str) or key not in catalog(values['item_type']):return api_error('请选择支持的外观')
+        if not isinstance(key,str) or key not in catalog(values['item_type']) and not (disabling_existing and key==item.cosmetic_key):return api_error('请选择支持的外观')
         if item.pk and key!=item.cosmetic_key and item.purchases.exists():return api_error('已有获得记录的商品不能替换外观，请新增商品',409)
         item.cosmetic_key=key
     else:item.cosmetic_key=''
     from .cosmetic_assets import validate_components
     if values['item_type']=='cosmetic':
         bundle=data.get('cosmetic_bundle',item.cosmetic_bundle)
-        unlisting_unchanged=item.pk and item.item_type=='cosmetic' and not values['is_active'] and bundle==item.cosmetic_bundle
+        unlisting_unchanged=disabling_existing and bundle==item.cosmetic_bundle
         if not unlisting_unchanged:
             try:item.cosmetic_bundle=validate_components(bundle)
             except ValueError as exc:return api_error(str(exc))
