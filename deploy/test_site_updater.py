@@ -13,6 +13,20 @@ from unittest.mock import MagicMock
 
 
 class UpdateSafetyTests(unittest.TestCase):
+    def test_broker_transport_failure_aborts_before_stopping_live_services(self):
+        with self.recovery_fixture('workers') as (updater, events, guard):
+            original = updater.run.side_effect
+            def run(args, **kwargs):
+                if any('c.ensure_connection(' in argument for argument in args):
+                    raise RuntimeError('broker transport mismatch')
+                return original(args, **kwargs)
+            updater.run.side_effect = run
+            with self.assertRaisesRegex(RuntimeError, 'broker transport mismatch'):
+                updater.update('a' * 40)
+            self.assertNotIn('stop', events)
+            self.assertNotIn('acquire-guard', events)
+            updater.rehearsal.assert_not_called()
+
     def test_mirrors_precede_official_source_fallbacks(self):
         urls = source_urls('a' * 40)
         self.assertTrue(urls[0].startswith('https://gh-proxy.com/'))

@@ -414,6 +414,11 @@ class Updater:
             self.status(message='正在构建新版本，网站仍可使用')
             self.build_release(source, image, revision)
             self.run(['docker', 'run', '--rm', '--network', 'none', image, 'python', 'manage.py', 'check'])
+            # Resolve the real broker transport before stopping the live app;
+            # pip's metadata checks do not catch every Redis transport mismatch.
+            self.run(['docker', 'run', '--rm', '--network', self.config['network'],
+                      '--env-file', str(self.project / '.env'), image, 'python', '-c',
+                      'from config.celery import app; c=app.connection_for_write(); c.ensure_connection(max_retries=0); c.channel(); c.release()'])
             self.rehearsal(image, release / 'rehearsal')
             if shutil.disk_usage(self.project).free < 2 * 1024 ** 3:
                 raise RuntimeError('磁盘剩余空间不足，暂不更新')
