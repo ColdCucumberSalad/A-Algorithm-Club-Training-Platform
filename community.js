@@ -37,6 +37,7 @@ function restoreEditReturn(state){
  requestAnimationFrame(()=>{for(const[el,x,y]of state.scroll){el.scrollLeft=x;el.scrollTop=y;}$('#editOwnSubmission').focus({preventScroll:true});});
 }
 function cancelSubmissionEdit(){
+ if (submissionPending) { showToast("正在提交，请稍候"); return; }
  const state=submissionEditReturnState;submissionEditReturnState=null;
  closeModal();editingSubmission=null;resubmitting=null;resetSubmissionForm();restoreEditReturn(state);
 }

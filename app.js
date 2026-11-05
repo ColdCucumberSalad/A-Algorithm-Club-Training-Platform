@@ -347,7 +347,8 @@ function setView(view, {preserveContent=false}={}) {
 }
 
 function updateSubmissionEntry(entry, day, date) {
-  if (!entry || !day) return;
+  if (!entry) return;
+  day ||= {canSubmit:false};
   const isFuture = date > pulseToday;
   const historical = date < pulseToday;
   const label = isFuture ? '暂未开放' : historical && day.isMakeup ? '当日已补签'
@@ -355,6 +356,7 @@ function updateSubmissionEntry(entry, day, date) {
   const disabled = adminTestMode ? isFuture : isFuture || !day.canSubmit || historical && (day.submitted || day.isMakeup);
   entry.innerHTML = `<span>＋</span>${adminTestMode&&!isFuture?(historical?'补交当日记录':day.submitted||day.hasSubmission?'继续提交':'提交今日记录'):label}`;
   entry.disabled = Boolean(disabled);
+  entry.title = disabled ? '该日期暂不可提交：学期或周次未开放、已截止，或历史日期已完成签到' : '';
   entry.classList.toggle('disabled', Boolean(disabled));
   entry.classList.toggle('is-makeup-complete', historical && day.isMakeup);
 }
@@ -373,6 +375,7 @@ function selectPulseDay(date, {reveal = true} = {}) {
   $('#pulseFocus').textContent = `${date} · ${day.isMakeup ? '已补签' : day.makeupOpen ? '已开放补交，待提交' : day.checkedIn && !day.hasSubmission ? '已签到' : day.submitted ? '已有有效提交' : '尚未提交'}`;
   updateSubmissionEntry($('#openSubmission'), day, date);
   updateSubmissionEntry($('#openSubmissionSecondary'), pulseDays.find(item => item.date === pulseToday), pulseToday);
+  updateSubmissionEntry($('#emptyAction'), pulseDays.find(item => item.date === pulseToday), pulseToday);
   renderActivityDay(day);
   if(reveal&&activityPayload&&(date<activityPayload.start||date>activityPayload.end)){
     $('#activityRange').value='month';$('#activityMonth').value=date.slice(0,7);loadTrainingActivity();
@@ -851,19 +854,22 @@ async function completeMakeup(date) {
   }
 }
 async function openModal(forceToday = false, correction = null) {
+  if (submissionPending) { showToast("正在提交，请稍候"); return false; }
   const selected = forceToday === true ? pulseDays.find(day => day.date === pulseToday)
     : pulseDays.find(day => day.date === selectedPulseDate);
   const date = correction?.record_date || selected?.date || pulseToday;
   const historical = date < pulseToday;
-  if (!correction && !adminTestMode && selected && (!selected.canSubmit || historical && (selected.submitted || selected.isMakeup))) return;
+  if (!correction && !adminTestMode && selected && (!selected.canSubmit || historical && (selected.submitted || selected.isMakeup))) { showToast('该日期暂不可提交，请检查学期、周次或签到状态'); return; }
   let weekId = correction?.week_id || selected?.weekId || currentSubmissionWeekId;
   if (historical && !adminTestMode && !correction) {
     const permission = await completeMakeup(date);
     if (!permission) return;
     weekId = permission.week_id;
   }
+  if (submissionPending) { showToast("正在提交，请稍候"); return false; }
   loadDailyChallenges(); editingSubmission = null; resubmitting = null;
   $('#modalTitle').textContent = historical ? '补交当日记录' : selected?.submitted || selected?.hasSubmission ? '继续提交' : '提交今日记录'; resetSubmissionForm();
+  $('#submissionForm').dataset.submissionMode = !correction && !historical && !adminTestMode ? 'today' : '';
   $('#submissionForm').dataset.recordDate = date || '';
   $('#submissionForm').dataset.makeup = historical && !correction ? '1' : '';
   if (date) $('.form-note span').textContent = `记录日期：${date}`;
@@ -876,8 +882,23 @@ async function openModal(forceToday = false, correction = null) {
   return true;
 }
 
+let submissionPending = false;
+let submissionSession = 0;
+function lockSubmissionForm(form) {
+  submissionPending = true;
+  const controls = [...form.querySelectorAll('input,textarea,select,button'), $('#closeSubmission')].filter(Boolean);
+  const states = controls.map(control => [control, control.disabled]);
+  controls.forEach(control => { control.disabled = true; });
+  form.setAttribute('aria-busy', 'true');
+  return () => {
+    states.forEach(([control, disabled]) => { control.disabled = disabled; });
+    form.removeAttribute('aria-busy');
+    submissionPending = false;
+  };
+}
 let submissionScrollState=null;
 function showSubmissionEditor(){
+  submissionSession += 1;
   if(!submissionScrollState){
     const properties=['position','top','left','width','overflow'];
     const shell=$('.app-shell');
@@ -892,6 +913,7 @@ function showSubmissionEditor(){
   $('#modalTitle').focus({preventScroll:true});
 }
 function closeModal(){
+  if (submissionPending) { showToast("正在提交，请稍候"); return false; }
   saveSubmissionDraft();
   activeSubmissionDraftKey = null;
   $('#submissionModal').classList.remove('open');
@@ -984,7 +1006,7 @@ async function loadMySubmissions({force = false} = {}) {
     ownRecords.clear(); submissions.forEach(item => ownRecords.set(item.id, item));
     const empty = $('.empty-state', page);
     page.querySelector('.my-submissions-live')?.remove();
-    if (!submissions.length) { if (empty) { empty.hidden = false; empty.innerHTML = '<div class="empty-icon">□</div><h2>这里会留下你的训练轨迹</h2><p>当前还没有提交记录。</p><button class="secondary-button" id="emptyAction" type="button">提交今日记录</button>'; $('#emptyAction')?.addEventListener('click', () => openModal(true)); } return; }
+    if (!submissions.length) { if (empty) { empty.hidden = false; empty.innerHTML = '<div class="empty-icon">□</div><h2>这里会留下你的训练轨迹</h2><p>当前还没有提交记录。</p><button class="secondary-button" id="emptyAction" type="button">提交今日记录</button>'; $('#emptyAction')?.addEventListener('click', () => openModal(true)); updateSubmissionEntry($('#emptyAction'), pulseDays.find(day => day.date === pulseToday), pulseToday); } return; }
     const list = document.createElement('div');
     list.className = 'panel my-submissions-live';
     const today = new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit'}).format(new Date());
@@ -1159,6 +1181,8 @@ document.addEventListener('click', (event) => { if (!event.target.closest('.team
 $('#submissionForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.target;
+  if (submissionPending) return;
+  const requestSession = submissionSession;
   if(!adminTestMode&&!$('#submissionCodeInput').value.trim()){selectSubmissionMaterial('code');$('#submissionCodeInput').focus();showToast('请填写解题代码');return;}
   const submitButton = form.querySelector('button[type="submit"]');
   if (submitButton?.disabled) return;
@@ -1175,6 +1199,7 @@ $('#submissionForm').addEventListener('submit', async (event) => {
   saveSubmissionDraft();
   const wasEditing=Boolean(editingSubmission);
   const formData = new FormData(form);
+  formData.set('submission_mode', form.dataset.submissionMode || '');
   formData.set('week_id', form.dataset.weekId || '');
   formData.set('record_date', form.dataset.recordDate || '');
   if ($('#proofImage').files[0]) formData.set('proof', $('#proofImage').files[0]);
@@ -1183,6 +1208,7 @@ $('#submissionForm').addEventListener('submit', async (event) => {
   formData.set('logic', $('#logicText').value);
   const blogContent = typeof getBlogEditorContent === 'function' ? getBlogEditorContent() : '';
   formData.set('blog', blogContent);
+  const unlock = lockSubmissionForm(form);
   try {
     const response = await clubApi.request(editingSubmission ? `/api/submissions/${editingSubmission}/edit` : resubmitting ? `/api/submissions/${resubmitting}/resubmit` : '/api/submissions', {method:'POST', body:formData});
     if (response.status === 401 || response.status === 403) throw new Error('请先登录后再提交');
@@ -1190,7 +1216,12 @@ $('#submissionForm').addEventListener('submit', async (event) => {
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload.error || '提交失败，请稍后重试');
     }
-  } catch (error) { showToast(error.message || '提交失败，请稍后重试'); if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); submitButton.textContent = submitButton.dataset.label || '提交记录'; } return; }
+  } catch (error) {
+    if (requestSession !== submissionSession) return;
+    unlock();
+    showToast(error.message || '提交失败，请稍后重试'); if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); submitButton.textContent = submitButton.dataset.label || '提交记录'; } return; }
+  if (requestSession !== submissionSession) return;
+  unlock();
   clearSubmissionDraft();
   closeModal();
   resetSubmissionForm();
@@ -1203,6 +1234,7 @@ $('#submissionForm').addEventListener('submit', async (event) => {
 document.addEventListener('paste', (event) => {
   if (!$('#submissionModal').classList.contains('open') || event.defaultPrevented) return;
   if ($('#blogEditorOverlay')?.getAttribute('aria-hidden') === 'false') return;
+  if (submissionPending) return;
   const clipboard = event.clipboardData;
   const file = Array.from(clipboard?.files || []).find(file => file.type.startsWith('image/'))
     || Array.from(clipboard?.items || []).find(item => item.kind === 'file' && item.type.startsWith('image/'))?.getAsFile();

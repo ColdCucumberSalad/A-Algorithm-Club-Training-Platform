@@ -576,8 +576,10 @@ def submissions(request, submission_id=None, edit=False):
         return JsonResponse({'submissions': [serialize_submission(item) for item in queryset]})
     if request.method != "POST":
         return api_error("仅支持 GET 或 POST", 405)
+    received_at = timezone.now()
+    submit_today = request.POST.get('submission_mode') == 'today' and submission_id is None
     try:
-        week_id = int(request.POST.get('week_id', ''))
+        week_id = None if submit_today else int(request.POST.get('week_id', ''))
     except (ValueError, TypeError):
         return api_error('请刷新页面，确认提交周次后重试')
     if not membership.pk or request.user.is_superuser:
@@ -629,7 +631,16 @@ def submissions(request, submission_id=None, edit=False):
     stored_file = None
     try:
         with transaction.atomic():
-            target = Week.objects.filter(pk=week_id, semester__team=membership.team).first()
+            if submit_today:
+                received_date = timezone.localdate(received_at)
+                target = Week.objects.filter(semester__team=membership.team,
+                    semester__is_active=True, semester__archived_at__isnull=True,
+                    semester__starts_on__lte=received_date, semester__ends_on__gte=received_date,
+                    starts_at__lte=received_at, ends_at__gt=received_at).first()
+                if not target:
+                    return api_error('当前学期或周次尚未开放或已结束，不能提交', 409)
+            else:
+                target = Week.objects.filter(pk=week_id, semester__team=membership.team).first()
             if not target:
                 return api_error('该周次不存在或不属于当前团队', 404)
             # Serialize submissions across this user's teams and semesters.
@@ -638,10 +649,10 @@ def submissions(request, submission_id=None, edit=False):
             lock_user_semesters(request.user.pk, [target.semester_id])
             semester = Semester.objects.select_for_update().get(pk=target.semester_id)
             week = Week.objects.select_for_update().get(pk=target.pk)
-            now = timezone.now()
+            now = received_at
             today = timezone.localdate(now)
             try:
-                record_date = datetime.strptime(request.POST.get('record_date') or today.isoformat(), '%Y-%m-%d').date()
+                record_date = today if submit_today else datetime.strptime(request.POST.get('record_date') or today.isoformat(), '%Y-%m-%d').date()
             except ValueError:
                 return api_error('提交日期格式无效')
             sandbox = bool(getattr(request,'admin_test_mode',False))
