@@ -37,7 +37,7 @@ window.MemberTitles = (() => {
     const tone = luminance>.4?'light':luminance<.15?'dark':'normal';
     return `<span class="member-title-badge"${until(title)} data-title-style="${style}" data-title-tone="${tone}" data-title-font="${font}" style="--member-title-color:${color}">${escape(title.text.trim().slice(0,20))}</span>`;
   }
-  const badgeAssets={taffy:{name:'小塔菲 · 原版',icon:'taffy-original-head.svg'}};
+  const badgeAssets={taffy:{name:'小塔菲 · 原版',icon:'taffy-original-head.svg'},'rbc-pendant':{name:'RBC 挂坠纪念',icon:'rbc-pendant-badge.png'}};
   function badgeMarkup(badge){const asset=Object.hasOwn(badgeAssets,badge?.key)?badgeAssets[badge.key]:null;return asset&&!expired(badge)?`<img class="member-icon-badge"${until(badge)} src="/static/cosmetics/${asset.icon}" alt="${asset.name}徽章" title="${asset.name}" width="26" height="26">`:'';}
 
   function list(titles,badge) {return badgeMarkup(badge)+ (Array.isArray(titles)?titles:titles?[titles]:[]).slice(0,8).map(markup).join('');}

@@ -1,9 +1,10 @@
 """Account-owned cosmetic entitlements with per-team badge/frame choices."""
 from django.utils import timezone
-from .models import CosmeticGrant,UserInventory
+from .models import CosmeticGrant,UserInventory,PurchaseBadgeGrant
 from .cosmetic_terms import active_term,purchase_terms
 
-BADGES={'taffy':{'key':'taffy','name':'小塔菲 · 原版','icon':'/static/cosmetics/taffy-original-head.svg'}}
+BADGES={'taffy':{'key':'taffy','name':'小塔菲 · 原版','icon':'/static/cosmetics/taffy-original-head.svg'},
+        'rbc-pendant':{'key':'rbc-pendant','name':'RBC 挂坠纪念徽章','icon':'/static/cosmetics/rbc-pendant-badge.png'}}
 FRAMES={'taffy-goggles':{'key':'taffy-goggles','name':'塔菲护目镜','icon':'/static/cosmetics/taffy-goggles-frame.svg'}}
 THEMES={'taffy':{'key':'taffy','name':'塔菲 · 小菲滚轴','poster':'/static/cosmetics/taffy-scroll.jpg','gift_badges':['taffy'],'gift_frames':['taffy-goggles']}}
 CATALOG={'badge':BADGES,'theme':THEMES,'frame':FRAMES}
@@ -13,6 +14,8 @@ def owned_details(user_id,kind):
     result={}
     for key,end in CosmeticGrant.objects.filter(active_term(),user_id=user_id,kind=kind,key__in=CATALOG[kind],inventory__quantity__gt=0).values_list('key','expires_at'):
         if key not in result or result[key] is not None and (end is None or end>result[key]):result[key]=end
+    if kind=='badge':
+        result.update({key:None for key in PurchaseBadgeGrant.objects.filter(user_id=user_id,key__in=BADGES).values_list('key',flat=True)})
     return result
 
 
@@ -41,6 +44,11 @@ def cache_equipped(members, kinds=('badge', 'frame')):
             cached[user_id][slot] = end
     for member in selected:
         member._cosmetic_owned = cached[member.user_id]
+    if 'badge' in kinds:
+        ids=[m.user_id for m in selected if m.worn_badge=='rbc-pendant']
+        if ids:
+            for user_id,key in PurchaseBadgeGrant.objects.filter(user_id__in=ids,key__in=BADGES).values_list('user_id','key'):
+                cached[user_id][('badge',key)]=None
 
 
 def equipped(member,kind,field):
@@ -88,3 +96,14 @@ def award(member,item,quantity,purchase=None):
 
 def product_data(item):
     return CATALOG.get(item.item_type,{}).get(item.cosmetic_key,{})
+
+
+def gift_badge_data(item):
+    return BADGES.get(item.gift_badge_key) if item.item_type=='physical' else None
+
+
+def award_purchase_badge(purchase):
+    """Permanent gift, snapshotted at purchase; never create extra physical inventory."""
+    badge=gift_badge_data(purchase.item)
+    if badge:
+        PurchaseBadgeGrant.objects.get_or_create(user_id=purchase.member.user_id,key=badge['key'],defaults={'purchase':purchase})

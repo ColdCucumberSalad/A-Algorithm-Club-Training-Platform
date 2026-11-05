@@ -131,6 +131,9 @@ def create_fulfillments(purchase, codes):
             code.reserved_for = unit
             code.save(update_fields=['reserved_for'])
 
+    from .cosmetics import award_purchase_badge
+    award_purchase_badge(purchase)
+
 
 def fulfillment_inventory(member):
     return [{'id': 'fulfillment-' + str(unit.pk), 'fulfillment_id': unit.pk,
