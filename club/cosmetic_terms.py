@@ -8,7 +8,7 @@ def active_term(now=None):
 
 
 def purchase_terms(item,now=None):
-    days=item.cosmetic_duration_days if item.item_type in ('title','theme') else 0
+    days=item.cosmetic_duration_days if item.item_type in ('title','theme','badge','frame','cosmetic') else 0
     if type(days) is not int or not 0<=days<=36500:
         raise ValueError('有效时长需为 0（永久）或 1–36500 天')
     return {'cosmetic_duration_days':days,

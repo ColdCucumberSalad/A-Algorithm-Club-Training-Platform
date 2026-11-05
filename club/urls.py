@@ -1,4 +1,4 @@
-from . import cosmetic_views
+from . import cosmetic_views, cosmetic_admin
 from django.urls import path
 from . import poker_views
 from . import extension_views
@@ -115,6 +115,13 @@ urlpatterns = [
     path("leaderboard", views.leaderboard),
     path("admin/team-settings", views.team_settings),
     path("export", views.export_xlsx),
+
+    # Declarative cosmetic resources and theme packages.
+    path('management/cosmetic-assets', cosmetic_admin.assets),
+    path('management/cosmetic-assets/upload', cosmetic_admin.upload),
+    path('management/cosmetic-assets/package', cosmetic_admin.package),
+    path('management/cosmetic-assets/import', cosmetic_admin.import_package),
+    path('cosmetic-assets/media/<str:filename>', cosmetic_admin.media),
 
     # Currency system endpoints
     path("currency/balance", currency.api_currency_balance),

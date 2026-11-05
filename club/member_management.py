@@ -213,11 +213,11 @@ def inventory_settings(request, team_id, member_id):
                     if item.item_type == 'title':
                         from .shop_titles import award
                         award(member,item,quantity,purchase)
-                    if item.item_type in ('badge','theme'):
+                    if item.item_type in ('badge','theme','frame','cosmetic'):
                         from .cosmetics import award
                         award(member,item,quantity,purchase)
                     create_fulfillments(purchase,codes)
-                    if item.item_type not in ('physical','redeem_code','title','badge','theme'):
+                    if item.item_type not in ('physical','redeem_code','title','badge','theme','frame','cosmetic'):
                         inv,_ = UserInventory.objects.get_or_create(team_id=team_id,member=member,item=item)
                         inv = UserInventory.objects.select_for_update().get(pk=inv.pk)
                         if inv.quantity + quantity > 100000:

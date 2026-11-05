@@ -1,3 +1,4 @@
+window.CosmeticMedia={safe:value=>typeof value==='string'&&/^\/(?:static\/cosmetics\/[a-zA-Z0-9_-]+\.(?:png|jpg|jpeg|webp|svg)|api\/cosmetic-assets\/media\/[a-f0-9]{64}\.png)$/.test(value)};
 /* Shared read-only badge renderer; no arbitrary CSS or remote font loading. */
 window.MemberTitles = (() => {
   const styles = {plain:'简约',chroma:'炫彩',wings:'羽翼',captain:'先锋徽章',president:'冠冕徽章',deputy:'星盾徽章',neon:'霓虹描边',metal:'金属徽章',shimmer:'流光',orbit:'星环'};
@@ -12,7 +13,13 @@ window.MemberTitles = (() => {
     return ` data-cosmetic-until="${end}"`;
   }
   function syncClock(now){if(Number.isFinite(now))clockOffset=now-Date.now();}
-  function frameImage(frame){return Object.hasOwn(frameAssets,frame?.key)&&!expired(frame)?`<img class="avatar-frame-art" src="/static/cosmetics/${frameAssets[frame.key]}" alt="" aria-hidden="true"${until(frame)}>`:'';}
+  function frameImage(frame){
+    if(!frame||expired(frame))return '';
+    const source=window.CosmeticMedia.safe(frame.icon)?frame.icon:Object.hasOwn(frameAssets,frame.key)?'/static/cosmetics/'+frameAssets[frame.key]:'';
+    if(!source)return '';
+    const g=frame.geometry||{},scale=Number.isFinite(g.scale)&&g.scale>=1&&g.scale<=2?g.scale:1.25,x=Number.isFinite(g.x)&&Math.abs(g.x)<=1?g.x:-.125,y=Number.isFinite(g.y)&&Math.abs(g.y)<=1?g.y:-.225;
+    return `<img class="avatar-frame-art" src="${source}" alt="" aria-hidden="true" style="--frame-size:${scale*100}%;--frame-x:${x*100}%;--frame-y:${y*100}%"${until(frame)}>`;
+  }
   function frameAvatar(markup,frame){const image=frameImage(frame);return image?`<span class="avatar-frame-wrap">${markup}${image}</span>`:markup;}
   function frameElement(element,frame){
     if(!element)return;let wrap=element.parentElement?.classList.contains('avatar-frame-wrap')?element.parentElement:null;
@@ -38,7 +45,13 @@ window.MemberTitles = (() => {
     return `<span class="member-title-badge"${until(title)} data-title-style="${style}" data-title-tone="${tone}" data-title-font="${font}" style="--member-title-color:${color}">${escape(title.text.trim().slice(0,20))}</span>`;
   }
   const badgeAssets={taffy:{name:'小塔菲 · 原版',icon:'taffy-original-head.svg'},'rbc-pendant':{name:'RBC 挂坠纪念',icon:'rbc-pendant-badge.png'}};
-  function badgeMarkup(badge){const asset=Object.hasOwn(badgeAssets,badge?.key)?badgeAssets[badge.key]:null;return asset&&!expired(badge)?`<img class="member-icon-badge"${until(badge)} src="/static/cosmetics/${asset.icon}" alt="${asset.name}徽章" title="${asset.name}" width="26" height="26">`:'';}
+  function badgeMarkup(badge){
+    if(!badge||expired(badge))return '';
+    const known=Object.hasOwn(badgeAssets,badge.key)?badgeAssets[badge.key]:null;
+    const source=window.CosmeticMedia.safe(badge.icon)?badge.icon:known?'/static/cosmetics/'+known.icon:'';
+    const name=String(badge.name||known?.name||'电子徽章');
+    return source?`<img class="member-icon-badge"${until(badge)} src="${source}" alt="${escape(name)}" title="${escape(name)}" width="26" height="26">`:'';
+  }
 
   function list(titles,badge) {return badgeMarkup(badge)+ (Array.isArray(titles)?titles:titles?[titles]:[]).slice(0,8).map(markup).join('');}
   function cohort(value,compact=false) {

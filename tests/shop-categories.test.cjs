@@ -19,3 +19,8 @@ test('decorations shows titles, badges and themes without rebuilding or reloadin
 test('an empty decorations category displays its empty state',()=>{
  const f=fixture(['physical','redeem_code']);f.applyShopCategory(f.container,'decorations');assert.equal(f.empty.hidden,false);
 });
+
+test('physical, redeem and tools filters keep their own inventory kinds',()=>{
+ const f=fixture(['physical','redeem_code','makeup_ticket','consumable','general','cosmetic']);
+ for(const [category,expected]of [['physical',[false,true,true,true,true,true]],['redeem',[true,false,true,true,true,true]],['tools',[true,true,false,false,false,true]]]){f.applyShopCategory(f.container,category);assert.deepEqual(f.cards.map(c=>c.hidden),expected);}
+});

@@ -39,14 +39,19 @@ window.SpecialThemes=(()=>{
     library={themes:(data.themes||[]).filter(t=>!expired(t)),badges:(data.badges||[]).filter(t=>!expired(t)),frames:(data.frames||[]).filter(t=>!expired(t)),title_expirations:data.title_expirations||[],active_theme:data.active_theme||''};
     if(!library.themes.some(t=>t.key===library.active_theme))library.active_theme='';
     schedule();
-    const active=library.active_theme==='taffy'&&library.themes.some(t=>t.key==='taffy');
-    if(active)document.documentElement.dataset.specialTheme='taffy';else delete document.documentElement.dataset.specialTheme;
+    const active=library.themes.find(t=>t.key===library.active_theme&&(t.key==='taffy'||t.palettes?.light&&t.palettes?.dark));
+    if(active){
+      document.documentElement.dataset.specialTheme=active.key;
+      const bg=window.CosmeticMedia?.safe(active.background||active.poster)?active.background||active.poster:'';
+      document.documentElement.style?.setProperty('--site-cosmetic-background',bg?'url("'+bg+'")':'none');
+    }else{delete document.documentElement.dataset.specialTheme;document.documentElement.style?.removeProperty('--site-cosmetic-background');}
     window.dispatchEvent(new Event('site-special-theme-change'));render();
   }
   function adjust(settings,mode){
-    if(document.documentElement.dataset.specialTheme!=='taffy')return settings;
-    const result=window.SiteTheme.clone(settings);result.mode='custom';result.accent=palette[mode].accent;
-    result.palettes[mode]={...result.palettes[mode],...palette[mode]};result.paletteOverrides[mode]=Object.keys(palette[mode]);result.blocks[mode]={};return result;
+    const active=library.themes.find(t=>t.key===library.active_theme);if(!active)return settings;
+    const selected=active.palettes?.[mode]||(active.key==='taffy'?palette[mode]:null);if(!selected)return settings;
+    const result=window.SiteTheme.clone(settings);result.mode='custom';result.accent=selected.accent;
+    result.palettes[mode]={...result.palettes[mode],...selected};result.paletteOverrides[mode]=Object.keys(selected);result.blocks[mode]={};return result;
   }
   function requestSelection(kind,key){
     const task=selectionQueue.then(async()=>{
@@ -65,7 +70,7 @@ window.SpecialThemes=(()=>{
   async function select(kind,key,button){
     const data=await requestSelection(kind,key);
     if(kind==='theme'&&button&&window.SiteAppearance?.transition){
-      await window.SiteAppearance.transition(button,()=>applySelection(data),palette[document.documentElement.dataset.siteMode==='dark'?'dark':'light'].accent);
+      await window.SiteAppearance.transition(button,()=>applySelection(data),(data.themes?.find(t=>t.key===key)?.palettes?.[document.documentElement.dataset.siteMode==='dark'?'dark':'light']?.accent||palette[document.documentElement.dataset.siteMode==='dark'?'dark':'light'].accent));
     }else applySelection(data);
     return data;
   }
@@ -74,10 +79,11 @@ window.SpecialThemes=(()=>{
     let row=document.querySelector('#specialThemeLibrary');
     if(!row){row=document.createElement('div');row.id='specialThemeLibrary';row.className='settings-special-swatches';}
     if(row.previousElementSibling!==swatches)swatches.after(row);
-    row.hidden=!library.themes.some(t=>t.key==='taffy');
-    row.innerHTML='<button type="button" class="theme-special-swatch" data-special-key="taffy" aria-label="特殊主题：塔菲" aria-pressed="'+(library.active_theme==='taffy')+'"><span class="theme-special-portrait"><img src="/static/cosmetics/taffy-original-head.svg" alt=""></span><span>塔菲</span></button><span class="special-theme-status" role="status"></span>';
-    const button=row.querySelector('[data-special-key]');
-    button.onclick=async()=>{if(library.active_theme==='taffy')return;button.disabled=true;try{await select('theme','taffy',button);}catch(error){row.querySelector('[role=status]').textContent=error.message;}finally{button.disabled=false;}};
+    row.hidden=!library.themes.length;
+    const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    row.innerHTML=library.themes.map(t=>`<button type="button" class="theme-special-swatch" data-special-key="${esc(t.key)}" aria-label="特殊主题：${esc(t.name||t.key)}" aria-pressed="${library.active_theme===t.key}"><span class="theme-special-portrait">${window.CosmeticMedia?.safe(t.icon||t.poster)?`<img src="${esc(t.icon||t.poster)}" alt="">`:'◈'}</span><span>${esc(t.name||t.key)}</span></button>`).join('')+'<span class="special-theme-status" role="status"></span>';
+    row.querySelectorAll('[data-special-key]').forEach(button=>button.onclick=async()=>{if(library.active_theme===button.dataset.specialKey)return;button.disabled=true;try{await select('theme',button.dataset.specialKey,button);}catch(error){row.querySelector('[role=status]').textContent=error.message;}finally{button.disabled=false;}});
+
   }
   document.addEventListener('DOMContentLoaded',render);
   return {sync,adjust,select,requestSelection,applySelection,version:()=>stateVersion,invalidate:()=>++stateVersion,isCurrent:version=>version===stateVersion,render,registerExpiry,now:()=>Date.now()+clockOffset};

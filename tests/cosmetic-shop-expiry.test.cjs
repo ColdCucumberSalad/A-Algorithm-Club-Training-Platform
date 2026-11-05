@@ -12,8 +12,8 @@ function fixture({kind='theme',tab='shop',active=true}={}){
    querySelector:selector=>selector==='.shop-tabs'?{querySelectorAll:()=>[]}:null,
    querySelectorAll:selector=>selector===(kind==='title'?'[data-preview-title]':'[data-preview-cosmetic]')?[previewButton]:[]};
  const window={addEventListener(type,fn){if(type==='club:cosmetics-expired')listener=fn},dispatchEvent(event){if(event.type==='club:cosmetics-expired')listener()},
-   ShopImages:{mount(){}},CosmeticShop:{openTitle(options){preview=options}},clubApi:{async request(url){calls.push(url);const owned=now<end;
-     const item={id:1,item_id:1,item_type:kind,name:'Temporary cosmetic',item_name:'Temporary cosmetic',description:'',price:3,stock:-1,cosmetic_key:'taffy',title_definition:{text:'Title'},title_owned:kind==='title'&&owned,cosmetic_owned:kind==='theme'&&owned,purchase_blocked:owned,expires_at:owned?new Date(end).toISOString():null};
+   CosmeticBundle:{open(options){preview=options}},ShopImages:{mount(){}},CosmeticShop:{openTitle(options){preview=options}},clubApi:{async request(url){calls.push(url);const owned=now<end;
+     const item={id:1,item_id:1,item_type:kind,name:'Temporary cosmetic',item_name:'Temporary cosmetic',description:'',price:3,stock:-1,cosmetic_key:'taffy',title_definition:{text:'Title'},title_owned:kind==='title'&&owned,cosmetic_owned:kind==='theme'&&owned,purchase_blocked:false,expires_at:owned?new Date(end).toISOString():null};
      const data=url.includes('/balance')?{balance:10,can_purchase:true}:url.includes('/shop/items')?{items:[item]}:url.includes('/inventory')?{inventory:owned?[item]:[]}:{themes:owned?[{key:'taffy',expires_at:new Date(end).toISOString()}]:[],server_time:new Date(now).toISOString()};
      return {ok:true,json:async()=>data};}}};
  const document={documentElement:{dataset:{}},addEventListener(){},querySelector(){return null},getElementById:id=>id==='rbcshopView'?container:null};
@@ -25,7 +25,7 @@ function fixture({kind='theme',tab='shop',active=true}={}){
  return {container,calls,render:async()=>{await window.CurrencyModule.init();return window.CurrencyModule.renderShopView(container)},preview:()=>{previewButton.onclick();return preview},expire:async()=>{now=end+10;await timer();await settle();}};
 }
 for(const kind of ['title','theme'])test(kind+' expiry reloads ownership and lets the newly opened detail offer a purchase',async()=>{
- const f=fixture({kind});await f.render();assert.match(f.container.innerHTML,/已拥有/);assert.equal(Boolean(f.preview().owned),true);
+ const f=fixture({kind});await f.render();assert.match(f.container.innerHTML,/续期/);assert.equal(Boolean(f.preview().owned),true);
  await f.expire();assert.equal(f.calls.filter(url=>url.includes('/shop/items')).length,2);
  assert.doesNotMatch(f.container.innerHTML,/已拥有/);assert.equal(Boolean(f.preview().owned),false);
  assert.equal(f.preview().item.purchase_blocked,false);assert.doesNotMatch(f.container.innerHTML,/<button[^>]*shop-buy-btn[^>]*disabled/);

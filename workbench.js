@@ -10,6 +10,7 @@ document.querySelector('#adminView').innerHTML = `
   <div class="workbench-scope panel" id="wbManagedScope" hidden><label>当前管理团队 <select id="wbManagedTeam" aria-label="当前管理团队"></select></label></div>
   <section class="panel workbench-panel" id="wbAccountsSection" hidden><div class="panel-heading"><div><p class="section-label">GLOBAL ACCOUNTS</p><h2>全局账号管理</h2></div><span class="muted" id="wbAccountsTotal"></span></div><div class="tm-actions"><button class="primary-button" type="button" data-open-global-accounts>管理全部账号</button></div></section>
   <section class="panel workbench-panel" id="wbDispatchSection" hidden><div class="panel-heading"><div><p class="section-label">DELIVERY INBOX</p><h2>待派发商品 <span id="wbDispatchCount"></span></h2></div></div><div id="wbDispatchList"></div></section>
+  <section class="panel workbench-panel" id="wbCosmeticsSection" hidden><div class="panel-heading"><div><p class="section-label">COSMETIC STUDIO</p><h2>装扮与主题包</h2></div><button class="primary-button" type="button" id="wbOpenCosmetics">装扮管理</button></div><p class="muted">制作主题、徽章与头像框，或上传标准主题包后关联商店商品。</p></section>
   <section class="panel workbench-panel" id="wbParserSection" hidden><div class="panel-heading"><div><p class="section-label">PROBLEM PARSER</p><h2>题目解析与 API 配置</h2></div></div>
     <form id="wbParserForm" class="workbench-form"><label>解析模式<select name="mode"><option value="auto">自动解析</option><option value="ai">AI解析</option><option value="smart">智能解析：自动失败后使用AI</option></select></label><label class="workbench-check"><input name="enabled" type="checkbox">启用 AI 调用</label><label>API 地址<input name="base_url" type="url" maxlength="500" placeholder="https://api.example.com/v1"></label><label>调用协议<select name="api_protocol"><option value="chat">Chat Completions（兼容模式）</option><option value="responses">Responses（启用联网搜索）</option></select></label><label>Model<input name="model" maxlength="200" placeholder="模型名称"></label><label>API Key<input name="api_key" type="password" autocomplete="new-password" maxlength="4096" placeholder="留空保留已保存的 Key"><small id="wbKeyHint"></small></label><label class="workbench-check"><input name="clear_key" type="checkbox">清除已保存的 Key</label><div class="workbench-form-actions"><button class="primary-button" type="submit">保存解析配置</button><button class="secondary-button" type="button" id="wbTestParser">测试已保存的 AI 配置</button></div></form><p class="muted workbench-hint">自动解析直接读取网页；AI解析只发送题目网址，所配置服务需支持联网；CPA/Codex 可选择 Responses 协议显式启用联网工具。已有题目不会重复解析。测试会发送一次示例题目请求。</p>
     <h3>洛谷提交记录查询</h3><form id="wbLuoguQueryForm" class="workbench-form"><label>全站查询 Cookie<input name="cookie" type="password" autocomplete="new-password" maxlength="8192" placeholder="_uid=…; __client_id=…"><small id="wbLuoguCookieHint"></small></label><label class="workbench-check"><input name="clear_cookie" type="checkbox">清除查询 Cookie</label><div><button class="primary-button" type="submit">保存查询配置</button></div></form><p class="muted">统一用于查询成员的公开提交时间，加密保存；受隐私保护的记录不保证可查询。成员无需填写 Cookie。</p>
@@ -26,7 +27,7 @@ document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop" id="w
 function initWorkbench(me) {
   workbenchProfile = me;
   workbench$('#workbenchDescription').textContent = me.site_admin ? '管理题目解析、举报与团队配置。' : '处理当前管理团队的举报与题名。';
-  ['wbAccountsSection','wbParserSection','wbCreateSection','wbTeamsSection','wbUpdateBackupSection','wbPasswordSection'].forEach(id => { workbench$('#'+id).hidden = !me.site_admin; });
+  ['wbAccountsSection','wbCosmeticsSection','wbParserSection','wbCreateSection','wbTeamsSection','wbUpdateBackupSection','wbPasswordSection'].forEach(id => { workbench$('#'+id).hidden = !me.site_admin; });
   if (!me.can_manage_current) workbench$('#wbPendingSection').hidden = true;
   workbench$('#wbManagedScope').hidden = me.site_admin || !me.is_team_manager;
   if (me.is_team_manager && !me.site_admin) {
@@ -419,6 +420,7 @@ async function loadDispatchInbox(){
   const nav = workbench$('#wbQuickNav');
   const entries = [
     ['wbAccountsSection','全局账号','<circle cx="12" cy="8" r="4"/><path d="M4 21v-3a8 8 0 0116 0v3"/>'],
+    ['wbCosmeticsSection','装扮管理','<path d="M12 3l9 9-9 9-9-9zM8 12h8M12 8v8"/>'],
     ['wbDispatchSection', '商品派发', '<path d="M3 7h18v14H3zM3 7l9-5 9 5M12 2v19"/>'],
     ['wbReportsSection', '举报处理', '<path d="M12 3l9 4v5c0 5-9 9-9 9s-9-4-9-9V7zM12 8v5M12 16h.01"/>'],
     ['wbPendingSection', '题名待办', '<path d="M4 5h16v14H4zM8 9h8M8 13h5"/>'],
@@ -472,3 +474,5 @@ async function loadDispatchInbox(){
   }
   sync();
 })();
+
+workbench$('#wbOpenCosmetics').onclick=()=>window.CosmeticStudio.open();

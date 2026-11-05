@@ -28,6 +28,14 @@ This project was born out of the need to make it easier to compile statistics on
 
 ![提交成功](docs/screenshots/submission-success.png)
 
+## 通用主题、电子徽章与头像框
+
+管理员可在管理工作台的“装扮管理”中上传图片、编辑深浅色色板和预览，也可上传包含 `theme.json` 与素材的主题包。资源保存后在商店选择“装扮”商品，组合主题、徽章、头像框并逐项设置有效天数；不需要为每个新主题修改代码或提交 PR。
+
+各项独立到期，有限期续购从原到期时间继续累加；已有永久装扮保持永久，主题到期不影响仍有效的徽章和头像框。资源和购买均记录版本，编辑商品不改写历史购买。原商品、佩戴和赠品继续兼容。
+
+主题包结构、通用接口、素材规范及迁移说明见 [通用装扮与主题包 v1](docs/cosmetic-packages.md)，配置模板见 [theme-package-v1.json](static/cosmetics/theme-package-v1.json)。更新需迁移至 `0067_purchase_badge_snapshot` 并收集静态资源。
+
 ## 本地启动
 
 1. 安装 Docker Desktop，并确保代理可以拉取 Docker Hub 镜像。

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "name": "示例主题套装",
+  "assets": [
+    {
+      "kind": "theme", "key": "example-theme", "name": "示例主题",
+      "icon": "badge.png", "background": "background.webp", "poster": "background.webp",
+      "duration_days": 30,
+      "palettes": {"light": {"accent": "#bb788c"}, "dark": {"accent": "#dda3b5"}}
+    },
+    {"kind": "badge", "key": "example-badge", "name": "示例徽章", "icon": "badge.png", "duration_days": 0},
+    {"kind": "frame", "key": "example-frame", "name": "示例头像框", "icon": "frame.png", "duration_days": 90, "geometry": {"scale": 1.25, "x": -0.125, "y": -0.225}}
+  ],
+  "components": [
+    {"kind": "theme", "key": "example-theme", "days": 30},
+    {"kind": "badge", "key": "example-badge", "days": 0},
+    {"kind": "frame", "key": "example-frame", "days": 90}
+  ]
+}

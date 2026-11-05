@@ -91,6 +91,11 @@ html[data-special-theme=taffy]{--site-canvas-background:transparent}
 
 /* The frame wraps the existing square avatar; its image load lifecycle stays unchanged. */
 .avatar-frame-wrap{position:relative;display:inline-flex;flex:none;overflow:visible;vertical-align:middle;line-height:0}
-.avatar-frame-wrap>img.avatar-frame-art{position:absolute!important;width:125%!important;height:125%!important;left:-12.5%!important;top:-22.5%!important;max-width:none!important;border:0!important;border-radius:0!important;object-fit:contain!important;pointer-events:none;z-index:2;box-shadow:none!important;background:transparent!important}
+.avatar-frame-wrap>img.avatar-frame-art{position:absolute!important;width:var(--frame-size,125%)!important;height:var(--frame-size,125%)!important;left:var(--frame-x,-12.5%)!important;top:var(--frame-y,-22.5%)!important;max-width:none!important;border:0!important;border-radius:0!important;object-fit:contain!important;pointer-events:none;z-index:2;box-shadow:none!important;background:transparent!important}
 #frameWardrobe .title-wear-choice{gap:16px;padding:18px}
 #frameWardrobe .cosmetic-demo-avatar{width:42px;height:42px;line-height:42px;text-align:center}
+
+html[data-special-theme]{--site-canvas-background:transparent}
+html[data-special-theme] body::before,html[data-special-theme][data-site-mode=dark] body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;background:linear-gradient(color-mix(in srgb,var(--site-page) 68%,transparent),color-mix(in srgb,var(--site-page) 84%,transparent)),var(--site-cosmetic-background,none) center top/cover}
+html[data-special-theme] .app-shell{position:relative;z-index:1}
+html[data-special-theme] body :is(.app-shell,.main-content,#dashboardView,#settingsView){background:transparent!important}

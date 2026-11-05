@@ -565,6 +565,7 @@ class ShopItem(models.Model):
     cosmetic_key = models.CharField(max_length=40, blank=True)
     cosmetic_duration_days = models.PositiveIntegerField(default=0)
     gift_badge_key = models.CharField(max_length=40, blank=True)
+    cosmetic_bundle = models.JSONField(default=list, blank=True)
     card_source = models.CharField(max_length=16, default='inventory')
     allow_multiple_purchase = models.BooleanField(default=False, verbose_name='允许单次多购')
     encrypted_card_api = models.TextField(blank=True)
@@ -591,6 +592,7 @@ class Purchase(models.Model):
     total_price = models.PositiveIntegerField(verbose_name="总价")
     cosmetic_duration_days = models.PositiveIntegerField(default=0)
     cosmetic_expires_at = models.DateTimeField(null=True, blank=True)
+    cosmetic_snapshot = models.JSONField(default=list, blank=True)
     purchased_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -641,15 +643,30 @@ class CosmeticGrant(models.Model):
     key = models.CharField(max_length=40)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(null=True, blank=True)
+    definition = models.JSONField(default=dict, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['inventory','kind','key'],name='unique_inventory_cosmetic')]
+
+
+class CosmeticAsset(models.Model):
+    key = models.CharField(max_length=40)
+    kind = models.CharField(max_length=10)
+    name = models.CharField(max_length=100)
+    definition = models.JSONField(default=dict)
+    revision = models.PositiveIntegerField(default=1)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['kind','key'],name='unique_cosmetic_asset_kind_key')]
 
 
 class PurchaseBadgeGrant(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='purchase_badges')
     purchase = models.ForeignKey(Purchase, on_delete=models.CASCADE, related_name='gift_badges')
     key = models.CharField(max_length=40)
+    definition = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

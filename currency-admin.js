@@ -271,7 +271,7 @@ const CurrencyAdminModule = (() => {
     container.innerHTML = `
       <div class="shop-management-panel">
         <div class="panel-header">
-          <h3>RBC商店管理</h3>
+          <h3>RBC商店管理</h3><button type="button" id="manageCosmetics" class="secondary-button">装扮管理 / 主题包</button>
           <button type="button" id="addShopItem" class="primary-button">+ 添加商品</button>
         </div>
 
@@ -293,7 +293,7 @@ const CurrencyAdminModule = (() => {
                   <td>${escape(item.name)}</td>
                   <td>${item.price} RBC</td>
                   <td>${item.stock === -1 ? '无限' : item.stock}</td>
-                  <td>${({general:'普通商品',makeup_ticket:'补签券',consumable:'消耗品',redeem_code:'核销类',physical:'实物类',title:'称号',badge:'徽章',theme:'特殊主题'})[item.item_type] || escape(item.item_type)}</td>
+                  <td>${({general:'普通商品',makeup_ticket:'补签券',consumable:'消耗品',redeem_code:'核销类',physical:'实物类',title:'称号',badge:'徽章',theme:'主题',frame:'头像框',cosmetic:'装扮套装'})[item.item_type] || escape(item.item_type)}</td>
                   <td>${item.is_active ? '上架' : '下架'}</td>
                   <td>
                     <button type="button" class="toggle-item-btn secondary-button" data-item-id="${item.id}" data-active="${item.is_active}">${item.is_active?'下架':'上架'}</button>
@@ -308,6 +308,7 @@ const CurrencyAdminModule = (() => {
       </div>
     `;
 
+    container.querySelector("#manageCosmetics").onclick=()=>window.CosmeticStudio.open();
     // Attach handlers
     container.querySelector("#addShopItem").addEventListener("click", () => showItemEditModal());
 
@@ -370,14 +371,9 @@ const CurrencyAdminModule = (() => {
           <div class="form-group">
             <label>商品类型</label>
             <select id="itemType">
-              <option value="general" ${item?.item_type === 'general' ? 'selected' : ''}>普通商品</option>
-              <option value="makeup_ticket" ${item?.item_type === 'makeup_ticket' ? 'selected' : ''}>补签券</option>
-              <option value="consumable" ${item?.item_type === 'consumable' ? 'selected' : ''}>消耗品</option>
-              <option value="redeem_code" ${item?.item_type === 'redeem_code' ? 'selected' : ''}>核销类（卡密）</option>
-              <option value="physical" ${item?.item_type === 'physical' ? 'selected' : ''}>实物类</option>
-              <option value="theme" ${item?.item_type === 'theme' ? 'selected' : ''}>特殊主题（含附赠徽章）</option>
-              <option value="badge" ${item?.item_type === 'badge' ? 'selected' : ''}>独立徽章</option>
-              <option value="title" ${item?.item_type === 'title' ? 'selected' : ''}>称号（全局通用）</option>
+              <optgroup label="装扮"><option value="cosmetic" ${item?.item_type==='cosmetic'?'selected':''}>主题 / 徽章 / 头像框 / 自选套装</option><option value="title" ${item?.item_type==='title'?'selected':''}>称号</option>${['theme','badge','frame'].includes(item?.item_type)?`<option value="${item.item_type}" selected>原有${({theme:'主题',badge:'徽章',frame:'头像框'})[item.item_type]}商品</option>`:''}</optgroup>
+              <optgroup label="实物与核销"><option value="physical" ${item?.item_type==='physical'?'selected':''}>实物（人工派发）</option><option value="redeem_code" ${item?.item_type==='redeem_code'?'selected':''}>核销卡密（库存 / API / Pro）</option></optgroup>
+              <optgroup label="功能道具"><option value="makeup_ticket" ${item?.item_type==='makeup_ticket'?'selected':''}>补签券</option><option value="consumable" ${item?.item_type==='consumable'?'selected':''}>消耗品</option><option value="general" ${!item||item.item_type==='general'?'selected':''}>普通商品</option></optgroup>
             </select>
           </div>
           <div class="form-group" id="itemGiftBadgeField" hidden><label for="itemGiftBadge">赠送永久徽章</label><select id="itemGiftBadge"><option value="">不赠送</option><option value="rbc-pendant" ${item?.gift_badge_key==='rbc-pendant'?'selected':''}>RBC 挂坠纪念徽章</option></select></div>
@@ -421,9 +417,20 @@ const CurrencyAdminModule = (() => {
     `;
 
     document.body.appendChild(modal);
+    window.CosmeticStudio.mountShop(modal,item);
     const updateTerm=()=>{modal.querySelector('#cosmeticDurationFields').hidden=!['title','theme'].includes(modal.querySelector('#itemType').value);modal.querySelector('#cosmeticDaysField').hidden=modal.querySelector('#cosmeticTermMode').value!=='days';};
     modal.querySelector('#itemType').addEventListener('change',updateTerm);modal.querySelector('#cosmeticTermMode').addEventListener('change',updateTerm);updateTerm();
-    const updateCosmeticFields=()=>{const kind=modal.querySelector('#itemType').value;modal.querySelector('#shopCosmeticFields').hidden=!['badge','theme'].includes(kind);const select=modal.querySelector('#shopCosmeticKey');const selected=select.value||item?.cosmetic_key||'taffy';select.innerHTML=kind==='badge'?'<option value="taffy">小塔菲 · 原版</option>':'<option value="taffy">塔菲 · 小菲滚轴</option>';select.value='taffy';modal.querySelector('#shopCosmeticHint').textContent=kind==='theme'?'塔菲主题 · 附赠小塔菲徽章与护目镜头像框':'独立徽章';};
+    const updateCosmeticFields=()=>{
+      const kind=modal.querySelector('#itemType').value;modal.querySelector('#shopCosmeticFields').hidden=!['badge','theme','frame'].includes(kind);
+      const select=modal.querySelector('#shopCosmeticKey'),current=select.value||item?.cosmetic_key||'';
+      const choices=(modal.assetCatalog||[]).filter(a=>a.kind===kind);
+      if(choices.length){select.innerHTML=choices.map(a=>`<option value="${escape(a.key)}">${escape(a.name)}</option>`).join('');select.value=choices.some(a=>a.key===current)?current:choices[0].key;}
+      modal.querySelector('#shopCosmeticHint').textContent='选择资源库中的装扮';
+      const resource=choices.find(a=>a.key===select.value),picture=modal.querySelector('.cosmetic-stock-preview img');
+      const image=resource?.poster||resource?.icon;picture.hidden=!window.CosmeticMedia.safe(image);if(!picture.hidden){picture.src=image;picture.alt=resource.name;}
+      select.onchange=updateCosmeticFields;
+      const gift=modal.querySelector('#itemGiftBadge');if(modal.assetCatalog){const value=gift.value;gift.innerHTML='<option value="">不赠送</option>'+modal.assetCatalog.filter(a=>a.kind==='badge'&&a.is_active).map(a=>`<option value="${escape(a.key)}">${escape(a.name)}</option>`).join('');gift.value=value;}
+    };
     modal.querySelector('#itemType').addEventListener('change',updateCosmeticFields);updateCosmeticFields();
     const titleDefinition=()=>({text:modal.querySelector('#shopTitleText').value.trim(),color:modal.querySelector('#shopTitleColor').value,font:modal.querySelector('#shopTitleFont').value,style:modal.querySelector('#shopTitleStyle').value});
     const updateTitlePreview=()=>{modal.querySelector('#shopTitleFields').hidden=modal.querySelector('#itemType').value!=='title';modal.querySelector('#shopTitlePreview').innerHTML=window.MemberTitles?.markup(titleDefinition())||'<span class="muted">预览称号</span>';};
@@ -476,9 +483,10 @@ const CurrencyAdminModule = (() => {
       };
 
       if(!Number.isInteger(itemData.purchase_limit)||itemData.purchase_limit<0||itemData.purchase_limit>2147483647){alert('限购数量必须为0（不限购）或正整数');return;}
-      itemData.cosmetic_duration_days=['title','theme'].includes(itemData.item_type)&&modal.querySelector('#cosmeticTermMode').value==='days'?Number(modal.querySelector('#cosmeticDays').value):0;
-      if(!Number.isInteger(itemData.cosmetic_duration_days)||itemData.cosmetic_duration_days<0||itemData.cosmetic_duration_days>36500||(modal.querySelector('#cosmeticTermMode').value==='days'&&['title','theme'].includes(itemData.item_type)&&itemData.cosmetic_duration_days===0)){alert('请填写 1–36500 天的整数时长');return;}
-      if(['badge','theme'].includes(itemData.item_type))itemData.cosmetic_key=modal.querySelector('#shopCosmeticKey').value;
+      itemData.cosmetic_duration_days=['title','theme','badge','frame'].includes(itemData.item_type)&&modal.querySelector('#cosmeticTermMode').value==='days'?Number(modal.querySelector('#cosmeticDays').value):0;
+      if(!Number.isInteger(itemData.cosmetic_duration_days)||itemData.cosmetic_duration_days<0||itemData.cosmetic_duration_days>36500||(modal.querySelector('#cosmeticTermMode').value==='days'&&['title','theme','badge','frame'].includes(itemData.item_type)&&itemData.cosmetic_duration_days===0)){alert('请填写 1–36500 天的整数时长');return;}
+      if(['badge','theme','frame'].includes(itemData.item_type))itemData.cosmetic_key=modal.querySelector('#shopCosmeticKey').value;
+      if(itemData.item_type==='cosmetic'){itemData.cosmetic_bundle=modal.cosmeticComponents;if(!itemData.cosmetic_bundle?.length){alert('请选择至少一项装扮资源');return;}}
       if(itemData.item_type==='title'){itemData.title_definition=titleDefinition();if(!itemData.title_definition.text){alert('请填写称号文字');return;}}
       if(itemData.item_type==='redeem_code'){
         itemData.card_source=modal.querySelector('#itemCardSource').value;

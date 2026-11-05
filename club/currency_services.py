@@ -271,7 +271,7 @@ def purchase_item(member, item_id, quantity=1, request_id=None):
         from .shop_titles import ensure_available
         ensure_available(member.user_id, item, quantity)
 
-    if item.item_type in ('badge','theme'):
+    if item.item_type in ('badge','theme','frame','cosmetic'):
         from .cosmetics import ensure_available
         ensure_available(member.user_id,item,quantity)
 
@@ -310,7 +310,7 @@ def purchase_item(member, item_id, quantity=1, request_id=None):
     if item.item_type == 'title':
         from .shop_titles import award
         award(member, item, quantity,purchase)
-    if item.item_type in ('badge','theme'):
+    if item.item_type in ('badge','theme','frame','cosmetic'):
         from .cosmetics import award
         award(member,item,quantity,purchase)
     create_fulfillments(purchase, codes)

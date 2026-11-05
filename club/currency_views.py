@@ -1,5 +1,5 @@
 from .cosmetic_terms import active_term
-from .cosmetics import product_data,gift_badge_data
+from .cosmetics import product_data,gift_badge_data,catalog_scope
 """
 Currency system views and API endpoints
 """
@@ -250,6 +250,7 @@ def api_shop_item_icon(request, item_id):
 
 @api_login_required
 @require_http_methods(["GET"])
+@catalog_scope
 def api_shop_items(request):
     """Get shop items"""
     member = membership_for(request)
@@ -273,7 +274,7 @@ def api_shop_items(request):
         purchased[item_id] = max(0,purchased.get(item_id,0)-row['total'])
 
     from .cosmetics import owned_details,product_data
-    owned_cosmetics = {kind:owned_details(member.user_id,kind) for kind in ('badge','theme')}
+    owned_cosmetics = {kind:owned_details(member.user_id,kind) for kind in ('badge','theme','frame')}
     def owns_cosmetic(item):
         return item.item_type in owned_cosmetics and item.cosmetic_key in owned_cosmetics[item.item_type]
     from .models import OwnedTitle
@@ -293,7 +294,19 @@ def api_shop_items(request):
         elif owns_title(item):end=next(row[2] for row in owned if row[0]==item.pk or row[1]==item.title_definition.get('text'))
         else:return None
         return end.isoformat() if end else None
+    from .cosmetics import components,ensure_available
+    def component_data(item):
+        if item.item_type not in ('theme','badge','frame','cosmetic'):return []
+        try:return components(item)
+        except ValueError:return []
+    def appearance_block(item):
+        if item.item_type in ('theme','badge','frame','cosmetic'):
+            try:ensure_available(member.user_id,item,1)
+            except ValueError as exc:return str(exc)
+        if owns_title(item) and owned_expiry(item) is None:return '已永久拥有该称号'
+        return ''
     data = [{
+        "components":component_data(item),
         "expires_at":owned_expiry(item),
         "id": item.id,
         "name": item.name,
@@ -310,8 +323,8 @@ def api_shop_items(request):
         "purchase_limit": item.purchase_limit if item.item_type == 'physical' else 0,
         "purchased_quantity": purchased.get(item.pk, 0),
         "purchase_limit_reached": bool(item.item_type == 'physical' and item.purchase_limit and purchased.get(item.pk, 0) >= item.purchase_limit),
-        "purchase_blocked": (item.item_type == 'physical' and retired) or owns_title(item) or owns_cosmetic(item),
-        "purchase_block_reason": '已拥有该外观' if owns_cosmetic(item) else '已拥有该称号，可在个人信息中佩戴' if owns_title(item) else '大三+用户不可购买实物类商品' if item.item_type == 'physical' and retired else '',
+        "purchase_blocked": (item.item_type == 'physical' and retired) or bool(appearance_block(item)),
+        "purchase_block_reason": appearance_block(item) or ('大三+用户不可购买实物类商品' if item.item_type == 'physical' and retired else ''),
     } for item in items]
 
     return JsonResponse({"items": data})
@@ -358,6 +371,7 @@ def inventory_expiry(inv):
 
 @api_login_required
 @require_http_methods(["GET"])
+@catalog_scope
 def api_user_inventory(request):
     """Get user inventory"""
     member = membership_for(request)
@@ -376,7 +390,7 @@ def api_user_inventory(request):
         "item_name": inv.item.name,
         "description": inv.item.description,
         "item_type": inv.item.item_type,
-        "cosmetic_key":inv.item.cosmetic_key,"cosmetic":product_data(inv.item),"expires_at":inventory_expiry(inv),
+        "cosmetic_key":inv.item.cosmetic_key,"cosmetic":product_data(inv.item),"components":[{**g.definition,"expires_at":g.expires_at.isoformat() if g.expires_at else None} for g in inv.cosmetic_grants.all() if g.definition],"expires_at":inventory_expiry(inv),
         "title_definition": getattr(inv,'owned_title',None).definition if inv.item.item_type == 'title' and getattr(inv,'owned_title',None) else {},
         "quantity": inv.quantity,
         "can_use": inv.item.item_type == 'consumable',
@@ -508,7 +522,7 @@ def api_admin_shop_items(request):
     if request.method=='GET':
         from .shop_fulfillment import admin_card_data
         return JsonResponse({'items':[{**admin_card_data(i),'id':i.pk,'name':i.name,'description':i.description,'price':i.price,
-            'stock':i.stock,'is_active':i.is_active,'item_type':i.item_type,'title_definition':i.title_definition,'cosmetic_key':i.cosmetic_key,'cosmetic_duration_days':i.cosmetic_duration_days,'gift_badge_key':i.gift_badge_key,'cosmetic':product_data(i),'purchase_limit':i.purchase_limit,'icon':shop_item_icon_url(i)} for i in ShopItem.objects.filter(team=member.team)]})
+            'stock':i.stock,'is_active':i.is_active,'item_type':i.item_type,'title_definition':i.title_definition,'cosmetic_key':i.cosmetic_key,'cosmetic_duration_days':i.cosmetic_duration_days,'gift_badge_key':i.gift_badge_key,'cosmetic':product_data(i),'cosmetic_bundle':i.cosmetic_bundle,'purchase_limit':i.purchase_limit,'icon':shop_item_icon_url(i)} for i in ShopItem.objects.filter(team=member.team)]})
     data=body(request)
     if request.method=='POST':item=ShopItem(team=member.team,price=1)
     else:
@@ -530,17 +544,18 @@ def api_admin_shop_items(request):
     if type(values['stock']) is not int or not -1<=values['stock']<=2147483647:return api_error('库存必须为-1（无限）或非负整数')
     if type(values['is_active']) is not bool:return api_error('上架状态格式无效')
     gift=values['gift_badge_key']
-    if not isinstance(gift,str) or gift not in ('','rbc-pendant'):return api_error('赠品徽章无效')
+    from .cosmetics import catalog
+    if not isinstance(gift,str) or gift and gift not in catalog('badge'):return api_error('赠品徽章无效')
     if values['item_type']!='physical':
         if data.get('gift_badge_key'):return api_error('仅实物类商品可配置该赠品')
         values['gift_badge_key']=''
     days=values['cosmetic_duration_days']
     if type(days) is not int or not 0<=days<=36500:return api_error('有效时长需为 0（永久）或 1–36500 天')
-    if values['item_type'] not in ('title','theme'):
-        if data.get('cosmetic_duration_days',0):return api_error('仅主题与称号支持有效时长')
+    if values['item_type'] not in ('title','theme','badge','frame','cosmetic'):
+        if data.get('cosmetic_duration_days',0):return api_error('该商品类型不支持装扮有效时长')
         values['cosmetic_duration_days']=0
 
-    if values['item_type'] not in ['general','makeup_ticket','consumable','redeem_code','physical','title','badge','theme']:return api_error('商品类型无效')
+    if values['item_type'] not in ['general','makeup_ticket','consumable','redeem_code','physical','title','badge','theme','frame','cosmetic']:return api_error('商品类型无效')
     if type(values['purchase_limit']) is not int or not 0<=values['purchase_limit']<=2147483647:return api_error('限购数量必须为0（不限购）或正整数')
     if values['item_type'] != 'physical':
         if data.get('purchase_limit', 0):return api_error('仅实物类商品支持限购数量')
@@ -562,13 +577,18 @@ def api_admin_shop_items(request):
         except ValueError as exc:
             return api_error(str(exc))
     item.title_definition = title_definition
-    if values['item_type'] in ('badge','theme'):
-        from .cosmetics import CATALOG
+    if values['item_type'] in ('badge','theme','frame'):
+        from .cosmetics import catalog
         key=data.get('cosmetic_key',item.cosmetic_key)
-        if not isinstance(key,str) or key not in CATALOG[values['item_type']]:return api_error('请选择支持的外观')
+        if not isinstance(key,str) or key not in catalog(values['item_type']):return api_error('请选择支持的外观')
         if item.pk and key!=item.cosmetic_key and item.purchases.exists():return api_error('已有获得记录的商品不能替换外观，请新增商品',409)
         item.cosmetic_key=key
     else:item.cosmetic_key=''
+    from .cosmetic_assets import validate_components
+    if values['item_type']=='cosmetic':
+        try:item.cosmetic_bundle=validate_components(data.get('cosmetic_bundle',item.cosmetic_bundle))
+        except ValueError as exc:return api_error(str(exc))
+    else:item.cosmetic_bundle=[]
     icon=None
     if data.get('icon'):
         try:icon=decode_shop_image(data['icon'])
