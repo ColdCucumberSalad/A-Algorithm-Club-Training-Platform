@@ -44,10 +44,10 @@ test('a leaderboard request started before deletion cannot overwrite the new sol
 test('rejected corrections bypass overview day locks and never request a makeup ticket',async()=>{
   const entries=new Map();
   const $=key=>{if(!entries.has(key))entries.set(key,{dataset:{}});return entries.get(key);};
-  const context={$,pulseToday:'2026-11-01',selectedPulseDate:'2026-10-30',
+  const context={submissionPending:false,$,pulseToday:'2026-11-01',selectedPulseDate:'2026-10-30',
     pulseDays:[{date:'2026-10-30',submitted:true,isMakeup:false,canSubmit:false,weekId:2}],
     adminTestMode:false,currentSubmissionWeekId:3,completeMakeup:async()=>{throw Error('must not spend ticket');},
-    loadDailyChallenges(){},resetSubmissionForm(){},showSubmissionEditor(){},editingSubmission:null,resubmitting:null};
+    showToast(){},loadDailyChallenges(){},resetSubmissionForm(){},showSubmissionEditor(){},editingSubmission:null,resubmitting:null};
   prepare(context);vm.createContext(context);
   vm.runInContext(source.slice(source.indexOf('async function openModal('),source.indexOf('\nlet submissionScrollState')),context);
   assert.equal(await vm.runInContext("openModal(false,{record_date:'2026-10-30',week_id:2})",context),true);
@@ -102,3 +102,11 @@ test('normal editing uses can_edit while rejected resubmission keeps its separat
     }
   }
 });
+
+ test('unavailable and missing days disable every submission entrance with a reason',()=>{
+  const entry={classList:{toggle(){}}};
+  const context={entry,pulseToday:'2026-11-05',adminTestMode:false};
+  prepare(context);vm.createContext(context);
+  vm.runInContext(source.slice(source.indexOf('function updateSubmissionEntry('),source.indexOf('\nfunction selectPulseDay'))+"\nupdateSubmissionEntry(entry,undefined,pulseToday);",context);
+  assert.equal(entry.disabled,true);assert.ok(entry.title);
+ });

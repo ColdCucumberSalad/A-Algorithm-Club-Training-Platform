@@ -14,7 +14,7 @@ function fixture(storage = new Map()) {
   };
   $('#submissionForm').dataset = {weekId: '4', recordDate: '2026-11-04'};
   $('#submissionCodeLanguage').value = 'text';
-  const context = vm.createContext({$, localStorage: {
+  const context = vm.createContext({$, submissionPending:false, submissionSession:1, lockSubmissionForm:()=>()=>{}, localStorage: {
     getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key),
   }, window: {addEventListener: (type, fn) => { events[type] = fn; }},
   document: {visibilityState: 'visible', addEventListener: (type, fn) => { events[type] = fn; }},

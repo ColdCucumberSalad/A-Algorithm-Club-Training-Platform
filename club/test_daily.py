@@ -32,6 +32,26 @@ class DailyRecordsTests(TestCase):
         with patch('club.problem_parser.get_problem', return_value=self.problem):
             return self.client.post('/api/submissions', payload)
 
+    def test_today_mode_ignores_stale_date_and_week(self):
+        today = timezone.localdate()
+        old_day = today - timedelta(days=8)
+        response = self.submit(old_day, submission_mode='today')
+        self.assertEqual(response.status_code, 201, response.content)
+        item = Submission.objects.get(member=self.author_member)
+        self.assertEqual(item.record_date, today)
+        self.assertLessEqual(item.week.starts_at, timezone.now())
+        self.assertGreater(item.week.ends_at, timezone.now())
+        self.assertFalse(CheckinRecord.objects.get(member=self.author_member).is_makeup)
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.quantity, 3)
+
+    def test_today_mode_rejects_closed_current_week(self):
+        today = timezone.localdate()
+        self.semester.weeks.filter(starts_at__lte=timezone.now(), ends_at__gt=timezone.now()).update(is_closed=True)
+        response = self.submit(today, submission_mode='today')
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertFalse(Submission.objects.filter(member=self.author_member).exists())
+
     def test_opening_only_spends_ticket_and_retry_is_idempotent(self):
         first = self.makeup(self.day.isoformat())
         self.assertEqual(first.status_code,200,first.content)
