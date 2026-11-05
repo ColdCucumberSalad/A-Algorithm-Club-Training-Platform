@@ -5,7 +5,7 @@ import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
-from site_updater import extract, validate_schedule, verify_source, Updater, write
+from site_updater import extract, validate_schedule, verify_source, Updater, write, source_urls, apt_urls, apt_mirror_proxy
 import hashlib
 import urllib.error
 from contextlib import contextmanager, ExitStack
@@ -13,6 +13,32 @@ from unittest.mock import MagicMock
 
 
 class UpdateSafetyTests(unittest.TestCase):
+    def test_mirrors_precede_official_source_fallbacks(self):
+        urls = source_urls('a' * 40)
+        self.assertTrue(urls[0].startswith('https://gh-proxy.com/'))
+        self.assertTrue(urls[1].startswith('https://ghfast.top/'))
+        self.assertTrue(urls[2].startswith('https://codeload.github.com/'))
+        self.assertTrue(all('a' * 40 in url for url in urls))
+
+    def test_build_proxy_restricts_hosts_and_falls_back_without_partial_responses(self):
+        from urllib.request import build_opener, ProxyHandler
+        original = 'http://deb.debian.org/debian/dists/trixie/InRelease'
+        self.assertEqual(apt_urls(original)[-1], original)
+        for url in ('http://127.0.0.1/private', 'http://deb.debian.org.evil/debian/test',
+                    'http://deb.debian.org:8000/debian/test', 'http://deb.debian.org/private'):
+            with self.assertRaises(ValueError):
+                apt_urls(url)
+        response = MagicMock()
+        response.__enter__.return_value.status = 200
+        response.__enter__.return_value.read.return_value = b'signed-metadata'
+        with apt_mirror_proxy() as proxy:
+            opener = build_opener(ProxyHandler({'http': proxy}))
+            with patch('site_updater.urllib.request.urlopen', side_effect=[urllib.error.URLError('mirror down'), response]) as upstream:
+                with opener.open(original, timeout=5) as result:
+                    self.assertEqual(result.read(), b'signed-metadata')
+                self.assertEqual(upstream.call_args_list[0].args[0], apt_urls(original)[0])
+                self.assertEqual(upstream.call_args_list[1].args[0], apt_urls(original)[1])
+
     @contextmanager
     def recovery_fixture(self, failure, stop_fails=False):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as patches:

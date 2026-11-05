@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Host-only release coordinator. Never mount the Docker socket into the website."""
 import argparse
+from contextlib import contextmanager
 import datetime as dt
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -14,6 +16,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 import uuid
 from zoneinfo import ZoneInfo
 
@@ -21,6 +24,65 @@ REPOSITORY = 'Monkey181x/A-Algorithm-Club-Training-Platform'
 BRANCH = 'main'
 DEFAULT_SCHEDULE = {'mode': 'auto', 'time': '04:00'}
 BUSY = ('running', 'queued')
+
+
+def source_urls(revision):
+    return [
+        'https://gh-proxy.com/https://github.com/' + REPOSITORY + '/archive/' + revision + '.tar.gz',
+        'https://ghfast.top/https://github.com/' + REPOSITORY + '/archive/' + revision + '.tar.gz',
+        'https://codeload.github.com/' + REPOSITORY + '/tar.gz/' + revision,
+        'https://api.github.com/repos/' + REPOSITORY + '/tarball/' + revision,
+    ]
+
+
+def apt_urls(url):
+    parsed = urllib.parse.urlsplit(url)
+    if (parsed.scheme != 'http' or parsed.netloc not in ('deb.debian.org', 'security.debian.org')
+            or parsed.query or parsed.fragment or not parsed.path.startswith(('/debian/', '/debian-security/'))):
+        raise ValueError('不支持的系统依赖地址')
+    return ['https://mirrors.aliyun.com' + parsed.path,
+            'https://mirrors.cloud.tencent.com' + parsed.path, url]
+
+
+@contextmanager
+def apt_mirror_proxy():
+    # A build-only, loopback proxy keeps the release Dockerfile intact. APT
+    # still verifies Debian signatures and package hashes. Docker's special
+    # proxy build argument is not persisted in the application image.
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            try:
+                urls = apt_urls(self.path)
+            except ValueError:
+                self.send_error(403)
+                return
+            for url in urls:
+                try:
+                    with urllib.request.urlopen(url, timeout=45) as response:
+                        data = response.read(64 * 1024 * 1024 + 1)
+                        if response.status != 200 or len(data) > 64 * 1024 * 1024:
+                            continue
+                    self.send_response(200)
+                    self.send_header('Content-Length', str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except (OSError, urllib.error.URLError):
+                    continue
+            self.send_error(502)
+
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield 'http://127.0.0.1:' + str(server.server_port)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def read(path, default=None):
@@ -137,8 +199,10 @@ class Updater:
     def build_release(self, source, image, revision):
         # The release's Dockerfile owns its base, OS packages, ENV and CMD.
         # Docker's own layer cache can reuse unchanged inputs safely.
-        self.run(['docker', 'build', '--pull', '--label', 'org.opencontainers.image.revision=' + revision,
-                  '-f', str(source / 'Dockerfile'), '-t', image, str(source)], timeout=1200)
+        with apt_mirror_proxy() as proxy:
+            self.run(['docker', 'build', '--pull', '--network', 'host', '--build-arg', 'http_proxy=' + proxy,
+                      '--label', 'org.opencontainers.image.revision=' + revision,
+                      '-f', str(source / 'Dockerfile'), '-t', image, str(source)], timeout=1200)
 
     def refresh_proxy(self):
         services = self.run(self.compose + ['config', '--services']).splitlines()
@@ -322,10 +386,7 @@ class Updater:
             if shutil.disk_usage(self.project).free < 2 * 1024 ** 3:
                 raise RuntimeError('磁盘剩余空间不足，暂不更新')
             self.status(message='正在下载并校验最新源码')
-            urls = ['https://codeload.github.com/' + REPOSITORY + '/tar.gz/' + revision,
-                    'https://api.github.com/repos/' + REPOSITORY + '/tarball/' + revision,
-                    'https://gh-proxy.com/https://github.com/' + REPOSITORY + '/archive/' + revision + '.tar.gz',
-                    'https://ghfast.top/https://github.com/' + REPOSITORY + '/archive/' + revision + '.tar.gz']
+            urls = source_urls(revision)
             archive = release / 'source.tar.gz'
             for url in urls:
                 started = time.monotonic()
