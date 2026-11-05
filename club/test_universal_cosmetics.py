@@ -219,6 +219,44 @@ class UniversalCosmeticTests(TestCase):
         self.assertLessEqual(sum('FROM "club_cosmeticasset"' in q['sql'] for q in queries),3)
         self.assertLessEqual(sum('FROM "club_cosmeticgrant"' in q['sql'] for q in queries),3)
 
+    def test_legacy_permanent_taffy_does_not_make_another_bundle_permanent(self):
+        legacy=ShopItem.objects.create(team=self.team,name='Legacy Taffy',item_type='theme',cosmetic_key='taffy',price=1)
+        start=timezone.now()
+        with patch('django.utils.timezone.now',return_value=start):purchase_item(self.member,legacy.pk)
+        self.asset('badge','new-extra',1)
+        bundle=ShopItem.objects.create(team=self.team,name='One day bundle',item_type='cosmetic',price=1,
+            cosmetic_bundle=[{'kind':'theme','key':'taffy','days':1},{'kind':'badge','key':'taffy','days':1},
+                {'kind':'frame','key':'taffy-goggles','days':1},{'kind':'badge','key':'new-extra','days':1}])
+        with patch('django.utils.timezone.now',return_value=start):purchase_item(self.member,bundle.pk)
+        grant=CosmeticGrant.objects.get(user=self.user,inventory__item=bundle,kind='theme')
+        self.assertEqual(grant.expires_at,start+timedelta(days=1))
+        self.assertTrue(all(g.expires_at==grant.expires_at for g in CosmeticGrant.objects.filter(user=self.user,inventory__item=bundle)))
+        self.assertIsNone(state(self.user)['themes'][0]['expires_at'])
+        with patch('django.utils.timezone.now',return_value=start+timedelta(hours=12)):purchase_item(self.member,bundle.pk)
+        grant.refresh_from_db();self.assertEqual(grant.expires_at,start+timedelta(days=2))
+        original=CosmeticGrant.objects.get(user=self.user,inventory__item=legacy,kind='theme')
+        response=self.post(f'/api/management/teams/{self.team.pk}/members/{self.member.pk}/inventory',
+            {'action':'quantity','item_id':legacy.pk,'inventory_id':original.inventory_id,'quantity':0,'expected_quantity':1})
+        self.assertEqual(response.status_code,200,response.content)
+        self.assertEqual(state(self.user)['themes'][0]['expires_at'],grant.expires_at.isoformat())
+        self.assertTrue(all(row['expires_at']==grant.expires_at.isoformat() for kind in ('themes','badges','frames') for row in state(self.user)[kind]))
+        with patch('django.utils.timezone.now',return_value=start+timedelta(days=3)):
+            self.assertEqual(state(self.user)['themes'],[])
+        snapshot=Purchase.objects.filter(item=bundle).latest('pk').cosmetic_snapshot[0]
+        self.assertEqual(snapshot['expires_at'],grant.expires_at.isoformat())
+        self.assertFalse(snapshot.get('already_permanent',False))
+
+    def test_same_source_keeps_its_existing_permanent_rights_when_adding_components(self):
+        self.asset('badge','source-permanent',0);self.asset('badge','source-extra',1)
+        item=ShopItem.objects.create(team=self.team,name='Same source',item_type='cosmetic',price=1,
+            cosmetic_bundle=[{'kind':'badge','key':'source-permanent','days':0}])
+        purchase_item(self.member,item.pk)
+        item.cosmetic_bundle=[{'kind':'badge','key':'source-permanent','days':1},{'kind':'badge','key':'source-extra','days':1}]
+        item.save(update_fields=['cosmetic_bundle']);purchase_item(self.member,item.pk)
+        grant=CosmeticGrant.objects.get(user=self.user,inventory__item=item,key='source-permanent')
+        self.assertIsNone(grant.expires_at)
+        self.assertTrue(Purchase.objects.filter(item=item).latest('pk').cosmetic_snapshot[0]['already_permanent'])
+
     def test_unlist_inactive_physical_gifts_and_legacy_cosmetics_without_replacing_references(self):
         for kind in ('physical','theme','badge','frame'):
             with self.subTest(item_type=kind):

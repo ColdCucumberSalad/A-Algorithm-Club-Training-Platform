@@ -142,6 +142,7 @@ def award(member,item,quantity,purchase=None):
     prior={kind:owned_records(member.user_id,kind) for kind in {c['kind'] for c in entries}}
     inventory,_=UserInventory.objects.get_or_create(team=item.team,member=member,item=item)
     now=timezone.now()
+    source_prior={(g.kind,g.key):(g.expires_at,g.definition) for g in CosmeticGrant.objects.filter(active_term(now),inventory=inventory)} if inventory.quantity>0 else {}
     if inventory.quantity<=0:
         CosmeticGrant.objects.filter(active_term(now),inventory=inventory).update(expires_at=now)
     inventory.quantity=1;inventory.save(update_fields=['quantity'])
@@ -149,6 +150,10 @@ def award(member,item,quantity,purchase=None):
     for definition in entries:
         key,kind=definition['key'],definition['kind'];days=definition['duration_days']
         previous=prior[kind].get(key)
+        if previous and previous[0] is None:
+            # A permanent entitlement from another purchase must not become a
+            # permanent grant on this independently revocable source.
+            previous=source_prior.get((kind,key))
         if previous and previous[0] is None:
             CosmeticGrant.objects.update_or_create(user_id=member.user_id,inventory=inventory,kind=kind,key=key,defaults={'expires_at':None,'definition':previous[1]})
             snapshots.append({**previous[1],'duration_days':days,'expires_at':None,'already_permanent':True});continue
