@@ -564,6 +564,7 @@ class ShopItem(models.Model):
     title_definition = models.JSONField(default=dict, blank=True, verbose_name='称号外观')
     cosmetic_key = models.CharField(max_length=40, blank=True)
     cosmetic_duration_days = models.PositiveIntegerField(default=0)
+    gift_badge_key = models.CharField(max_length=40, blank=True)
     card_source = models.CharField(max_length=16, default='inventory')
     allow_multiple_purchase = models.BooleanField(default=False, verbose_name='允许单次多购')
     encrypted_card_api = models.TextField(blank=True)
@@ -643,6 +644,16 @@ class CosmeticGrant(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['inventory','kind','key'],name='unique_inventory_cosmetic')]
+
+
+class PurchaseBadgeGrant(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='purchase_badges')
+    purchase = models.ForeignKey(Purchase, on_delete=models.CASCADE, related_name='gift_badges')
+    key = models.CharField(max_length=40)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'key'], name='unique_user_purchase_badge')]
 
 
 class ShopFulfillment(models.Model):

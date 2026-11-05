@@ -380,6 +380,7 @@ const CurrencyAdminModule = (() => {
               <option value="title" ${item?.item_type === 'title' ? 'selected' : ''}>称号（全局通用）</option>
             </select>
           </div>
+          <div class="form-group" id="itemGiftBadgeField" hidden><label for="itemGiftBadge">赠送永久徽章</label><select id="itemGiftBadge"><option value="">不赠送</option><option value="rbc-pendant" ${item?.gift_badge_key==='rbc-pendant'?'selected':''}>RBC 挂坠纪念徽章</option></select></div>
           <div class="form-group" id="itemPurchaseLimitField" hidden>
             <label for="itemPurchaseLimit">限购数量</label>
             <input type="number" id="itemPurchaseLimit" min="0" max="2147483647" step="1" value="${Number(item?.purchase_limit || 0)}" aria-describedby="itemPurchaseLimitHint" />
@@ -429,7 +430,7 @@ const CurrencyAdminModule = (() => {
     modal.querySelector('#shopTitleFields').addEventListener('input',updateTitlePreview);
     modal.querySelector('#shopTitleFields').addEventListener('change',updateTitlePreview);
     modal.querySelector('#itemType').addEventListener('change',updateTitlePreview);updateTitlePreview();
-    const updateLimitField=()=>{modal.querySelector('#itemPurchaseLimitField').hidden=modal.querySelector('#itemType').value!=='physical';};
+    const updateLimitField=()=>{const physical=modal.querySelector('#itemType').value==='physical';modal.querySelector('#itemGiftBadgeField').hidden=!physical;modal.querySelector('#itemPurchaseLimitField').hidden=!physical;};
     modal.querySelector('#itemType').addEventListener('change',updateLimitField);updateLimitField();
     const updateCardFields=()=>{const redeem=modal.querySelector('#itemType').value==='redeem_code';modal.querySelector('#cardSourceFields').hidden=!redeem;const source=modal.querySelector('#itemCardSource').value;modal.querySelector('#cardStockFields').hidden=source!=='inventory';modal.querySelector('#cardApiFields').hidden=source!=='api';modal.querySelector('#cardMultiplePurchaseField').hidden=!redeem||source!=='api';modal.querySelector('#cardProFields').hidden=source!=='pro';};
     modal.querySelector('#itemType').addEventListener('change',updateCardFields);modal.querySelector('#itemCardSource').addEventListener('change',updateCardFields);updateCardFields();
@@ -468,6 +469,7 @@ const CurrencyAdminModule = (() => {
         price: parseInt(document.getElementById("itemPrice").value),
         stock: parseInt(document.getElementById("itemStock").value),
         item_type: document.getElementById("itemType").value,
+        gift_badge_key: modal.querySelector('#itemType').value==='physical'?modal.querySelector('#itemGiftBadge').value:'',
         purchase_limit: document.getElementById('itemType').value==='physical' ? Number(document.getElementById('itemPurchaseLimit').value) : 0,
         is_active: document.getElementById("itemActive").checked,
         allow_multiple_purchase: modal.querySelector('#itemType').value==='redeem_code' && modal.querySelector('#itemCardSource').value==='api' && modal.querySelector('#itemAllowMultiplePurchase').checked,

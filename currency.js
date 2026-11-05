@@ -364,7 +364,7 @@ const CurrencyModule = (() => {
         return false;
       }
       const confirmed = await window.clubDialog.confirm({title:'确认购买', kind:'cart',
-        text:`${item.name} ×${quantity}${['title','theme'].includes(item.item_type)?` · ${item.cosmetic_duration_days?item.cosmetic_duration_days+' 天（购买后起算）':'永久有效'}`:''}${item.allow_multiple_purchase ? `（合为一张可用 ${quantity} 次的卡密）` : ''}\n需支付 ${Number(item.price) * quantity} RBC，当前余额 ${currencyData.balance} RBC。`,
+        text:`${item.name} ×${quantity}${item.gift_badge?' · 附赠永久'+item.gift_badge.name:''}${['title','theme'].includes(item.item_type)?` · ${item.cosmetic_duration_days?item.cosmetic_duration_days+' 天（购买后起算）':'永久有效'}`:''}${item.allow_multiple_purchase ? `（合为一张可用 ${quantity} 次的卡密）` : ''}\n需支付 ${Number(item.price) * quantity} RBC，当前余额 ${currencyData.balance} RBC。`,
         confirmText:'确认购买'});
       if (!confirmed) return false;
       if(!purchaseRequests.has(requestKey)) {
@@ -556,7 +556,7 @@ const CurrencyModule = (() => {
               <div class="shop-item-info">
                 ${item.item_type === 'title' ? `<div class="shop-title-preview">${window.MemberTitles?.markup(item.title_definition)||''}<span class="cosmetic-card-name">你的名字</span></div>` : ''}
                 <h3>${escape(item.name)}</h3>${['badge','theme','frame'].includes(item.item_type) ? `<button type="button" class="secondary-button cosmetic-preview-button" data-preview-cosmetic="${item.id}">${item.item_type==='theme'?(backpack||item.cosmetic_owned?'查看与启用':'预览主题'):(backpack||item.cosmetic_owned?'查看与佩戴':'预览与试戴')}</button>`:''}${item.item_type === 'title' ? `<button type="button" class="secondary-button cosmetic-preview-button" data-preview-title="${item.id}">${backpack||item.title_owned?'查看与佩戴':'预览与试戴'}</button>` : ''}
-                <p>${escape(item.description)}</p>${item.item_type==='theme'?'<small class="stock-info cosmetic-theme-gift"><img src="/static/cosmetics/taffy-original-head.svg" alt="">附赠小塔菲徽章与护目镜头像框</small>':''}${['title','theme','frame','badge'].includes(item.item_type) ? `<small class="stock-info">${backpack?(item.expires_at?(Date.parse(item.expires_at)<=Date.now()?'已过期':'有效至 '+new Date(item.expires_at).toLocaleString('zh-CN')):'永久有效'):(item.cosmetic_duration_days?item.cosmetic_duration_days+' 天':'永久有效')}</small>` : ''}
+                <p>${escape(item.description)}</p>${!backpack&&item.gift_badge?`<small class="stock-info cosmetic-theme-gift">${window.MemberTitles.badgeMarkup(item.gift_badge)}附赠永久${escape(item.gift_badge.name)}</small>`:''}${item.item_type==='theme'?'<small class="stock-info cosmetic-theme-gift"><img src="/static/cosmetics/taffy-original-head.svg" alt="">附赠小塔菲徽章与护目镜头像框</small>':''}${['title','theme','frame','badge'].includes(item.item_type) ? `<small class="stock-info">${backpack?(item.expires_at?(Date.parse(item.expires_at)<=Date.now()?'已过期':'有效至 '+new Date(item.expires_at).toLocaleString('zh-CN')):'永久有效'):(item.cosmetic_duration_days?item.cosmetic_duration_days+' 天':'永久有效')}</small>` : ''}
                 ${backpack && item.code ? `<div class="join fulfillment-code"><pre class="join-item"><code>${escape(item.code)}</code></pre><button class="join-item secondary-button" type="button" data-copy-card="${item.fulfillment_id}">复制</button></div>` : ''}
                 ${backpack && item.api_num ? `<small class="stock-info">一张卡密 · 可用 ${item.api_num} 次</small>` : ''}
                 ${!backpack && item.stock !== -1 ? `<small class="stock-info">库存: ${item.stock}</small>` : ''}

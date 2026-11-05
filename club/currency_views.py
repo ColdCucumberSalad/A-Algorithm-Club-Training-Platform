@@ -1,5 +1,5 @@
 from .cosmetic_terms import active_term
-from .cosmetics import product_data
+from .cosmetics import product_data,gift_badge_data
 """
 Currency system views and API endpoints
 """
@@ -303,7 +303,7 @@ def api_shop_items(request):
         "stock": available_stock(item),
         "allow_multiple_purchase": bool(item.item_type == 'redeem_code' and item.card_source == 'api' and item.allow_multiple_purchase),
         "item_type": item.item_type,
-        "cosmetic_duration_days":item.cosmetic_duration_days,
+        "cosmetic_duration_days":item.cosmetic_duration_days, "gift_badge":gift_badge_data(item),
         "title_definition": title_preview(item),
         "title_owned": owns_title(item),
         "cosmetic_key":item.cosmetic_key, "cosmetic":product_data(item), "cosmetic_owned":owns_cosmetic(item),
@@ -389,7 +389,7 @@ def api_user_inventory(request):
     direct_badges={inv.item.cosmetic_key for inv in inventory_items if inv.item.item_type=='badge'}
     for badge in available(member.user_id,'badge'):
         if badge['key'] not in direct_badges:
-            data.append({'id':'gift-'+badge['key'],'item_id':'gift-'+badge['key'],'item_name':badge['name'],'description':'主题附赠徽章，独立于称号佩戴。','item_type':'badge','cosmetic_key':badge['key'],'cosmetic':badge,'expires_at':badge.get('expires_at'),'quantity':1,'can_use':False,'icon':badge['icon']})
+            data.append({'id':'gift-'+badge['key'],'item_id':'gift-'+badge['key'],'item_name':badge['name'],'description':'购买附赠徽章，永久赠品可独立于称号佩戴。','item_type':'badge','cosmetic_key':badge['key'],'cosmetic':badge,'expires_at':badge.get('expires_at'),'quantity':1,'can_use':False,'icon':badge['icon']})
     for frame in available(member.user_id,'frame'):
         data.append({'id':'gift-frame-'+frame['key'],'item_id':'gift-frame-'+frame['key'],'item_name':frame['name'],'description':'主题附赠头像框','item_type':'frame','cosmetic_key':frame['key'],'cosmetic':frame,'expires_at':frame.get('expires_at'),'quantity':1,'can_use':False,'icon':frame['icon']})
     response=JsonResponse({"inventory": data})
@@ -508,7 +508,7 @@ def api_admin_shop_items(request):
     if request.method=='GET':
         from .shop_fulfillment import admin_card_data
         return JsonResponse({'items':[{**admin_card_data(i),'id':i.pk,'name':i.name,'description':i.description,'price':i.price,
-            'stock':i.stock,'is_active':i.is_active,'item_type':i.item_type,'title_definition':i.title_definition,'cosmetic_key':i.cosmetic_key,'cosmetic_duration_days':i.cosmetic_duration_days,'cosmetic':product_data(i),'purchase_limit':i.purchase_limit,'icon':shop_item_icon_url(i)} for i in ShopItem.objects.filter(team=member.team)]})
+            'stock':i.stock,'is_active':i.is_active,'item_type':i.item_type,'title_definition':i.title_definition,'cosmetic_key':i.cosmetic_key,'cosmetic_duration_days':i.cosmetic_duration_days,'gift_badge_key':i.gift_badge_key,'cosmetic':product_data(i),'purchase_limit':i.purchase_limit,'icon':shop_item_icon_url(i)} for i in ShopItem.objects.filter(team=member.team)]})
     data=body(request)
     if request.method=='POST':item=ShopItem(team=member.team,price=1)
     else:
@@ -523,12 +523,17 @@ def api_admin_shop_items(request):
             if name:FileDeletion.objects.create(name=name)
         except ProtectedError:return api_error('商品已有购买记录或用户库存，请改为下架以保留历史记录',409)
         return JsonResponse({'success':True})
-    values={key:data.get(key,getattr(item,key)) for key in ['name','description','price','stock','is_active','item_type','purchase_limit','cosmetic_duration_days']}
+    values={key:data.get(key,getattr(item,key)) for key in ['name','description','price','stock','is_active','item_type','purchase_limit','cosmetic_duration_days','gift_badge_key']}
     if not isinstance(values['name'],str) or not 1<=len(values['name'].strip())<=100:return api_error('商品名称需为1–100字')
     if not isinstance(values['description'],str):return api_error('商品说明格式无效')
     if type(values['price']) is not int or not 1<=values['price']<=2147483647:return api_error('商品价格必须为正整数')
     if type(values['stock']) is not int or not -1<=values['stock']<=2147483647:return api_error('库存必须为-1（无限）或非负整数')
     if type(values['is_active']) is not bool:return api_error('上架状态格式无效')
+    gift=values['gift_badge_key']
+    if not isinstance(gift,str) or gift not in ('','rbc-pendant'):return api_error('赠品徽章无效')
+    if values['item_type']!='physical':
+        if data.get('gift_badge_key'):return api_error('仅实物类商品可配置该赠品')
+        values['gift_badge_key']=''
     days=values['cosmetic_duration_days']
     if type(days) is not int or not 0<=days<=36500:return api_error('有效时长需为 0（永久）或 1–36500 天')
     if values['item_type'] not in ('title','theme'):
