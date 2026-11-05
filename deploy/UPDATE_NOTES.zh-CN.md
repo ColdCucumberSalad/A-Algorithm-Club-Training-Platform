@@ -2,6 +2,8 @@
 
 本次已合并主分支功能；正式部署前仍需在服务器数据副本上演练，不要直接拿本地目录覆盖服务器。
 
+更新线路默认优先使用源码镜像（gh-proxy、ghfast），失败后回退 GitHub 官方下载；所有归档仍须逐文件通过 GitHub 官方 Git blob 哈希校验。系统依赖构建时通过临时本机代理优先使用阿里云、腾讯云 Debian 镜像，失败后回退原站；APT 签名校验保持开启，构建结束后关闭代理。该代理只接受 Debian 系统仓库地址，不对外监听，不挂载到网站容器，也不修改发布源码的 Dockerfile。版本发现和提交祖先关系校验继续查询官方来源。
+
 1. **保留服务器已有迁移历史。** 服务器已应用 `0045_problem_equivalence`、`0046_duplicate_submission_priority`；账号新功能使用 `0045_account_closure_report_reasons`、`0046_global_wallet_and_worn_titles`、`0047_report_coin_transaction_types`。新增 `0048_merge_account_problem_branches` 汇合两条依赖，不重命名或重跑旧迁移。保留题目等价、重复提交优先级，以及相关字段 `canonical`、`is_duplicate`、`original_problem_url`、`first_submitted_at`、`duplicate_state` 和 `ProblemComparison`。举报处理按账号、受影响学期、题目/提交顺序加锁；驳回、重复记录递补、统计与举报奖惩在同一事务完成，奖惩失败时一起回滚。
 2. **线上数据与密钥保留。** 不上传本地数据库、测试账号/提交、媒体目录或 `.env`。保留线上环境配置、`DJANGO_SECRET_KEY` 和加密密钥；不要把密钥值写进日志、PR 或回复。
 3. **先在本地演练。** 使用服务器数据库备份副本验证合并后的迁移。禁止清库、删除迁移历史、随意 `--fake`、重跑初始化/演示数据脚本来“解决冲突”。
