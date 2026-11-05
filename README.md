@@ -28,6 +28,147 @@ This project was born out of the need to make it easier to compile statistics on
 
 ![提交成功](docs/screenshots/submission-success.png)
 
+## 主题与电子徽章样式接入说明
+
+本节供新增主题、电子徽章和头像框的贡献者使用。以现有塔菲主题为参考，沿用统一的颜色系统、商店和佩戴接口；新增装扮应保留页面布局、字体大小、圆角和既有功能。商品规则与历史迁移说明见 [称号、徽章与特殊主题](docs/shop-titles.md)。
+
+### 1. 类型与归属
+
+| 类型 | 标识 | 效果与归属 | 当前入口 |
+| --- | --- | --- | --- |
+| 特殊主题 | `theme` | 切换本人看到的整站外观；按账号拥有、按账号启用，不改变其他成员的页面 | 商店购买、背包、设置色板下方的主题入口 |
+| 电子徽章 | `badge` | 图形装饰；按账号拥有，各团队分别选择佩戴；显示在称号左侧 | 背包、个人信息、排行榜与成员信息 |
+| 头像框 | `frame` | 叠加在现有圆角方形头像外侧；按账号拥有，各团队分别选择佩戴 | 当前通过主题附赠，在背包和个人信息中佩戴；管理端尚未提供独立头像框商品类型 |
+| 称号 | `title` | 文字、颜色、字体和固定样式；商店称号按账号拥有，团队授予称号只在所属团队使用 | 商店、背包、个人信息 |
+
+购买、获得和佩戴是三个不同状态。购买成功不自动换装，预览也不修改佩戴或扣 Coins。当前每个团队同时选择一枚电子徽章、一款头像框；主题附赠徽章、头像框时，应允许分别佩戴，不能强制整套启用。
+
+普通色板与板块设置保留在浏览器；特殊主题的启用选择保存于服务器。关闭特殊主题或选择普通色板后，应恢复原有自定义设置，不把主题参数写回用户原来的色板。
+
+### 2. 代码入口与素材约定
+
+| 文件 | 接入内容 |
+| --- | --- |
+| `club/cosmetics.py` | 后端 `THEMES`、`BADGES`、`FRAMES` 白名单，拥有状态、赠品与佩戴数据 |
+| `static/special-themes.js` | 特殊主题色板、启用状态、设置入口、切换与到期刷新 |
+| `theme-model.js`、`theme-settings.js` | 语义色、主题色派生、板块配置与统一动画；新增主题优先复用 |
+| `static/member-titles.js` | `badgeAssets`、`frameAssets` 和徽章／头像框统一渲染 |
+| `static/shop-titles.css` | 装扮展示、主题背景和头像框样式 |
+| `currency-admin.js` | 管理员商品类型、外观选项与预览 |
+| `currency.js`、`static/cosmetic-shop.js` | 商品卡片、详情、试戴、赠品说明与购买后佩戴 |
+| `profile.js`、`club/cosmetic_views.py` | 个人信息换装与服务器佩戴校验 |
+
+新增资源放入 `static/cosmetics/`。建议使用简短、稳定的小写英文 key，例如 `example-theme`、`example-badge`，长度不超过模型的 40 字符限制。后端 key、前端白名单、商品 `cosmetic_key` 和赠品引用必须一致；展示名称可使用中文。已发放的 key 不随改名变动。
+
+素材提交约定：
+
+- 徽章优先使用透明 PNG 或经过审查的静态 SVG；建议用正方形画布，内容居中，避免过多透明留白。背景和海报优先使用压缩后的 JPG／WebP。
+- 使用固定的本地静态路径，不在商品数据里接受任意 HTML、CSS、脚本或外部字体地址；SVG 不含脚本、事件处理器或外链资源。
+- 在 PR 中记录素材来源与使用依据。保留原图时不要擅自重绘或拉伸；裁切、去背景等处理应说明。
+- 头像框使用透明画布，适配现有圆角方形头像，不把头像强制改成圆形。参考 `static/cosmetics/taffy-goggles-frame.svg`，在列表头像和个人主页头像两种尺寸下确认比例。
+
+### 3. 新增特殊主题
+
+后端在 `THEMES` 中增加元数据，附赠项同时登记到 `BADGES`／`FRAMES`。以下是要追加的条目示意，不能替换整个现有注册表：
+
+```python
+# club/cosmetics.py：分别追加到对应字典
+BADGES['example-badge'] = {
+    'key': 'example-badge', 'name': '示例徽章',
+    'icon': '/static/cosmetics/example-badge.png',
+}
+THEMES['example-theme'] = {
+    'key': 'example-theme', 'name': '示例主题',
+    'poster': '/static/cosmetics/example-background.webp',
+    'gift_badges': ['example-badge'], 'gift_frames': [],
+}
+```
+
+前端必须同步以下入口：
+
+1. 在 `static/special-themes.js` 中提供主题的浅色、深色色板，并让 `sync`、`adjust`、`render`、切换动画取色识别新 key。
+2. 设置入口只列出服务器确认仍有效的已拥有主题，放在普通颜色圆点下方独立一行，使用主题图标和名称；保留选中、键盘焦点、禁用和失败状态，不增加头像外圈遮罩。
+3. 在 `currency-admin.js` 增加可选择的主题；在 `currency.js` 和 `static/cosmetic-shop.js` 同步卡片图片、详情海报、试戴场景、赠品与时长说明。
+4. 在 `static/member-titles.js` 登记附赠徽章和头像框，保证预览、背包、个人信息与实际佩戴使用同一份素材映射。
+5. 添加限定在 `html[data-special-theme="example-theme"]` 下的背景样式，并检查主题关闭时能还原。
+
+**当前这些前端入口仍有 `taffy` 专用判断和素材路径，单独添加 `THEMES` 条目不会自动完成接入。** 可以重构为按 key 查表，但需保留原塔菲主题，并同步替换所有入口，不能只改设置页。
+
+每个主题都应定义下列语义色，浅色和深色各一套：
+
+| 色彩角色 | 用途 |
+| --- | --- |
+| `pageBackground` | 页面底色 |
+| `surface`、`surfaceElevated` | 卡片、列表、弹窗与浮层底色 |
+| `labelPrimary`、`labelSecondary`、`labelTertiary` | 主文字、次级文字、弱化文字 |
+| `separator` | 边框、分隔线 |
+| `fill` | 输入框、标签等填充底色 |
+| `accent` | 按钮、选中项、强调色 |
+| `overlayDim` | 弹窗等遮罩 |
+
+沿用 `SiteTheme.clone` 和 `SpecialThemes.adjust` 生成临时的有效设置，不原地修改保存的设置。主色之外的搭配色可沿用 `SiteTheme.companionColor`；不要把所有装饰机械地刷成同一种主色。
+
+组件优先使用 `--site-text`、`--site-secondary`、`--site-border`、`--site-fill`、`--site-accent` 等现有语义变量。主题不应通过全站 `*` 选择器、批量替换颜色或全局 `!important` 覆盖来换肤。深色模式同时检查阴影、边线、悬停、选中、默认头像、输入框、下拉列表、弹窗和空状态，避免残留白边或蓝底。
+
+背景图放在页面背景层，保留卡片可读底色，装饰层设置 `pointer-events: none`。参考现有 `--site-canvas-background` 处理总览和设置的底层，避免 `.app-shell` 或页面背景再次遮住图片；不要为了露出背景把所有卡片设成透明。
+
+切换使用 `SpecialThemes.select('theme', key, button)`，复用 `SiteAppearance.transition` 的实色覆盖与第二波揭示动画。支持关闭动画和减少动态效果设置；保留请求串行化、版本检查和失败恢复，避免旧响应覆盖最后一次选择，不自行新增另一套全屏动画或直接切换 DOM 属性来绕过拥有校验。
+
+### 4. 新增电子徽章与头像框
+
+电子徽章需同时登记后端 `BADGES` 和前端 `MemberTitles.badgeAssets`。组件通过 `MemberTitles.badgeMarkup` 或 `MemberTitles.list(titles, badge)` 渲染，不在排行榜、个人信息等页面分别拼一套图片样式。
+
+现有徽章显示尺寸为：普通位置 26×26，排行榜姓名旁 24×24，窄屏 22×22，商店主展示 54×54。沿用 `object-fit: contain`、固定占位和现有间距；长名字、多个称号时可合理换行，不能挤压分数或遮挡点击区域。
+
+头像框登记后端 `FRAMES` 和前端 `frameAssets`，使用 `MemberTitles.frameAvatar`／`frameElement` 包裹现有头像。保留头像的加载、失败回退和更换头像逻辑，装饰图片不接收点击事件。现有统一覆盖框为头像的 125%，左移 12.5%、上移 22.5%；新素材应按此视口设计，若确需不同几何参数，用该框专属规则调整，不改变其他头像框。
+
+独立徽章商品使用 `item_type='badge'` 和已注册的 `cosmetic_key`；同时补齐管理员徽章选项。主题赠品在 `gift_badges`／`gift_frames` 中声明，通过原有购买／管理员发放事务授予，不在浏览器保存“已购买”来伪造拥有状态。
+
+实物购买后永久赠徽章的扩展见 [PR #52](https://github.com/Monkey181x/A-Algorithm-Club-Training-Platform/pull/52)，使用前需合入该实现：商品配置 `gift_badge_key`，通过 `PurchaseBadgeGrant` 保留来源购买，同账号同 key 只授予一次。新徽章还需同步扩展赠品配置校验和管理员选项；不会因为新增 `BADGES` 条目就自动出现在赠品选择中。它与主题附赠的有效期规则不同，不能混用。
+
+### 5. 统一接口、有效期与历史兼容
+
+读取和选择均复用 `/api/profile/cosmetics`：
+
+```http
+GET /api/profile/cosmetics
+```
+
+返回 `themes`、`badges`、`frames`、`active_theme`、当前团队的 `badge`／`avatar_frame`、`server_time` 和 `title_expirations`。外观条目用 `expires_at: null` 表示永久，有限期条目返回到期时间。购买商品的时长配置与已拥有条目的到期时间不能混为一谈。
+
+```json
+{"kind":"theme","key":"example-theme"}
+```
+
+上面的 JSON 通过 `POST /api/profile/cosmetics` 提交；`kind` 也可为 `badge` 或 `frame`，`key: ""` 表示取消对应选择。服务器核验登录、有效归属和团队身份后返回完整最新状态；主题选择属于账号，徽章和头像框选择属于当前团队。前端使用 `SpecialThemes` 的请求和状态版本机制更新，不以预览选择代替服务器结果。
+
+- 商店主题和称号的 `cosmetic_duration_days=0` 表示永久，1–36500 表示指定天数。购买或管理员发放成功时起算并保存快照，后续改商品不改已有到期时间。
+- 主题附赠徽章和头像框跟随来源主题的有效期；存在其他有效来源时继续保留。下架商品不撤销已有权益，收回来源库存则停止该来源的权益。
+- 永久实物赠品按其独立购买赠品记录处理，后续商品改名、取消赠品或完成派发不撤销已经获得的永久徽章。
+- 到期时服务器拒绝继续佩戴，前端沿用服务器时钟、`registerExpiry` 和 `club:cosmetics-expired` 清除过期展示。保留请求重试与状态版本保护；不要额外增加高频轮询。
+- 有效期内不允许重复购买同一外观；到期后可重新购买，目前不支持提前叠加续期。
+
+只给未来购买新增赠品，无需更改旧用户的佩戴选择。如果需要历史补发，单独编写幂等数据迁移，核查有效来源，明确被收回记录如何处理；不得顺带扣币、改价格或自动上架。新增商品的种子数据应默认未上架，由管理员确认价格后启用。不要修改已经发布的历史迁移来补发。
+
+### 6. 提交与验收
+
+提交 PR 时说明新增 key、素材清单与来源、深浅色色板、赠品及有效期规则、是否历史补发、是否有新迁移，并附上设置入口、商品预览和实际佩戴效果。沿用项目现有静态资源版本参数更新方式，避免浏览器继续使用旧映射。
+
+建议至少检查：
+
+- 普通色板 → 新主题 → 另一主题 → 普通色板，自定义设置仍可恢复；快速连续切换、请求失败和关闭动画都能正确结束。
+- 浅色／深色、宽屏／手机：总览、设置、侧栏、商店、排行榜、个人信息、提交详情、管理工作台及各类弹窗的底色、文字、阴影、边框一致且可读。
+- 购买前试戴、购买成功、余额不足、重复请求、管理员发放、下架、收回、到期及多个来源；预览不授予权益，购买不自动换装。
+- 跨团队拥有与独立佩戴；更换头像、缺失图片、长名称、徽章加多个称号时，布局和点击仍正常。
+
+```bash
+node --test tests/*.test.cjs
+python manage.py makemigrations --check --dry-run
+python manage.py test club.test_cosmetics club.test_cosmetic_terms club.test_shop_titles
+```
+
+后端测试使用独立测试数据库；实物赠品接入后增加 `club.test_pendant_badge`，并对新增行为补充测试。只有文档变更时无需重新构建应用。涉及模型或补发迁移的部署，先备份数据库和媒体，执行 `python manage.py migrate`、`python manage.py collectstatic --noinput`，同步更新并重启 Web／Worker／Beat；保留已有权益数据。
+
 ## 本地启动
 
 1. 安装 Docker Desktop，并确保代理可以拉取 Docker Hub 镜像。
